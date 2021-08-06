@@ -72,4 +72,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --workspace --all-targets
-          name: check
+          name: Rustfmt & Clippy
