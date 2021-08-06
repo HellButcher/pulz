@@ -44,43 +44,6 @@ jobs:
         command: test
         args: --workspace --all-targets
 
-  test_cov:
-    name: Build, Test & Coverage (nightly)
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: nightly
-        override: true
-        components: llvm-tools-preview
-    - name: Cache cargo registry & index
-      uses: actions/cache@v2
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-        key: cargo-index-${{ runner.os }}-${{ hashFiles('**/Cargo.*') }}
-    - name: Build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --workspace --all-targets
-    - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --workspace --all-targets --no-fail-fast
-      env:
-        CARGO_INCREMENTAL: '0'
-        RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-        RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-    - name: Coverage Report
-      uses: actions-rs/grcov@v0.1
-      with:
-        config: .github/grcov.yml
-
   check:
     name: Rustfmt & Clippy
     runs-on: ubuntu-latest
@@ -109,3 +72,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --workspace --all-targets
+          name: check
