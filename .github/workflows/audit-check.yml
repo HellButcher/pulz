@@ -1,0 +1,26 @@
+name: Audit Check
+
+on:
+  # once every day, as a vulnerability can be found in dependencies at any time
+  schedule:
+    - cron: '0 3 * * *'
+  # on every push on every branch, if Cargo.toml or Cargo.lock was changed
+  push:
+    paths:
+      - "**/Cargo.*"
+  # and on pull-requests into the main-branch
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
