@@ -32,7 +32,7 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-        key: cargo-index-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+        key: cargo-index-${{ runner.os }}-${{ hashFiles('**/Cargo.*') }}
     - name: Build
       uses: actions-rs/cargo@v1
       with:
@@ -55,6 +55,13 @@ jobs:
         toolchain: nightly
         override: true
         components: llvm-tools-preview
+    - name: Cache cargo registry & index
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: cargo-index-${{ runner.os }}-${{ hashFiles('**/Cargo.*') }}
     - name: Build
       uses: actions-rs/cargo@v1
       with:
@@ -91,7 +98,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-index-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: cargo-index-${{ runner.os }}-${{ hashFiles('**/Cargo.*') }}
       - name: Rustfmt
         uses: actions-rs/cargo@v1
         with:

@@ -24,12 +24,12 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-        key: cargo-index-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+        key: cargo-index-${{ runner.os }}-${{ hashFiles('**/Cargo.*') }}
     - name: Cache cargo bloat
       uses: actions/cache@v2
       with:
         path: target
-        key: cargo-bloat-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+        key: cargo-bloat-${{ runner.os }}-${{ hashFiles('**/Cargo.*') }}
     - name: Bloat
       uses: orf/cargo-bloat-action@v1
       with:
