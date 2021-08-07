@@ -10,7 +10,29 @@ return. You can then use this index-pointer to access the provided value.
 
 ## Example
 
-**TODO**
+```rust
+use pulsar_arena::{Arena,Index};
+
+let mut arena = Arena::new();
+
+// insert some elements and remember the returned index
+let a = arena.insert("foo");
+let b = arena.insert("bar");
+
+// access inserted elements by returned index
+assert_eq!("bar", arena[b]);
+
+// there are also the "checked" versions `get` and `get_mut` that returns Option. 
+assert_eq!(Some(&"foo"), arena.get(a));
+
+// items can be removed efficiently
+assert_eq!(Some("foo"), arena.remove(a));
+assert!(!arena.contains(a));
+```
+
+## `no_std`
+
+This crate should also work without `std`. No additional configuration required.
 
 ## License
 
