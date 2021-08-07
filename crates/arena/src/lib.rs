@@ -619,7 +619,7 @@ impl<T> Arena<T> {
             let Entry(generation, entry) = unsafe { storage.get_unchecked_mut(next_free) };
             // SAFETY: entry was in the free-list: so we can use `next_free`
             *next_free_head = unsafe { entry.next_free };
-            return Some((next_free as u32, generation, entry))
+            return Some((next_free as u32, generation, entry));
         }
         let next_offset = storage.len();
         if alloc || next_offset < storage.capacity() {
@@ -631,7 +631,7 @@ impl<T> Arena<T> {
             ));
             // SAFETY: we just have created the element at next_offset
             let entry = unsafe { storage.get_unchecked_mut(next_offset) };
-            return Some((next_offset as u32, &mut entry.0, &mut entry.1))
+            return Some((next_offset as u32, &mut entry.0, &mut entry.1));
         }
         None
     }
