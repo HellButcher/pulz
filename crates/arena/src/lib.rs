@@ -10,6 +10,7 @@
     unused_qualifications,
     unused_crate_dependencies,
     clippy::cargo,
+    clippy::multiple_crate_versions,
     clippy::empty_line_after_outer_attr,
     clippy::fallible_impl_from,
     clippy::redundant_pub_crate,
