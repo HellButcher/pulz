@@ -1,6 +1,6 @@
 #![warn(
     missing_docs,
-    //missing_doc_code_examples,
+    missing_doc_code_examples,
     future_incompatible,
     rust_2018_idioms,
     unused,
@@ -19,7 +19,7 @@
     clippy::useless_let_if_seq,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::wildcard_imports,
+    clippy::wildcard_imports
 )]
 #![doc(html_no_source)]
 #![no_std]
@@ -40,6 +40,15 @@ extern crate alloc;
 ///
 /// You get a new `Index` for each element that you insert
 /// into an `Arena`.
+///
+/// # Example
+///
+/// ```
+/// # use pulsar_arena::Arena;
+/// let mut arena = Arena::new();
+/// let index = arena.insert("test");
+/// assert_eq!("test", arena[index]);
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Index(u32, Generation);
 
@@ -49,6 +58,19 @@ impl Index {
     /// The _offset_ is a position in a continuous array.
     /// When the array-cell at its _offset_ is re-used after it has been
     /// removed, the _generation_ for this cell is incremented.
+    ///
+    /// The _offset_ is a position in a continuous array.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::{Arena,Generation};
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("test2");
+    /// assert_eq!((0, Generation::ONE), index0.into_parts());
+    /// assert_eq!((1, Generation::ONE), index1.into_parts());
+    /// ```
     #[inline]
     pub const fn into_parts(self) -> (u32, Generation) {
         (self.0, self.1)
@@ -57,6 +79,17 @@ impl Index {
     /// Returns the _offset_ of this `Index`.
     ///
     /// The _offset_ is a position in a continuous array.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::{Arena,Generation};
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("test2");
+    /// assert_eq!(0, index0.offset());
+    /// assert_eq!(1, index1.offset());
+    /// ```
     #[inline]
     pub fn offset(self) -> u32 {
         self.0
@@ -66,6 +99,18 @@ impl Index {
     ///
     /// When the array-cell at its _offset_ is re-used after it has been
     /// removed, the _generation_ for this cell is incremented.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::{Arena,Generation};
+    /// let mut arena = Arena::new();
+    /// let index = arena.insert("test");
+    /// assert_eq!(Generation::ONE, index.generation());
+    /// arena.remove(index);
+    /// let index = arena.insert("test2");
+    /// assert_eq!(2, index.generation().get());
+    /// ```
     #[inline]
     pub fn generation(self) -> Generation {
         self.1
@@ -82,6 +127,15 @@ impl core::fmt::Debug for Index {
 ///
 /// It has an increasing integral and non-zero value. This makes it a candidate
 // for _niche_ optimizations.
+///
+/// # Example
+///
+/// ```
+/// # use pulsar_arena::{Arena,Generation};
+/// let mut arena = Arena::new();
+/// let index = arena.insert("test");
+/// assert_eq!(Generation::ONE, index.generation());
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Generation(NonZeroU32);
@@ -96,6 +150,9 @@ impl Generation {
     /// The first/initial generation of an [`Index`].
     // SAFETY: `1` is not zero!
     pub const ONE: Self = Self(unsafe { NonZeroU32::new_unchecked(1) });
+
+    // SAFETY: `!1u32` is not zero!
+    const NEW: Self = Self(unsafe { NonZeroU32::new_unchecked(!1u32) });
 
     /// Retrieves the value of this `Generation`
     #[inline]
@@ -154,6 +211,16 @@ impl Generation {
 /// After inserting elements into the Arena, you can use the returned
 /// [`Index`] to refer to the newly inserted element in `get` or `remove`
 /// operations.
+///
+/// # Example
+///
+/// ```
+/// use pulsar_arena::Arena;
+///
+/// let mut arena = Arena::new();
+/// let index = arena.insert("test");
+/// assert_eq!(1, arena.len());
+/// ```
 #[derive(Clone)]
 pub struct Arena<T> {
     storage: Vec<Entry<T>>,
@@ -211,6 +278,15 @@ impl<T> Arena<T> {
     ///
     /// The internal vector will not allocate until elements are inserted into
     /// it.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use pulsar_arena::Arena;
+    ///
+    /// let arena = Arena::<u32>::new();
+    /// assert!(arena.is_empty());
+    /// ```
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -222,21 +298,39 @@ impl<T> Arena<T> {
 
     /// Constructs a new, empty `Arena<T>` with the specified initial capacity.
     ///
-    /// The arena will be able to hold at least `capacity` elements without
+    /// The arena will be able to hold at exactly `capacity` elements without
     /// reallocating.
     ///
     /// It is important to note that although the returned arena has the
     /// capacity specified, the arena will have a zero length.
+    ///
+    /// Example
+    ///
+    /// ```
+    /// use pulsar_arena::Arena;
+    ///
+    /// let mut arena = Arena::with_capacity(15);
+    /// assert_eq!(15, arena.capacity());
+    ///
+    /// // `try_insert` does not allocate
+    /// for i in 0..15 {
+    ///     assert!(arena.try_insert(i).is_ok());
+    ///     assert_eq!(15, arena.capacity());
+    /// }
+    ///
+    /// assert!(arena.try_insert(16).is_err());
+    /// assert_eq!(15, arena.capacity());
+    /// ```
     #[inline]
     pub fn with_capacity(capacity: u32) -> Self {
         let mut arena = Self::new();
-        arena.reserve(capacity);
+        arena.reserve_exact(capacity);
         arena
     }
 
     /// Returns the number of elements the arena can hold without reallocating.
     pub fn capacity(&self) -> usize {
-        self.storage.len()
+        self.storage.capacity()
     }
 
     /// Reserved capacity for _at least_ `additional` more elements to be
@@ -244,6 +338,18 @@ impl<T> Arena<T> {
     ///
     /// The internal vector may reserve more space to avoid frequent
     /// reallocations. Does nothing, if the capacity is already sufficient.
+    ///
+    /// Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// assert_eq!(0, arena.capacity());
+    /// arena.insert(1);
+    /// arena.reserve(15);
+    /// assert!(arena.capacity() >= 16);
+    /// assert_eq!(1, arena.len());
+    /// ```
     pub fn reserve(&mut self, additional_capacity: u32) {
         let buffer_len = self.storage.len() - self.len as usize;
         if additional_capacity as usize > buffer_len {
@@ -256,6 +362,18 @@ impl<T> Arena<T> {
     /// be inserted into this arena.
     ///
     /// Does nothing, if the capacity is already sufficient.
+    ///
+    /// Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// assert_eq!(0, arena.capacity());
+    /// arena.insert(1);
+    /// arena.reserve_exact(15);
+    /// assert_eq!(16, arena.capacity());
+    /// assert_eq!(1, arena.len());
+    /// ```
     pub fn reserve_exact(&mut self, additional_capacity: u32) {
         let buffer_len = self.storage.len() - self.len as usize;
         if additional_capacity as usize > buffer_len {
@@ -267,6 +385,17 @@ impl<T> Arena<T> {
     /// Clears the arena by removing all values.
     ///
     /// Note this method has no effect on the allocated capacity of the arena.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// arena.insert("test");
+    /// assert!(!arena.is_empty());
+    /// arena.clear();
+    /// assert!(arena.is_empty());
+    /// ```
     #[inline]
     pub fn clear(&mut self) {
         self.drain();
@@ -275,12 +404,42 @@ impl<T> Arena<T> {
     /// Returns the number of elements in this arena.
     ///
     /// Also referred to as its 'length' or 'size'.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// assert_eq!(0, arena.len());
+    /// let index0 = arena.insert("test");
+    /// assert_eq!(1, arena.len());
+    /// let index1 = arena.insert("foo");
+    /// assert_eq!(2, arena.len());
+    /// assert_eq!(Some("test"), arena.remove(index0));
+    /// assert_eq!(1, arena.len());
+    /// ```
     #[inline]
     pub fn len(&self) -> u32 {
         self.len
     }
 
     /// Returns `true` if the arena contains no elements.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// assert!(arena.is_empty());
+    /// let index0 = arena.insert("test");
+    /// assert!(!arena.is_empty());
+    /// let index1 = arena.insert("test2");
+    /// assert!(!arena.is_empty());
+    /// arena.remove(index0);
+    /// assert!(!arena.is_empty());
+    /// arena.remove(index1);
+    /// assert!(arena.is_empty());
+    /// ```
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
@@ -296,11 +455,30 @@ impl<T> Arena<T> {
     /// If there is no free spot, it will not try to allocate new capacity.
     /// In this case, it returns `Err(value)` with the provided
     /// `value`, to give back ownership to the caller.
+    ///
+    /// Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// arena.reserve_exact(15);
+    ///
+    /// // `try_insert` does not allocate
+    /// for i in 0..15 {
+    ///     assert!(arena.try_insert(i).is_ok());
+    ///     assert_eq!(15, arena.capacity());
+    /// }
+    ///
+    /// assert!(arena.try_insert(16).is_err());
+    /// assert_eq!(15, arena.capacity());
+    /// ```
     pub fn try_insert(&mut self, value: T) -> Result<Index, T> {
-        if let Some((offset, generation, entry)) = self.take_next_free() {
+        if let Some((offset, generation, entry)) = self.take_next_free(false) {
             entry.occupied = ManuallyDrop::new(value);
             generation.increment();
-            Ok(Index(offset, *generation))
+            let index = Index(offset, *generation);
+            self.len += 1;
+            Ok(index)
         } else {
             Err(value)
         }
@@ -321,17 +499,42 @@ impl<T> Arena<T> {
     /// If there is no free spot, it will not try to allocate new capacity.
     /// In this case, it returns `Err(create)` with the provided
     /// `create` function, to give back ownership to the caller.
+    ///
+    /// Example
+    ///
+    /// ```
+    /// # use pulsar_arena::{Arena,Index};
+    /// struct Element {
+    ///     index: Index,
+    ///     value: usize,
+    /// }
+    /// let mut arena = Arena::new();
+    /// arena.reserve_exact(3);
+    ///
+    /// assert_eq!(0, arena.len());
+    /// let index0 = arena.try_insert_with(|i| Element{ index: i, value: 42 }).ok().unwrap();
+    /// let index1 = arena.try_insert_with(|i| Element{ index: i, value: 666 }).ok().unwrap();
+    /// let index2 = arena.try_insert_with(|i| Element{ index: i, value: 4711 }).ok().unwrap();
+    /// assert_eq!(3, arena.len());
+    ///
+    /// assert!(arena.try_insert_with(|i| Element{ index: i, value: 99 }).is_err());
+    /// assert_eq!(3, arena.capacity());
+    ///
+    /// assert_eq!(index0, arena[index0].index);
+    /// assert_eq!(index1, arena[index1].index);
+    /// assert_eq!(index2, arena[index2].index);
+    /// ```
     pub fn try_insert_with<F>(&mut self, create: F) -> Result<Index, F>
     where
         F: FnOnce(Index) -> T,
     {
-        if let Some((offset, generation, entry)) = self.take_next_free() {
+        if let Some((offset, generation, entry)) = self.take_next_free(false) {
             let new_generation = generation.next();
             let index = Index(offset, new_generation);
-
             let value = create(index);
             entry.occupied = ManuallyDrop::new(value);
             *generation = new_generation;
+            self.len += 1;
             Ok(index)
         } else {
             Err(create)
@@ -342,17 +545,27 @@ impl<T> Arena<T> {
     ///
     /// The provided value is inserted into a free spot or into a newly
     /// allocated spot and the method returns the `Index` pointing to this spot.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// assert_eq!(0, arena.len());
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// assert_eq!(2, arena.len());
+    /// assert_eq!("test", arena[index0]);
+    /// assert_eq!("foo", arena[index1]);
+    /// ```
+    #[allow(clippy::missing_panics_doc)] // doesn't panic when alloc=true
     pub fn insert(&mut self, value: T) -> Index {
-        if let Some((offset, generation, entry)) = self.take_next_free() {
-            entry.occupied = ManuallyDrop::new(value);
-            generation.increment();
-            Index(offset, *generation)
-        } else {
-            let (offset, generation, entry) = self.alloc_new_entry();
-            entry.occupied = ManuallyDrop::new(value);
-            generation.increment();
-            Index(offset, *generation)
-        }
+        let (offset, generation, entry) = self.take_next_free(true).unwrap();
+        entry.occupied = ManuallyDrop::new(value);
+        generation.increment();
+        let index = Index(offset, *generation);
+        self.len += 1;
+        index
     }
 
     /// Inserts a new value returned by `create` into the arena , allocating
@@ -364,55 +577,63 @@ impl<T> Arena<T> {
     /// The `create` method is called with the `Index` of the spot, where the
     /// created value will be inserted. This allows the value to be aware of
     /// it's own index.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::{Arena,Index};
+    /// struct Element {
+    ///     index: Index,
+    ///     value: usize,
+    /// }
+    /// let mut arena = Arena::new();
+    /// assert_eq!(0, arena.len());
+    /// let index0 = arena.insert_with(|i| Element{ index: i, value: 42 });
+    /// let index1 = arena.insert_with(|i| Element{ index: i, value: 666 });
+    /// assert_eq!(2, arena.len());
+    /// assert_eq!(index0, arena[index0].index);
+    /// assert_eq!(index1, arena[index1].index);
+    /// ```
+    #[allow(clippy::missing_panics_doc)] // doesn't panic when alloc=true
     pub fn insert_with<F>(&mut self, create: F) -> Index
     where
         F: FnOnce(Index) -> T,
     {
-        if let Some((offset, generation, entry)) = self.take_next_free() {
-            let new_generation = generation.next();
-            let index = Index(offset, new_generation);
-
-            let value = create(index);
-            entry.occupied = ManuallyDrop::new(value);
-            *generation = new_generation;
-            index
-        } else {
-            let (offset, generation, entry) = self.alloc_new_entry();
-            let new_generation = generation.next();
-            let index = Index(offset, new_generation);
-
-            let value = create(index);
-            entry.occupied = ManuallyDrop::new(value);
-            *generation = new_generation;
-            index
-        }
+        let (offset, generation, entry) = self.take_next_free(true).unwrap();
+        let new_generation = generation.next();
+        let index = Index(offset, new_generation);
+        let value = create(index);
+        entry.occupied = ManuallyDrop::new(value);
+        *generation = new_generation;
+        self.len += 1;
+        index
     }
 
     #[inline]
-    fn take_next_free(&mut self) -> Option<(u32, &mut Generation, &mut EntryData<T>)> {
+    fn take_next_free(&mut self, alloc: bool) -> Option<(u32, &mut Generation, &mut EntryData<T>)> {
+        let storage = &mut self.storage;
         let next_free_head = &mut self.next_free;
-        let next_free = *next_free_head;
-        self.storage
-            .get_mut(next_free as usize)
-            .map(|Entry(generation, entry)| {
-                // SAFETY: entry was in the free-list: so we can use `next_free`
-                *next_free_head = unsafe { entry.next_free };
-                *generation = generation.next();
-                (next_free, generation, entry)
-            })
-    }
-
-    #[inline]
-    fn alloc_new_entry(&mut self) -> (u32, &mut Generation, &mut EntryData<T>) {
-        let next_offset = self.storage.len();
-        self.storage.push(Entry(
-            Generation::ONE,
-            EntryData {
-                next_free: u32::MAX,
-            },
-        ));
-        let entry = unsafe { self.storage.get_unchecked_mut(next_offset) };
-        (next_offset as u32, &mut entry.0, &mut entry.1)
+        let next_free = *next_free_head as usize;
+        if next_free < storage.len() {
+            // SAFETY: we have checked for next_free<len
+            let Entry(generation, entry) = unsafe { storage.get_unchecked_mut(next_free) };
+            // SAFETY: entry was in the free-list: so we can use `next_free`
+            *next_free_head = unsafe { entry.next_free };
+            return Some((next_free as u32, generation, entry))
+        }
+        let next_offset = storage.len();
+        if alloc || next_offset < storage.capacity() {
+            storage.push(Entry(
+                Generation::NEW,
+                EntryData {
+                    next_free: u32::MAX,
+                },
+            ));
+            // SAFETY: we just have created the element at next_offset
+            let entry = unsafe { storage.get_unchecked_mut(next_offset) };
+            return Some((next_offset as u32, &mut entry.0, &mut entry.1))
+        }
+        None
     }
 
     /// Removes the element at the given `index` from this arena.
@@ -425,6 +646,7 @@ impl<T> Arena<T> {
         match self.storage.get_mut(offset as usize) {
             Some(Entry(entry_gen, entry)) if *entry_gen == generation => {
                 entry_gen.remove();
+                self.len -= 1;
                 // SAFETY: user has an index with current generation: item was occupied
                 let value = unsafe { ManuallyDrop::take(&mut entry.occupied) };
                 entry.next_free = replace(&mut self.next_free, offset);
