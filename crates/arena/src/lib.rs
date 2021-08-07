@@ -1,6 +1,6 @@
 #![warn(
     missing_docs,
-    missing_doc_code_examples,
+    rustdoc::missing_doc_code_examples,
     future_incompatible,
     rust_2018_idioms,
     unused,
@@ -154,6 +154,10 @@ impl Generation {
     // SAFETY: `!1u32` is not zero!
     const NEW: Self = Self(unsafe { NonZeroU32::new_unchecked(!1u32) });
 
+    // SAFETY: `u32::MAX >> 1` is not zero!
+    #[cfg(test)]
+    const MAX: Self = Self(unsafe { NonZeroU32::new_unchecked(u32::MAX >> 1) });
+
     /// Retrieves the value of this `Generation`
     #[inline]
     pub const fn get(self) -> u32 {
@@ -288,7 +292,7 @@ impl<T> Arena<T> {
     /// assert!(arena.is_empty());
     /// ```
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             storage: Vec::new(),
             next_free: u32::MAX,
@@ -322,7 +326,7 @@ impl<T> Arena<T> {
     /// assert_eq!(15, arena.capacity());
     /// ```
     #[inline]
-    pub fn with_capacity(capacity: u32) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self {
         let mut arena = Self::new();
         arena.reserve_exact(capacity);
         arena
@@ -350,11 +354,10 @@ impl<T> Arena<T> {
     /// assert!(arena.capacity() >= 16);
     /// assert_eq!(1, arena.len());
     /// ```
-    pub fn reserve(&mut self, additional_capacity: u32) {
+    pub fn reserve(&mut self, additional_capacity: usize) {
         let buffer_len = self.storage.len() - self.len as usize;
-        if additional_capacity as usize > buffer_len {
-            self.storage
-                .reserve(additional_capacity as usize - buffer_len);
+        if additional_capacity > buffer_len {
+            self.storage.reserve(additional_capacity - buffer_len);
         }
     }
 
@@ -374,11 +377,10 @@ impl<T> Arena<T> {
     /// assert_eq!(16, arena.capacity());
     /// assert_eq!(1, arena.len());
     /// ```
-    pub fn reserve_exact(&mut self, additional_capacity: u32) {
+    pub fn reserve_exact(&mut self, additional_capacity: usize) {
         let buffer_len = self.storage.len() - self.len as usize;
-        if additional_capacity as usize > buffer_len {
-            self.storage
-                .reserve_exact(additional_capacity as usize - buffer_len);
+        if additional_capacity > buffer_len {
+            self.storage.reserve_exact(additional_capacity - buffer_len);
         }
     }
 
@@ -392,6 +394,8 @@ impl<T> Arena<T> {
     /// # use pulsar_arena::Arena;
     /// let mut arena = Arena::new();
     /// arena.insert("test");
+    /// arena.insert("foo");
+    /// arena.insert("bar");
     /// assert!(!arena.is_empty());
     /// arena.clear();
     /// assert!(arena.is_empty());
@@ -419,7 +423,7 @@ impl<T> Arena<T> {
     /// assert_eq!(1, arena.len());
     /// ```
     #[inline]
-    pub fn len(&self) -> u32 {
+    pub const fn len(&self) -> u32 {
         self.len
     }
 
@@ -441,7 +445,7 @@ impl<T> Arena<T> {
     /// assert!(arena.is_empty());
     /// ```
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
@@ -514,7 +518,7 @@ impl<T> Arena<T> {
     /// assert_eq!(0, arena.len());
     /// let index0 = arena.try_insert_with(|i| Element{ index: i, value: 42 }).ok().unwrap();
     /// let index1 = arena.try_insert_with(|i| Element{ index: i, value: 666 }).ok().unwrap();
-    /// let index2 = arena.try_insert_with(|i| Element{ index: i, value: 4711 }).ok().unwrap();
+    /// let index2 = arena.try_insert_with(|i| Element{ index: i, value: 42 }).ok().unwrap();
     /// assert_eq!(3, arena.len());
     ///
     /// assert!(arena.try_insert_with(|i| Element{ index: i, value: 99 }).is_err());
@@ -640,6 +644,22 @@ impl<T> Arena<T> {
     ///
     /// The method returns the old value, if it is still in the arena.
     /// If it is not in the arena, then `None` is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// assert_eq!(0, arena.len());
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// assert_eq!(2, arena.len());
+    /// assert_eq!(Some("test"), arena.remove(index0));
+    /// assert_eq!(1, arena.len());
+    /// // removing it a second time returns `None`
+    /// assert_eq!(None, arena.remove(index0));
+    /// assert_eq!(1, arena.len());
+    /// ```
     pub fn remove(&mut self, index: Index) -> Option<T> {
         let (offset, generation) = index.into_parts();
         debug_assert!(!generation.is_removed());
@@ -659,6 +679,23 @@ impl<T> Arena<T> {
     /// Checks, if the element at the given `index` is still in the arena.
     ///
     /// Returns `true` if there is a element for the given `index`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// assert_eq!(0, arena.len());
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// assert_eq!(2, arena.len());
+    /// assert!(arena.contains(index0));
+    /// assert!(arena.contains(index1));
+    /// assert_eq!(Some("test"), arena.remove(index0));
+    /// assert_eq!(1, arena.len());
+    /// assert!(!arena.contains(index0)); // element not in the arena
+    /// assert!(arena.contains(index1));
+    /// ```
     #[inline]
     pub fn contains(&self, index: Index) -> bool {
         self.get(index).is_some()
@@ -667,6 +704,22 @@ impl<T> Arena<T> {
     /// Get a shared reference to the element at the given `index`.
     ///
     /// If there is no element at the given `index`, None is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// assert_eq!(2, arena.len());
+    /// assert_eq!(Some(&"test"), arena.get(index0));
+    /// assert_eq!(Some(&"foo"), arena.get(index1));
+    /// assert_eq!(2, arena.len());
+    /// assert_eq!(Some("test"), arena.remove(index0));
+    /// assert_eq!(1, arena.len());
+    /// assert_eq!(None, arena.get(index0));
+    /// ```
     pub fn get(&self, index: Index) -> Option<&T> {
         let (offset, generation) = index.into_parts();
         debug_assert!(!generation.is_removed());
@@ -682,6 +735,20 @@ impl<T> Arena<T> {
     /// Get a exclusive reference to the element at the given `index`.
     ///
     /// If there is no element at the given `index`, None is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// assert_eq!(2, arena.len());
+    /// assert_eq!("test", arena[index0]);
+    /// let element = arena.get_mut(index0).unwrap();
+    /// *element = "bar";
+    /// assert_eq!("bar", arena[index0]);
+    /// ```
     pub fn get_mut(&mut self, index: Index) -> Option<&mut T> {
         let (offset, generation) = index.into_parts();
         debug_assert!(!generation.is_removed());
@@ -699,6 +766,24 @@ impl<T> Arena<T> {
     ///
     /// When the iterator is dropped, all the remaining elements are removed and
     /// dropped!
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// let indices = [
+    ///     arena.insert(0),
+    ///     arena.insert(1),
+    ///     arena.insert(2),
+    /// ];
+    /// assert_eq!(3, arena.len());
+    /// for (i, (index, element)) in arena.drain().enumerate() {
+    ///    assert_eq!(indices[i], index);
+    ///    assert_eq!(i, element);
+    /// }
+    /// assert!(arena.is_empty());
+    /// ```
     pub fn drain(&mut self) -> Drain<'_, T> {
         let len = replace(&mut self.len, 0);
         self.next_free = u32::MAX;
@@ -709,6 +794,24 @@ impl<T> Arena<T> {
     }
 
     /// Creates an shared iterator over the elements of this arena.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// let indices = [
+    ///     arena.insert(0),
+    ///     arena.insert(1),
+    ///     arena.insert(2),
+    /// ];
+    /// assert_eq!(3, arena.len());
+    /// for (i, (index, element)) in arena.iter().enumerate() {
+    ///    assert_eq!(indices[i], index);
+    ///    assert_eq!(i, *element);
+    /// }
+    /// assert_eq!(3, arena.len());
+    /// ```
     pub fn iter(&self) -> Iter<'_, T> {
         Iter {
             len: self.len as usize,
@@ -717,6 +820,27 @@ impl<T> Arena<T> {
     }
 
     /// Creates an exclusive iterator over the elements of this arena.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulsar_arena::Arena;
+    /// let mut arena = Arena::new();
+    /// let indices = [
+    ///     arena.insert(0),
+    ///     arena.insert(1),
+    ///     arena.insert(2),
+    /// ];
+    /// assert_eq!(3, arena.len());
+    /// for (i, (index, element)) in arena.iter_mut().enumerate() {
+    ///    assert_eq!(indices[i], index);
+    ///    *element *= 3;
+    /// }
+    /// assert_eq!(3, arena.len());
+    /// assert_eq!(0, arena[indices[0]]);
+    /// assert_eq!(3, arena[indices[1]]);
+    /// assert_eq!(6, arena[indices[2]]);
+    /// ```
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         IterMut {
             len: self.len as usize,
@@ -755,7 +879,7 @@ impl<T> FromIterator<T> for Arena<T> {
         let cap = upper.unwrap_or(lower);
         let cap = max(cap, 1);
         debug_assert!(cap <= u32::MAX as usize);
-        let mut arena = Self::with_capacity(cap as u32);
+        let mut arena = Self::with_capacity(cap);
         arena.extend(iter);
         arena
     }
@@ -960,3 +1084,447 @@ impl<'a, T> ExactSizeIterator for IterMut<'a, T> {
 }
 
 impl<'a, T> FusedIterator for IterMut<'a, T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::{format, sync::Arc, vec};
+
+    #[test]
+    fn test_index_accessors() {
+        let index = Index(2, Generation::ONE);
+        let (offset, generation) = index.into_parts();
+        assert_eq!(2, offset);
+        assert_eq!(Generation::ONE, generation);
+
+        assert_eq!(2, index.offset());
+
+        assert_eq!(Generation::ONE, index.generation());
+    }
+    #[test]
+    fn test_index_debug() {
+        let index = Index(2, Generation::ONE);
+        assert_eq!("2v1", format!("{:?}", index));
+    }
+
+    #[test]
+    fn test_generation() {
+        let gen_one = Generation::ONE;
+        let gen_two = gen_one.next();
+        assert_eq!(1, gen_one.get());
+        assert!(!gen_one.is_removed());
+        assert_eq!(2, gen_two.get());
+        assert!(!gen_two.is_removed());
+        let gen_three_rm = gen_two.removed();
+        assert_eq!(!3, gen_three_rm.get());
+        assert!(gen_three_rm.is_removed());
+    }
+
+    #[test]
+    fn test_generation_overflow() {
+        assert_eq!(Generation::NEW, Generation::MAX.removed());
+        assert_eq!(Generation::ONE, Generation::MAX.next());
+    }
+
+    #[test]
+    fn test_generation_debug() {
+        let gen_one = Generation::ONE;
+        let gen_two = gen_one.next();
+        assert_eq!("v1", format!("{:?}", gen_one));
+        assert_eq!("v2", format!("{:?}", gen_two));
+    }
+
+    #[test]
+    fn test_arena_new() {
+        let a = Arena::<usize>::new();
+        assert!(a.is_empty());
+        assert_eq!(0, a.len());
+        assert_eq!(0, a.capacity());
+    }
+
+    #[test]
+    fn test_arena_default() {
+        let a = Arena::<usize>::default();
+        assert!(a.is_empty());
+        assert_eq!(0, a.len());
+        assert_eq!(0, a.capacity());
+    }
+
+    #[test]
+    fn test_arena_with_capacity() {
+        for capacity in [0usize, 1, 5, 13, 47] {
+            let a = Arena::<usize>::with_capacity(capacity);
+            assert!(a.is_empty());
+            assert_eq!(0, a.len());
+            assert_eq!(capacity, a.capacity());
+        }
+    }
+
+    #[test]
+    fn test_arena_reserve() {
+        for capacity in [0usize, 1, 5, 13, 47] {
+            let mut a = Arena::<usize>::new();
+            a.reserve(capacity);
+            assert!(a.is_empty());
+            assert_eq!(0, a.len());
+            assert!(a.capacity() >= capacity);
+        }
+    }
+
+    #[test]
+    fn test_arena_reserve_exact() {
+        for capacity in [0usize, 1, 5, 13, 47] {
+            let mut a = Arena::<usize>::new();
+            a.reserve_exact(capacity);
+            assert!(a.is_empty());
+            assert_eq!(0, a.len());
+            assert_eq!(capacity, a.capacity());
+        }
+    }
+
+    #[test]
+    fn test_arena_clear() {
+        let mut arena = Arena::new();
+        arena.insert("test");
+        arena.insert("foo");
+        arena.insert("bar");
+        assert_eq!(3, arena.len());
+        arena.clear();
+        assert!(arena.is_empty());
+    }
+
+    #[test]
+    fn test_arena_len() {
+        let mut arena = Arena::new();
+        assert_eq!(0, arena.len());
+        arena.insert("test");
+        assert_eq!(1, arena.len());
+        arena.insert("foo");
+        assert_eq!(2, arena.len());
+        arena.insert("bar");
+        assert_eq!(3, arena.len());
+    }
+
+    #[test]
+    fn test_arena_is_empty() {
+        let mut arena = Arena::new();
+        assert!(arena.is_empty());
+        arena.insert("test");
+        assert!(!arena.is_empty());
+    }
+
+    #[test]
+    fn test_arena_try_insert() {
+        let mut arena = Arena::new();
+        arena.reserve_exact(15);
+        // `try_insert` does not allocate
+        for i in 0..15 {
+            assert!(arena.try_insert(i).is_ok());
+            assert_eq!(15, arena.capacity());
+        }
+        assert!(arena.try_insert(16).is_err());
+        assert_eq!(15, arena.capacity());
+    }
+
+    #[test]
+    fn test_arena_try_insert_with() {
+        struct Element {
+            index: Index,
+            value: usize,
+        }
+        let mut arena = Arena::new();
+        arena.reserve_exact(3);
+        assert_eq!(0, arena.len());
+        let index0 = arena
+            .try_insert_with(|i| Element {
+                index: i,
+                value: 42,
+            })
+            .ok()
+            .unwrap();
+        let index1 = arena
+            .try_insert_with(|i| Element {
+                index: i,
+                value: 666,
+            })
+            .ok()
+            .unwrap();
+        let index2 = arena
+            .try_insert_with(|i| Element {
+                index: i,
+                value: 42,
+            })
+            .ok()
+            .unwrap();
+        assert_eq!(3, arena.len());
+        assert!(arena
+            .try_insert_with(|i| Element {
+                index: i,
+                value: 99
+            })
+            .is_err());
+        assert_eq!(3, arena.capacity());
+        assert_eq!(index0, arena[index0].index);
+        assert_eq!(index1, arena[index1].index);
+        assert_eq!(index2, arena[index2].index);
+        assert_eq!(42, arena[index0].value);
+        assert_eq!(666, arena[index1].value);
+        assert_eq!(42, arena[index2].value);
+    }
+
+    #[test]
+    fn test_arena_insert() {
+        let mut arena = Arena::new();
+        assert_eq!(0, arena.len());
+        let index0 = arena.insert("test");
+        let index1 = arena.insert("foo");
+        assert_eq!(2, arena.len());
+        assert_eq!("test", arena[index0]);
+        assert_eq!("foo", arena[index1]);
+    }
+
+    #[test]
+    fn test_arena_insert_with() {
+        struct Element {
+            index: Index,
+            value: usize,
+        }
+        let mut arena = Arena::new();
+        assert_eq!(0, arena.len());
+        let index0 = arena.insert_with(|i| Element {
+            index: i,
+            value: 42,
+        });
+        let index1 = arena.insert_with(|i| Element {
+            index: i,
+            value: 666,
+        });
+        assert_eq!(2, arena.len());
+        assert_eq!(index0, arena[index0].index);
+        assert_eq!(42, arena[index0].value);
+        assert_eq!(index1, arena[index1].index);
+        assert_eq!(666, arena[index1].value);
+    }
+
+    #[test]
+    fn test_arena_remove() {
+        let mut arena = Arena::new();
+        assert_eq!(0, arena.len());
+        let index0 = arena.insert("test");
+        let index1 = arena.insert("foo");
+        assert_eq!(2, arena.len());
+        assert_eq!(Some("test"), arena.remove(index0));
+        assert_eq!(1, arena.len());
+        // removing it a second time returns `None`
+        assert_eq!(None, arena.remove(index0));
+        assert_eq!(1, arena.len());
+        assert_eq!(Some("foo"), arena.remove(index1));
+        assert!(arena.is_empty());
+    }
+
+    #[test]
+    fn test_arena_contains() {
+        let mut arena = Arena::new();
+        assert_eq!(0, arena.len());
+        let index0 = arena.insert("test");
+        let index1 = arena.insert("foo");
+        assert_eq!(2, arena.len());
+        assert!(arena.contains(index0));
+        assert!(arena.contains(index1));
+        assert_eq!(Some("test"), arena.remove(index0));
+        assert_eq!(1, arena.len());
+        assert!(!arena.contains(index0)); // element not in the arena
+        assert!(arena.contains(index1));
+    }
+
+    #[test]
+    fn test_arena_get() {
+        let mut arena = Arena::new();
+        let index0 = arena.insert("test");
+        let index1 = arena.insert("foo");
+        assert_eq!(2, arena.len());
+        assert_eq!(Some(&"test"), arena.get(index0));
+        assert_eq!(Some(&"foo"), arena.get(index1));
+        assert_eq!(2, arena.len());
+        assert_eq!(Some("test"), arena.remove(index0));
+        assert_eq!(1, arena.len());
+        assert_eq!(None, arena.get(index0));
+    }
+
+    #[test]
+    fn test_arena_get_mut() {
+        let mut arena = Arena::new();
+        let index0 = arena.insert("test");
+        let index1 = arena.insert("foo");
+        assert_eq!(2, arena.len());
+        assert_eq!("test", arena[index0]);
+        let element = arena.get_mut(index0).unwrap();
+        *element = "bar";
+        assert_eq!("bar", arena[index0]);
+        assert_eq!("foo", arena[index1]);
+        assert_eq!(Some("bar"), arena.remove(index0));
+        assert!(arena.get_mut(index0).is_none())
+    }
+
+    #[test]
+    fn test_arena_drain() {
+        let mut arena = Arena::new();
+        let indices = [arena.insert(0), arena.insert(1), arena.insert(2)];
+        assert_eq!(3, arena.len());
+        for (i, (index, element)) in arena.drain().enumerate() {
+            assert_eq!(indices[i], index);
+            assert_eq!(i, element);
+        }
+        assert!(arena.is_empty());
+    }
+
+    #[test]
+    fn test_arena_drain_reverse() {
+        let mut arena = Arena::new();
+        let indices = [arena.insert(0), arena.insert(1), arena.insert(2)];
+        assert_eq!(3, arena.len());
+        for (i, (index, element)) in arena.drain().rev().enumerate() {
+            assert_eq!(indices[2 - i], index);
+            assert_eq!(2 - i, element);
+        }
+        assert!(arena.is_empty());
+    }
+
+    #[test]
+    fn test_arena_iter() {
+        let mut arena = Arena::new();
+        let indices = [arena.insert(0), arena.insert(1), arena.insert(2)];
+        assert_eq!(3, arena.len());
+        for (i, (index, element)) in arena.iter().enumerate() {
+            assert_eq!(indices[i], index);
+            assert_eq!(i, *element);
+        }
+        assert_eq!(3, arena.len());
+    }
+
+    #[test]
+    fn test_arena_iter_reverse() {
+        let mut arena = Arena::new();
+        let indices = [arena.insert(0), arena.insert(1), arena.insert(2)];
+        assert_eq!(3, arena.len());
+        for (i, (index, element)) in arena.iter().rev().enumerate() {
+            assert_eq!(indices[2 - i], index);
+            assert_eq!(2 - i, *element);
+        }
+        assert_eq!(3, arena.len());
+    }
+
+    #[test]
+    fn test_arena_iter_mut() {
+        let mut arena = Arena::new();
+        let indices = [arena.insert(0), arena.insert(1), arena.insert(2)];
+        assert_eq!(3, arena.len());
+        for (i, (index, element)) in arena.iter_mut().enumerate() {
+            assert_eq!(indices[i], index);
+            *element *= 3 * i;
+        }
+        assert_eq!(3, arena.len());
+        assert_eq!(0, arena[indices[0]]);
+        assert_eq!(3, arena[indices[1]]);
+        assert_eq!(12, arena[indices[2]]);
+    }
+
+    #[test]
+    fn test_arena_iter_mut_reverse() {
+        let mut arena = Arena::new();
+        let indices = [arena.insert(0), arena.insert(1), arena.insert(2)];
+        assert_eq!(3, arena.len());
+        for (i, (index, element)) in arena.iter_mut().rev().enumerate() {
+            assert_eq!(indices[2 - i], index);
+            *element *= 3 * i;
+        }
+        assert_eq!(3, arena.len());
+        assert_eq!(0, arena[indices[0]]);
+        assert_eq!(3, arena[indices[1]]);
+        assert_eq!(0, arena[indices[2]]);
+    }
+
+    #[test]
+    fn test_arena_index() {
+        let mut arena = Arena::new();
+        let index0 = arena.insert("test");
+        let index1 = arena.insert("foo");
+        assert_eq!(2, arena.len());
+        assert_eq!("test", arena[index0]);
+        assert_eq!("foo", arena[index1]);
+        assert_eq!(2, arena.len());
+        assert_eq!(Some("test"), arena.remove(index0));
+        assert_eq!(1, arena.len());
+    }
+
+    #[test]
+    fn test_arena_index_mut() {
+        let mut arena = Arena::new();
+        let index0 = arena.insert("test");
+        let index1 = arena.insert("foo");
+        assert_eq!(2, arena.len());
+        assert_eq!("test", arena[index0]);
+        let element = &mut arena[index0];
+        *element = "bar";
+        assert_eq!("bar", arena[index0]);
+        assert_eq!("foo", arena[index1]);
+    }
+
+    #[test]
+    fn test_arena_extend() {
+        let a = vec!["test", "foo", "bar"];
+        let mut b = Arena::new();
+        b.extend(a);
+        assert_eq!(3, b.len());
+    }
+
+    #[test]
+    fn test_arena_from_iter() {
+        let a = vec!["test", "foo", "bar"];
+        let b: Arena<_> = a.iter().collect();
+        assert_eq!(3, b.len());
+    }
+
+    #[test]
+    fn test_arena_drop() {
+        let refcounter = Arc::new(());
+        let mut a = Arena::new();
+        for _ in 0..5 {
+            a.insert(refcounter.clone());
+        }
+        let i1 = a.insert(refcounter.clone());
+        for _ in 0..5 {
+            a.insert(refcounter.clone());
+        }
+        let i2 = a.insert(refcounter.clone());
+        assert_eq!(13, Arc::strong_count(&refcounter));
+        assert!(a.remove(i1).is_some());
+        assert_eq!(12, Arc::strong_count(&refcounter));
+        assert!(a.remove(i2).is_some());
+        assert_eq!(11, Arc::strong_count(&refcounter));
+        assert!(a.remove(i1).is_none());
+        assert!(a.remove(i2).is_none());
+        assert_eq!(11, Arc::strong_count(&refcounter));
+        drop(a);
+        assert_eq!(1, Arc::strong_count(&refcounter));
+    }
+
+    #[test]
+    fn test_arena_clone() {
+        let refcounter = Arc::new(());
+        let mut a = Arena::new();
+        let i1 = a.insert(refcounter.clone());
+        for _ in 0..5 {
+            a.insert(refcounter.clone());
+        }
+        assert_eq!(7, Arc::strong_count(&refcounter));
+        assert!(a.remove(i1).is_some());
+        assert_eq!(6, Arc::strong_count(&refcounter));
+        let b = a.clone();
+        assert_eq!(11, Arc::strong_count(&refcounter));
+        drop(a);
+        assert_eq!(6, Arc::strong_count(&refcounter));
+        drop(b);
+        assert_eq!(1, Arc::strong_count(&refcounter));
+    }
+}
