@@ -1,0 +1,16 @@
+[package]
+name = "pulz-ecs"
+description = "An archetype based ECS"
+version = "0.1.0"
+authors = ["Christoph Hommelsheim <main@chommel.eu>"]
+license = "MIT OR Apache-2.0"
+keywords = ["ecs", "game"]
+categories = ["data-structures", "game-engines", "game-development"]
+repository = "https://github.com/HellButcher/pulz.git"
+readme = "README.md"
+edition = "2018"
+
+
+[dependencies]
+pulz-arena = { path = "../arena" }
+fnv = "1.0"
