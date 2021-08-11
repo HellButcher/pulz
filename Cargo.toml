@@ -1,4 +1,8 @@
 [workspace]
 members = [
+  "crates/*",
+  "benches"
+]
+default-members = [
   "crates/*"
 ]
