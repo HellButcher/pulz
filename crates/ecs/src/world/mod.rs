@@ -1,6 +1,6 @@
 use crate::{
     archetype::Archetypes,
-    component::{Components,ComponentMap},
+    component::{ComponentMap, Components},
     entity::{Entities, Entity},
     storage::WorldStorage,
 };

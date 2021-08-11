@@ -137,24 +137,25 @@ impl Default for NewStorage {
     }
 }
 
-impl NewStorage{
+impl NewStorage {
     #[inline]
     pub fn world<T>() -> Self
-        where T: 'static
+    where
+        T: 'static,
     {
         Self::World(SparseStorage::<T>::new_dyn)
     }
 
     #[inline]
     pub fn archetype<T>() -> Self
-        where T: 'static
+    where
+        T: 'static,
     {
         Self::Archetype(ColumnStorage::<T>::new_dyn)
     }
 }
 
 impl Components {
-
     pub(crate) fn new_world_storage(&self, id: ComponentId) -> Box<dyn WorldStorage> {
         if let NewStorage::World(new_fn) = self.components[id.offset()].new_storage {
             new_fn()
@@ -171,4 +172,3 @@ impl Components {
         }
     }
 }
-

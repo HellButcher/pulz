@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    component::{Components,ComponentMap, ComponentSet},
+    component::{ComponentMap, ComponentSet, Components},
     entity::Entity,
     storage::ArchetypeStorage,
 };

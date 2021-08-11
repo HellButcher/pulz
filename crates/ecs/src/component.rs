@@ -207,10 +207,7 @@ impl ComponentSet {
             .map(move |offset| components.components[offset].id)
     }
 
-    pub fn into_iter(
-        self,
-        components: &Components,
-    ) -> impl Iterator<Item = ComponentId> + '_ {
+    pub fn into_iter(self, components: &Components) -> impl Iterator<Item = ComponentId> + '_ {
         self.into_offsets()
             .map(move |offset| components.components[offset].id)
     }
