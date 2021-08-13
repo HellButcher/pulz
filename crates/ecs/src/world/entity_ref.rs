@@ -1,6 +1,11 @@
 use std::any::Any;
 
-use crate::{archetype::{Archetype, ArchetypeId}, component::{ComponentId, ComponentMap, ComponentSet}, entity::{Entity, EntityLocation}, world::World};
+use crate::{
+    archetype::{Archetype, ArchetypeId},
+    component::{ComponentId, ComponentMap, ComponentSet},
+    entity::{Entity, EntityLocation},
+    world::World,
+};
 
 /// A shared reference to a entity of a world.
 pub struct EntityRef<'w> {

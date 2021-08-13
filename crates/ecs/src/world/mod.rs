@@ -114,19 +114,19 @@ impl Default for World {
 mod test {
     use super::*;
 
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     struct A(usize);
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     struct B(usize);
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     struct C(usize);
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     struct D(usize);
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     struct E(usize);
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     struct F(usize);
-    #[derive(Debug,PartialEq,Eq)]
+    #[derive(Debug, PartialEq, Eq)]
     struct G(usize);
 
     #[test]
@@ -140,14 +140,14 @@ mod test {
             world
                 .entity_mut(*entity)
                 .unwrap()
-                .insert(C(i*2))
+                .insert(C(i * 2))
                 .insert(D(i))
                 .insert(E(i));
         }
         for (i, entity) in entities.iter().enumerate() {
             assert_eq!(Some(&A(i)), world.get::<A>(*entity));
             assert_eq!(Some(&B(i)), world.get::<B>(*entity));
-            assert_eq!(Some(&C(i*2)), world.get::<C>(*entity));
+            assert_eq!(Some(&C(i * 2)), world.get::<C>(*entity));
             assert_eq!(Some(&D(i)), world.get::<D>(*entity));
             assert_eq!(Some(&E(i)), world.get::<E>(*entity));
             assert_eq!(None, world.get::<F>(*entity));

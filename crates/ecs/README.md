@@ -1,4 +1,4 @@
-# pulz-ecs
+# `pulz-ecs`
 
 <img align="right" src="https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo-full.png"/>
 
