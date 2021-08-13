@@ -1,11 +1,6 @@
 use std::any::Any;
 
-use crate::{
-    archetype::Archetype,
-    component::{ComponentId, ComponentMap, ComponentSet},
-    entity::{Entity, EntityLocation},
-    world::World,
-};
+use crate::{archetype::{Archetype, ArchetypeId}, component::{ComponentId, ComponentMap, ComponentSet}, entity::{Entity, EntityLocation}, world::World};
 
 /// A shared reference to a entity of a world.
 pub struct EntityRef<'w> {
@@ -40,18 +35,41 @@ impl<'w> EntityRef<'w> {
 
     pub fn contains_id(&self, id: ComponentId) -> bool {
         if id.is_sparse() {
-            if let Some(storage) = self.world.sparse_storage.get(id) {
-                return storage.contains(self.entity);
-            }
-            false
+            matches!(self.world.sparse_storage.get(id), Some(storage) if storage.contains(self.entity, self.location.index))
         } else {
-            self.archetype().dense_storage.contains(id)
+            self.archetype().dense_storage.contains_id(id)
         }
     }
 
     /// Returns a shared reference to the given component of this entity.
-    pub fn get<T>(&self) -> Option<&'w T> {
-        unimplemented!() // TODO:
+    pub fn get<T>(&self) -> Option<&'w T>
+    where
+        T: 'static,
+    {
+        if let Some(component_id) = self.world.components.get_id::<T>() {
+            self.get_by_id(component_id)
+        } else {
+            None
+        }
+    }
+
+    /// Returns a shared reference to the given component of this entity.
+    pub fn get_by_id<T>(&self, component_id: ComponentId) -> Option<&'w T>
+    where
+        T: 'static,
+    {
+        if component_id.is_sparse() {
+            self.world
+                .sparse_storage
+                .typed_get::<T>(component_id)?
+                .get(&self.entity)
+        } else {
+            let location = self.location;
+            self.world.archetypes[location.archetype_id]
+                .dense_storage
+                .typed_get::<T>(component_id)?
+                .get(location.index)
+        }
     }
 }
 
@@ -91,37 +109,98 @@ impl<'w> EntityMut<'w> {
     where
         T: 'static,
     {
-        if let Some(id) = self.world.components.get_id::<T>() {
-            self.contains_id(id)
+        if let Some(component_id) = self.world.components.get_id::<T>() {
+            self.contains_id(component_id)
         } else {
             false
         }
     }
 
-    pub fn contains_id(&self, id: ComponentId) -> bool {
-        if self.remove_components.contains(id) {
+    pub fn contains_id(&self, component_id: ComponentId) -> bool {
+        if self.remove_components.contains(component_id) {
             return false;
-        } else if self.insert_components.contains(id) {
+        } else if self.insert_components.contains(component_id) {
             return true;
         }
-        if id.is_sparse() {
-            if let Some(storage) = self.world.sparse_storage.get(id) {
-                return storage.contains(self.entity);
-            }
-            false
+        if component_id.is_sparse() {
+            matches!(self.world.sparse_storage.get(component_id), Some(storage) if storage.contains(self.entity, self.location.index))
         } else {
-            self.archetype().dense_storage.contains(id)
+            self.archetype().dense_storage.contains_id(component_id)
         }
     }
 
     /// Returns a shared reference to the given component of this entity.
-    pub fn get<T>(&self) -> Option<&'w T> {
-        unimplemented!() // TODO:
+    #[inline]
+    pub fn get<T>(&self) -> Option<&T>
+    where
+        T: 'static,
+    {
+        if let Some(component_id) = self.world.components.get_id::<T>() {
+            self.get_by_id(component_id)
+        } else {
+            None
+        }
     }
 
     /// Returns an exclusive reference to the given component of this entity.
-    pub fn get_mut<T>(&mut self) -> Option<&'w mut T> {
-        unimplemented!() // TODO:
+    #[inline]
+    pub fn get_mut<T>(&mut self) -> Option<&mut T>
+    where
+        T: 'static,
+    {
+        if let Some(component_id) = self.world.components.get_id::<T>() {
+            self.get_mut_by_id(component_id)
+        } else {
+            None
+        }
+    }
+
+    /// Returns a shared reference to the given component of this entity.
+    pub fn get_by_id<T>(&self, component_id: ComponentId) -> Option<&T>
+    where
+        T: 'static,
+    {
+        if let Some(boxed) = self.insert_components.get(component_id) {
+            if let Some(value) = boxed.as_ref().downcast_ref::<Option<T>>() {
+                return value.as_ref();
+            }
+        }
+        if component_id.is_sparse() {
+            self.world
+                .sparse_storage
+                .typed_get::<T>(component_id)?
+                .get(&self.entity)
+        } else {
+            let location = self.location;
+            self.world.archetypes[location.archetype_id]
+                .dense_storage
+                .typed_get::<T>(component_id)?
+                .get(location.index)
+        }
+    }
+
+    /// Returns an exclusive reference to the given component of this entity.
+    pub fn get_mut_by_id<T>(&mut self, component_id: ComponentId) -> Option<&mut T>
+    where
+        T: 'static,
+    {
+        if let Some(boxed) = self.insert_components.get_mut(component_id) {
+            if let Some(value) = boxed.as_mut().downcast_mut::<Option<T>>() {
+                return value.as_mut();
+            }
+        }
+        if component_id.is_sparse() {
+            self.world
+                .sparse_storage
+                .typed_get_mut::<T>(component_id)?
+                .get_mut(&self.entity)
+        } else {
+            let location = self.location;
+            self.world.archetypes[location.archetype_id]
+                .dense_storage
+                .typed_get_mut::<T>(component_id)?
+                .get_mut(location.index)
+        }
     }
 
     #[inline]
@@ -129,16 +208,18 @@ impl<'w> EntityMut<'w> {
     where
         T: 'static,
     {
-        let id = self.world.components.get_or_insert_id::<T>();
-        self.insert_id(id, value)
+        let component_id = self.world.components.get_or_insert_id::<T>();
+        self.insert_id(component_id, value)
     }
 
-    pub fn insert_id<T>(&mut self, id: ComponentId, value: T) -> &mut Self
+    pub fn insert_id<T>(&mut self, component_id: ComponentId, value: T) -> &mut Self
     where
         T: 'static,
     {
-        self.remove_components.remove(id);
-        self.insert_components.insert(id, Box::new(Some(value)));
+        self.remove_components.remove(component_id);
+        // TODO: try to use a pool inside 'world' for reducing allocations?
+        self.insert_components
+            .insert(component_id, Box::new(Some(value)));
         self
     }
 
@@ -153,9 +234,9 @@ impl<'w> EntityMut<'w> {
         self
     }
 
-    pub fn remove_id(&mut self, id: ComponentId) -> &mut Self {
-        self.insert_components.remove(id);
-        self.remove_components.insert(id);
+    pub fn remove_id(&mut self, component_id: ComponentId) -> &mut Self {
+        self.insert_components.remove(component_id);
+        self.remove_components.insert(component_id);
         self
     }
 
@@ -165,12 +246,12 @@ impl<'w> EntityMut<'w> {
 
         // mark all components for removal
         let archetype = &self.world.archetypes[self.location.archetype_id];
-        for component_id in archetype.dense_storage.keys() {
+        for component_id in archetype.dense_storage.component_ids() {
             self.remove_components.insert(component_id);
         }
         for (component_id, storage) in self.world.sparse_storage.entries() {
-            if storage.contains(self.entity) {
-                self.remove_components.insert(*component_id);
+            if storage.contains(self.entity, self.location.index) {
+                self.remove_components.insert(component_id);
             }
         }
         self
@@ -191,19 +272,14 @@ impl<'w> EntityMut<'w> {
         let track_removed = &mut self.world.removed;
 
         // remove components and track removal
-        for (component_id, storage) in archetype.dense_storage.entries_mut() {
+        for (component_id, storage) in archetype
+            .dense_storage
+            .entries_mut()
+            .chain(self.world.sparse_storage.entries_mut())
+        {
             // remove
-            storage.swap_remove(location.index);
-
-            // track
-            track_removed
-                .get_or_insert_default(component_id)
-                .push(self.entity);
-        }
-
-        // remove sparse components and track removal
-        for (component_id, storage) in self.world.sparse_storage.entries_mut() {
-            if storage.remove(self.entity) {
+            if storage.swap_remove(self.entity, location.index) {
+                // track
                 track_removed
                     .get_or_insert_default(component_id)
                     .push(self.entity);
@@ -237,7 +313,7 @@ impl Drop for EntityMut<'_> {
             if id.is_sparse() {
                 // apply removal of sparse components
                 if let Some(storage) = self.world.sparse_storage.get_mut(id) {
-                    if storage.remove(self.entity) {
+                    if storage.swap_remove(self.entity, self.location.index) {
                         // track removal
                         self.world
                             .removed
@@ -245,9 +321,15 @@ impl Drop for EntityMut<'_> {
                             .push(self.entity);
                     }
                 }
-            } else if archetype.dense_storage.contains(id) {
+            } else if archetype.dense_storage.contains_id(id) {
                 // remember removal of dense components
                 remove_dense.push(id);
+
+                // track removal
+                self.world
+                    .removed
+                    .get_or_insert_default(id)
+                    .push(self.entity);
             }
         }
 
@@ -259,23 +341,22 @@ impl Drop for EntityMut<'_> {
                 let storage = self
                     .world
                     .sparse_storage
-                    .get_or_insert_with(id, || components.new_world_storage(id))
-                    .as_mut();
-                if !storage.insert_impl(self.entity, box_value.as_mut()) {
+                    .get_or_insert_with(id, components.components[id.offset()].new_storage);
+                if storage.insert(self.entity, box_value.as_mut()).is_none() {
                     panic!(
                         "unexpected type {:?} != {:?} of sparse component with id {:?}",
                         box_value.type_id(),
-                        storage.typeid(),
+                        storage.component_type_id(),
                         id
                     );
                 }
             } else if let Some(storage) = archetype.dense_storage.get_mut(id) {
                 // update existing dense components
-                if !storage.replace_impl(old_index, box_value.as_mut()) {
+                if !storage.replace(self.entity, old_index, box_value.as_mut()) {
                     panic!(
                         "unexpected type {:?} != {:?} of dense component with id {:?}",
                         box_value.type_id(),
-                        storage.typeid(),
+                        storage.component_type_id(),
                         id
                     );
                 }
@@ -290,7 +371,7 @@ impl Drop for EntityMut<'_> {
             return;
         }
 
-        let mut new_components = archetype.dense_storage.key_set();
+        let mut new_components = archetype.dense_storage.component_id_set();
         for rm in &remove_dense {
             new_components.remove(*rm);
         }
@@ -302,6 +383,8 @@ impl Drop for EntityMut<'_> {
             .world
             .archetypes
             .get_or_insert(new_components, components);
+
+        debug_assert_ne!(old_archetype_id, new_archetype_id);
 
         let (old_archetype, new_archetype) = self
             .world
@@ -316,30 +399,33 @@ impl Drop for EntityMut<'_> {
         }
         new_archetype.entities.push(self.entity);
 
-        // copy old
+        // move or remove old components
         for (id, old_storage) in &mut old_archetype.dense_storage.entries_mut() {
             if let Some(new_storage) = new_archetype.dense_storage.get_mut(id) {
-                let result = old_storage.swap_remove_and_push(old_index, new_storage.as_mut());
+                let result =
+                    old_storage.swap_remove_and_insert_to(self.entity, old_index, new_storage);
                 assert_eq!(
                     Some(new_index),
                     result,
                     "unexpected type of storage {:?} != {:?} of dense component with id {:?}",
-                    old_storage.typeid(),
-                    new_storage.typeid(),
+                    old_storage.component_type_id(),
+                    new_storage.component_type_id(),
                     id
                 );
+            } else {
+                old_storage.swap_remove(self.entity, old_index);
             }
         }
-        // push new
+        // insert new components
         for (id, mut box_value) in insert_dense {
             if let Some(storage) = new_archetype.dense_storage.get_mut(id) {
-                let result = storage.push_impl(box_value.as_mut());
+                let result = storage.insert(self.entity, box_value.as_mut());
                 assert_eq!(
                     Some(new_index),
                     result,
                     "unexpected type {:?} != {:?} of dense component with id {:?}",
                     box_value.type_id(),
-                    storage.typeid(),
+                    storage.component_type_id(),
                     id
                 );
             }
@@ -383,6 +469,9 @@ impl World {
     #[must_use]
     pub fn spawn(&mut self) -> EntityMut<'_> {
         let entity = self.entities.create();
+        let empty_archetype = &mut self.archetypes[ArchetypeId::EMPTY];
+        self.entities[entity].index = empty_archetype.len();
+        empty_archetype.entities.push(entity);
         let location = self.entities[entity];
         EntityMut::new(self, entity, location)
     }

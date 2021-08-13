@@ -1,174 +1,299 @@
-use std::any::{Any, TypeId};
+use std::{
+    any::{Any, TypeId},
+    marker::PhantomData,
+};
 
 use fnv::FnvHashMap;
 
 use crate::{
-    component::{ComponentId, Components},
+    component::{ComponentId, ComponentMap, ComponentSet},
     Entity,
 };
 
-pub trait ArchetypeStorage {
-    fn swap_remove(&mut self, archetype_offset: usize);
-    fn replace_impl(&mut self, archetype_offset: usize, value: &mut dyn Any) -> bool;
-    fn push_impl(&mut self, value: &mut dyn Any) -> Option<usize>;
-    fn swap_remove_and_push(
-        &mut self,
-        remove_offset: usize,
-        push_to: &mut dyn ArchetypeStorage,
-    ) -> Option<usize>;
-
-    fn typeid(&self) -> TypeId;
-}
-
-struct ColumnStorage<T>(Vec<T>);
-
-impl<T> ColumnStorage<T>
-where
-    T: 'static,
-{
-    pub(crate) fn new_dyn() -> Box<dyn ArchetypeStorage> {
-        Box::new(Self(Vec::new()))
+pub trait AnyComponentMaper<T>: 'static {
+    type Target: Any;
+    #[inline]
+    fn is_target(storage: &dyn Storage) -> bool {
+        TypeId::of::<Self::Target>() == storage.type_id()
     }
-}
-
-impl<T> ArchetypeStorage for ColumnStorage<T>
-where
-    T: 'static,
-{
-    fn swap_remove(&mut self, archetype_offset: usize) {
-        self.0.swap_remove(archetype_offset);
-        if self.0.is_empty() {
-            self.0.shrink_to_fit();
-        }
-    }
-
-    fn replace_impl(&mut self, archetype_offset: usize, value: &mut dyn Any) -> bool {
-        if let Some(transfer) = value.downcast_mut::<Option<T>>() {
-            if let Some(value) = transfer.take() {
-                self.0[archetype_offset] = value;
-                return true;
+    #[inline]
+    fn as_ref(storage: &dyn Storage) -> Option<&Self::Target> {
+        if Self::is_target(storage) {
+            // SAFETY: just checked whether we are pointing to the correct type
+            unsafe {
+                let storage: *const dyn Storage = storage;
+                Some(&*(storage as *const Self::Target))
             }
+        } else {
+            None
         }
-        false
     }
-    fn push_impl(&mut self, value: &mut dyn Any) -> Option<usize> {
-        let index = self.0.len();
+    #[inline]
+    fn as_mut(storage: &mut dyn Storage) -> Option<&mut Self::Target> {
+        if Self::is_target(storage) {
+            // SAFETY: just checked whether we are pointing to the correct type
+            unsafe {
+                let storage: *mut dyn Storage = storage;
+                Some(&mut *(storage as *mut Self::Target))
+            }
+        } else {
+            None
+        }
+    }
+}
+
+pub struct ComponentStorageMap<M> {
+    map: ComponentMap<Box<dyn Storage>>,
+    phantom: PhantomData<M>,
+}
+
+impl<M> ComponentStorageMap<M> {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            map: ComponentMap::new(),
+            phantom: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn contains_id(&self, component_id: ComponentId) -> bool {
+        self.map.contains(component_id)
+    }
+
+    #[inline]
+    pub fn component_ids(&self) -> impl Iterator<Item = ComponentId> + '_ {
+        self.map.keys()
+    }
+
+    #[inline]
+    pub fn component_id_set(&self) -> ComponentSet {
+        self.map.key_set()
+    }
+
+    #[inline]
+    pub fn entries(&self) -> impl Iterator<Item = (ComponentId, &dyn Storage)> + '_ {
+        self.map.entries().map(|(id, boxed)| (id, boxed.as_ref()))
+    }
+
+    #[inline]
+    pub fn entries_mut(&mut self) -> impl Iterator<Item = (ComponentId, &mut dyn Storage)> + '_ {
+        self.map
+            .entries_mut()
+            .map(|(id, boxed)| (id, boxed.as_mut()))
+    }
+
+    #[inline]
+    pub fn get(&self, component_id: ComponentId) -> Option<&dyn Storage> {
+        if let Some(boxed) = self.map.get(component_id) {
+            Some(boxed.as_ref())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, component_id: ComponentId) -> Option<&mut dyn Storage> {
+        if let Some(boxed) = self.map.get_mut(component_id) {
+            Some(boxed.as_mut())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn typed_get<T>(&self, component_id: ComponentId) -> Option<&M::Target>
+    where
+        T: 'static,
+        M: AnyComponentMaper<T>,
+    {
+        if let Some(boxed) = self.map.get(component_id) {
+            M::as_ref(boxed.as_ref())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn typed_get_mut<T>(&mut self, component_id: ComponentId) -> Option<&mut M::Target>
+    where
+        T: 'static,
+        M: AnyComponentMaper<T>,
+    {
+        if let Some(boxed) = self.map.get_mut(component_id) {
+            M::as_mut(boxed.as_mut())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get_or_insert_with<F>(
+        &mut self,
+        component_id: ComponentId,
+        create: F,
+    ) -> &mut dyn Storage
+    where
+        F: FnOnce() -> Box<dyn Storage>,
+    {
+        self.map.get_or_insert_with(component_id, create).as_mut()
+    }
+}
+
+pub struct ColumnStorageMapper;
+
+impl<T> AnyComponentMaper<T> for ColumnStorageMapper
+where
+    T: 'static,
+{
+    type Target = ColumnStorage<T>;
+}
+
+pub struct SparseStorageMapper;
+
+impl<T> AnyComponentMaper<T> for SparseStorageMapper
+where
+    T: 'static,
+{
+    type Target = SparseStorage<T>;
+}
+
+pub type ColumnStorage<T> = Vec<T>;
+pub type SparseStorage<T> = FnvHashMap<Entity, T>;
+
+pub trait Storage: Any {
+    fn component_type_id(&self) -> TypeId;
+    fn len(&self) -> usize;
+    fn contains(&self, entity: Entity, index: usize) -> bool;
+    fn swap_remove(&mut self, entity: Entity, index: usize) -> bool;
+    fn insert(&mut self, entity: Entity, value: &mut dyn Any) -> Option<usize>;
+    fn replace(&mut self, entity: Entity, index: usize, value: &mut dyn Any) -> bool;
+    fn swap_remove_and_insert_to(
+        &mut self,
+        entity: Entity,
+        remove_index: usize,
+        insert_to: &mut dyn Storage,
+    ) -> Option<usize>;
+}
+
+impl<T> Storage for ColumnStorage<T>
+where
+    T: 'static,
+{
+    #[inline]
+    fn component_type_id(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.len()
+    }
+    #[inline]
+    fn contains(&self, _entity: Entity, index: usize) -> bool {
+        index < self.len()
+    }
+
+    #[inline]
+    fn swap_remove(&mut self, _entity: Entity, index: usize) -> bool {
+        if index < self.len() {
+            self.swap_remove(index);
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    fn insert(&mut self, _entity: Entity, value: &mut dyn Any) -> Option<usize> {
         if let Some(transfer) = value.downcast_mut::<Option<T>>() {
             if let Some(value) = transfer.take() {
-                self.0.push(value);
+                let index = self.len();
+                self.push(value);
                 return Some(index);
             }
         }
         None
     }
 
-    fn swap_remove_and_push(
-        &mut self,
-        remove_offset: usize,
-        push_to: &mut dyn ArchetypeStorage,
-    ) -> Option<usize> {
-        let mut value = Some(self.0.swap_remove(remove_offset));
-        if self.0.is_empty() {
-            self.0.shrink_to_fit();
+    #[inline]
+    fn replace(&mut self, _entity: Entity, index: usize, value: &mut dyn Any) -> bool {
+        if index >= self.len() {
+            return false;
         }
-        push_to.push_impl(&mut value)
-    }
-
-    fn typeid(&self) -> TypeId {
-        TypeId::of::<T>()
-    }
-}
-
-pub trait WorldStorage {
-    fn insert_impl(&mut self, entity: Entity, value: &mut dyn Any) -> bool;
-    fn remove(&mut self, entity: Entity) -> bool;
-    fn contains(&self, entity: Entity) -> bool;
-
-    fn typeid(&self) -> TypeId;
-}
-
-struct SparseStorage<T>(FnvHashMap<Entity, T>);
-
-impl<T> SparseStorage<T>
-where
-    T: 'static,
-{
-    pub(crate) fn new_dyn() -> Box<dyn WorldStorage> {
-        Box::new(Self(FnvHashMap::default()))
-    }
-}
-
-impl<T> WorldStorage for SparseStorage<T>
-where
-    T: 'static,
-{
-    fn insert_impl(&mut self, entity: Entity, value: &mut dyn Any) -> bool {
         if let Some(transfer) = value.downcast_mut::<Option<T>>() {
             if let Some(value) = transfer.take() {
-                self.0.insert(entity, value);
+                self[index] = value;
                 return true;
             }
         }
         false
     }
-    fn remove(&mut self, entity: Entity) -> bool {
-        self.0.remove(&entity).is_some()
-    }
-    fn contains(&self, entity: Entity) -> bool {
-        self.0.contains_key(&entity)
-    }
 
-    fn typeid(&self) -> TypeId {
-        TypeId::of::<T>()
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum NewStorage {
-    None,
-    World(fn() -> Box<dyn WorldStorage>),
-    Archetype(fn() -> Box<dyn ArchetypeStorage>),
-}
-
-impl Default for NewStorage {
-    #[inline]
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl NewStorage {
-    #[inline]
-    pub fn world<T>() -> Self
-    where
-        T: 'static,
-    {
-        Self::World(SparseStorage::<T>::new_dyn)
-    }
-
-    #[inline]
-    pub fn archetype<T>() -> Self
-    where
-        T: 'static,
-    {
-        Self::Archetype(ColumnStorage::<T>::new_dyn)
-    }
-}
-
-impl Components {
-    pub(crate) fn new_world_storage(&self, id: ComponentId) -> Box<dyn WorldStorage> {
-        if let NewStorage::World(new_fn) = self.components[id.offset()].new_storage {
-            new_fn()
+    fn swap_remove_and_insert_to(
+        &mut self,
+        entity: Entity,
+        remove_index: usize,
+        insert_to: &mut dyn Storage,
+    ) -> Option<usize> {
+        if remove_index < self.len() {
+            let mut value = Some(self.swap_remove(remove_index));
+            insert_to.insert(entity, &mut value)
         } else {
-            panic!("unexpected storage constructor type");
+            None
         }
     }
+}
 
-    pub(crate) fn new_archetype_storage(&self, id: ComponentId) -> Box<dyn ArchetypeStorage> {
-        if let NewStorage::Archetype(new_fn) = self.components[id.offset()].new_storage {
-            new_fn()
+impl<T> Storage for SparseStorage<T>
+where
+    T: 'static,
+{
+    #[inline]
+    fn component_type_id(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.len()
+    }
+    #[inline]
+    fn contains(&self, entity: Entity, _index: usize) -> bool {
+        self.contains_key(&entity)
+    }
+    #[inline]
+    fn swap_remove(&mut self, entity: Entity, _index: usize) -> bool {
+        self.remove(&entity).is_some()
+    }
+
+    #[inline]
+    fn insert(&mut self, entity: Entity, value: &mut dyn Any) -> Option<usize> {
+        if let Some(transfer) = value.downcast_mut::<Option<T>>() {
+            if let Some(value) = transfer.take() {
+                self.insert(entity, value);
+                return Some(0);
+            }
+        }
+        None
+    }
+
+    #[inline]
+    fn replace(&mut self, entity: Entity, _index: usize, value: &mut dyn Any) -> bool {
+        <Self as Storage>::insert(self, entity, value).is_some()
+    }
+
+    fn swap_remove_and_insert_to(
+        &mut self,
+        entity: Entity,
+        _remove_offset: usize,
+        insert_to: &mut dyn Storage,
+    ) -> Option<usize> {
+        if let Some(value) = self.remove(&entity) {
+            let mut value = Some(value);
+            insert_to.insert(entity, &mut value)
         } else {
-            panic!("unexpected storage constructor type");
+            None
         }
     }
 }

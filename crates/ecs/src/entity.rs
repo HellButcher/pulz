@@ -13,7 +13,7 @@ impl Entity {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EntityLocation {
     pub archetype_id: ArchetypeId,
     pub index: usize,

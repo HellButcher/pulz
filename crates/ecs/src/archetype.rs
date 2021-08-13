@@ -5,9 +5,9 @@ use std::{
 };
 
 use crate::{
-    component::{ComponentMap, ComponentSet, Components},
+    component::{ComponentId, ComponentSet, Components},
     entity::Entity,
-    storage::ArchetypeStorage,
+    storage::{ColumnStorageMapper, ComponentStorageMap},
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -28,9 +28,9 @@ impl ArchetypeId {
 }
 
 pub struct Archetype {
-    id: ArchetypeId,
+    pub(crate) id: ArchetypeId,
     pub(crate) entities: Vec<Entity>,
-    pub(crate) dense_storage: ComponentMap<Box<dyn ArchetypeStorage>>,
+    pub(crate) dense_storage: ComponentStorageMap<ColumnStorageMapper>,
 }
 
 impl Archetype {
@@ -38,15 +38,21 @@ impl Archetype {
         Self {
             id,
             entities: Vec::new(),
-            dense_storage: ComponentMap::new(),
+            dense_storage: ComponentStorageMap::new(),
         }
     }
 
     fn extend(&mut self, dense_components: &ComponentSet, components: &Components) {
-        for id in dense_components.iter(components) {
+        for index in dense_components.offsets() {
+            let component = &components.components[index];
             self.dense_storage
-                .get_or_insert_with(id, || components.new_archetype_storage(id));
+                .get_or_insert_with(component.id, component.new_storage);
         }
+    }
+
+    #[inline]
+    pub fn contains_component_id(&self, component_id: ComponentId) -> bool {
+        self.dense_storage.contains_id(component_id)
     }
 
     #[inline]
@@ -187,6 +193,95 @@ impl IndexMut<ArchetypeId> for Archetypes {
     #[inline]
     fn index_mut(&mut self, index: ArchetypeId) -> &mut Self::Output {
         &mut self.archetypes[index.index()]
+    }
+}
+
+/// Bit-Set like structure
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ArchetypeSet(Vec<u64>);
+
+impl ArchetypeSet {
+    #[inline]
+    pub const fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn clear(&mut self) {
+        self.0.clear()
+    }
+
+    #[inline]
+    fn split(id: ArchetypeId) -> (usize, u64) {
+        let offset = id.index();
+        let index = offset / 64;
+        let bits = 1u64 << (offset % 64);
+        (index, bits)
+    }
+
+    #[inline]
+    pub fn contains(&self, id: ArchetypeId) -> bool {
+        let (index, bits) = Self::split(id);
+        if let Some(value) = self.0.get(index) {
+            *value & bits != 0
+        } else {
+            false
+        }
+    }
+
+    pub fn insert(&mut self, id: ArchetypeId) {
+        let (index, bits) = Self::split(id);
+        if index >= self.0.len() {
+            self.0.resize(index + 1, 0);
+        }
+        // SAFETY: vec was extended to contain index
+        let value = unsafe { self.0.get_unchecked_mut(index) };
+        *value |= bits;
+    }
+
+    pub fn remove(&mut self, id: ArchetypeId) {
+        let (index, bits) = Self::split(id);
+        if let Some(value) = self.0.get_mut(index) {
+            *value &= !bits;
+        }
+    }
+
+    fn sub_iter(start: usize, mut value: u64) -> impl Iterator<Item = ArchetypeId> {
+        let mut i = start;
+        std::iter::from_fn(move || {
+            while value != 0 {
+                if value & 1 == 1 {
+                    let result = i;
+                    i += 1;
+                    value >>= 1;
+                    return Some(ArchetypeId(result));
+                }
+                i += 1;
+                value >>= 1;
+            }
+            None
+        })
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = ArchetypeId> + '_ {
+        self.0
+            .iter()
+            .copied()
+            .enumerate()
+            .flat_map(|(i, value)| Self::sub_iter(i * 64, value))
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item = ArchetypeId> {
+        self.0
+            .into_iter()
+            .enumerate()
+            .flat_map(|(i, value)| Self::sub_iter(i * 64, value))
+    }
+}
+
+impl Default for ArchetypeSet {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 

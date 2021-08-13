@@ -4,7 +4,7 @@ use std::{
     collections::{btree_map::Entry, BTreeMap},
 };
 
-use crate::storage::NewStorage;
+use crate::storage::{ColumnStorage, SparseStorage, Storage};
 
 pub trait Component: 'static {}
 
@@ -29,15 +29,13 @@ impl ComponentId {
     }
 }
 
-#[derive(Clone, Debug)]
 pub(crate) struct ComponentInfo {
     pub(crate) id: ComponentId,
     name: Cow<'static, str>,
     type_id: TypeId,
-    pub(crate) new_storage: NewStorage,
+    pub(crate) new_storage: fn() -> Box<dyn Storage>,
 }
 
-#[derive(Clone)]
 pub struct Components {
     pub(crate) components: Vec<ComponentInfo>,
     by_type_id: BTreeMap<TypeId, ComponentId>,
@@ -85,7 +83,7 @@ impl Components {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
-                    new_storage: NewStorage::archetype::<T>(),
+                    new_storage: || Box::new(ColumnStorage::<T>::default()),
                 });
                 entry.insert(id);
                 Ok(id)
@@ -108,7 +106,7 @@ impl Components {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
-                    new_storage: NewStorage::world::<T>(),
+                    new_storage: || Box::new(SparseStorage::<T>::default()),
                 });
                 entry.insert(id);
                 Ok(id)
@@ -164,6 +162,12 @@ impl ComponentSet {
         let (index, bits) = Self::split(id);
         if let Some(value) = self.0.get_mut(index) {
             *value &= !bits;
+        }
+        // shrink (for Eq)
+        if index + 1 == self.0.len() {
+            while let Some(0) = self.0.last() {
+                self.0.pop();
+            }
         }
     }
 
@@ -306,8 +310,8 @@ impl<T> ComponentMap<T> {
     }
 
     #[inline]
-    pub fn entries(&self) -> &[(ComponentId, T)] {
-        &self.0
+    pub fn entries<'l>(&'l self) -> impl Iterator<Item = (ComponentId, &'l T)> + '_ {
+        self.0.iter().map(|(id, value)| (*id, value))
     }
 
     #[inline]
