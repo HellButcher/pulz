@@ -1,4 +1,4 @@
-## `pulz-arena` 
+# `pulz-arena` 
 
 <img align="right" src="https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo-full.png"/>
 
