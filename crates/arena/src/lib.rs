@@ -21,7 +21,7 @@
     clippy::missing_panics_doc,
     clippy::wildcard_imports
 )]
-#![doc(html_logo_url = "https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo-full.png")]
+#![doc(html_logo_url = "https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo.png")]
 #![doc(html_no_source)]
 #![no_std]
 #![doc = include_str!("../README.md")]
