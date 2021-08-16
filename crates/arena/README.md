@@ -1,4 +1,11 @@
-# pulz-arena
+<img align="right" src="../../docs/logo-full.png"/>
+
+## `pulz-arena` 
+
+[![Crates.io](https://img.shields.io/crates/v/pulz-arena.svg?label=pulz-arena)](https://crates.io/crates/pulz-arena)
+[![docs.rs](https://docs.rs/pulz-arena/badge.svg)](https://docs.rs/pulz-arena/)
+[![license: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
+[![Rust CI](https://github.com/HellButcher/pulz/actions/workflows/rust.yml/badge.svg)](https://github.com/HellButcher/pulz/actions/workflows/rust.yml)
 
 A _generational arena_ allocator inspired by [generational-arena] with
 compact generational indices.
@@ -35,6 +42,8 @@ assert!(!arena.contains(a));
 This crate should also work without `std`. No additional configuration required.
 
 ## License
+
+[license]: #license
 
 This repository is licensed under either of
 
