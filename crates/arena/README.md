@@ -1,6 +1,6 @@
-<img align="right" src="../../docs/logo-full.png"/>
-
 ## `pulz-arena` 
+
+<img align="right" src="https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo-full.png"/>
 
 [![Crates.io](https://img.shields.io/crates/v/pulz-arena.svg?label=pulz-arena)](https://crates.io/crates/pulz-arena)
 [![docs.rs](https://docs.rs/pulz-arena/badge.svg)](https://docs.rs/pulz-arena/)

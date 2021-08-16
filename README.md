@@ -1,4 +1,4 @@
-<img align="right" src="docs/logo-full.png"/>
+<img align="right" src="https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo-full.png"/>
 
 # `pulz`
 
