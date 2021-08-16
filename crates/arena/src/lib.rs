@@ -44,7 +44,7 @@ extern crate alloc;
 /// # Example
 ///
 /// ```
-/// # use pulsar_arena::Arena;
+/// # use pulz_arena::Arena;
 /// let mut arena = Arena::new();
 /// let index = arena.insert("test");
 /// assert_eq!("test", arena[index]);
@@ -64,7 +64,7 @@ impl Index {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::{Arena,Generation};
+    /// # use pulz_arena::{Arena,Generation};
     /// let mut arena = Arena::new();
     /// let index0 = arena.insert("test");
     /// let index1 = arena.insert("test2");
@@ -83,7 +83,7 @@ impl Index {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::{Arena,Generation};
+    /// # use pulz_arena::{Arena,Generation};
     /// let mut arena = Arena::new();
     /// let index0 = arena.insert("test");
     /// let index1 = arena.insert("test2");
@@ -103,7 +103,7 @@ impl Index {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::{Arena,Generation};
+    /// # use pulz_arena::{Arena,Generation};
     /// let mut arena = Arena::new();
     /// let index = arena.insert("test");
     /// assert_eq!(Generation::ONE, index.generation());
@@ -131,7 +131,7 @@ impl core::fmt::Debug for Index {
 /// # Example
 ///
 /// ```
-/// # use pulsar_arena::{Arena,Generation};
+/// # use pulz_arena::{Arena,Generation};
 /// let mut arena = Arena::new();
 /// let index = arena.insert("test");
 /// assert_eq!(Generation::ONE, index.generation());
@@ -219,7 +219,7 @@ impl Generation {
 /// # Example
 ///
 /// ```
-/// use pulsar_arena::Arena;
+/// use pulz_arena::Arena;
 ///
 /// let mut arena = Arena::new();
 /// let index = arena.insert("test");
@@ -286,7 +286,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// use pulsar_arena::Arena;
+    /// use pulz_arena::Arena;
     ///
     /// let arena = Arena::<u32>::new();
     /// assert!(arena.is_empty());
@@ -311,7 +311,7 @@ impl<T> Arena<T> {
     /// Example
     ///
     /// ```
-    /// use pulsar_arena::Arena;
+    /// use pulz_arena::Arena;
     ///
     /// let mut arena = Arena::with_capacity(15);
     /// assert_eq!(15, arena.capacity());
@@ -346,7 +346,7 @@ impl<T> Arena<T> {
     /// Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// assert_eq!(0, arena.capacity());
     /// arena.insert(1);
@@ -369,7 +369,7 @@ impl<T> Arena<T> {
     /// Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// assert_eq!(0, arena.capacity());
     /// arena.insert(1);
@@ -391,7 +391,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// arena.insert("test");
     /// arena.insert("foo");
@@ -412,7 +412,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// assert_eq!(0, arena.len());
     /// let index0 = arena.insert("test");
@@ -432,7 +432,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// assert!(arena.is_empty());
     /// let index0 = arena.insert("test");
@@ -463,7 +463,7 @@ impl<T> Arena<T> {
     /// Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// arena.reserve_exact(15);
     ///
@@ -507,7 +507,7 @@ impl<T> Arena<T> {
     /// Example
     ///
     /// ```
-    /// # use pulsar_arena::{Arena,Index};
+    /// # use pulz_arena::{Arena,Index};
     /// struct Element {
     ///     index: Index,
     ///     value: usize,
@@ -553,7 +553,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// assert_eq!(0, arena.len());
     /// let index0 = arena.insert("test");
@@ -585,7 +585,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::{Arena,Index};
+    /// # use pulz_arena::{Arena,Index};
     /// struct Element {
     ///     index: Index,
     ///     value: usize,
@@ -648,7 +648,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// assert_eq!(0, arena.len());
     /// let index0 = arena.insert("test");
@@ -683,7 +683,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// assert_eq!(0, arena.len());
     /// let index0 = arena.insert("test");
@@ -708,7 +708,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// let index0 = arena.insert("test");
     /// let index1 = arena.insert("foo");
@@ -739,7 +739,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// let index0 = arena.insert("test");
     /// let index1 = arena.insert("foo");
@@ -770,7 +770,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// let indices = [
     ///     arena.insert(0),
@@ -798,7 +798,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// let indices = [
     ///     arena.insert(0),
@@ -824,7 +824,7 @@ impl<T> Arena<T> {
     /// # Example
     ///
     /// ```
-    /// # use pulsar_arena::Arena;
+    /// # use pulz_arena::Arena;
     /// let mut arena = Arena::new();
     /// let indices = [
     ///     arena.insert(0),

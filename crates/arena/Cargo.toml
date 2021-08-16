@@ -1,12 +1,12 @@
 [package]
-name = "pulsar-arena"
+name = "pulz-arena"
 description = "A generational arena allocator with compact generational indices"
 version = "0.1.0"
-authors = ["Christoph Hommelsheim <main@chommel.en>"]
+authors = ["Christoph Hommelsheim <main@chommel.eu>"]
 license = "MIT OR Apache-2.0"
 keywords = ["arena", "generational", "collection"]
 categories = ["data-structures", "game-development", "no-std"]
-repository = "https://github.com/HellButcher/pulsar.git"
+repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
 edition = "2018"
 

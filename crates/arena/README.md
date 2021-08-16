@@ -1,4 +1,4 @@
-# pulsar-arena
+# pulz-arena
 
 A _generational arena_ allocator inspired by [generational-arena] with
 compact generational indices.
@@ -11,7 +11,7 @@ return. You can then use this index-pointer to access the provided value.
 ## Example
 
 ```rust
-use pulsar_arena::{Arena,Index};
+use pulz_arena::{Arena,Index};
 
 let mut arena = Arena::new();
 

@@ -1,10 +1,10 @@
-# pulsar
+# pulz
 
 A collection of rust crates for game-development.
 
 ## Crates
 
-* **[`pulsar-arena`](crates/arena)** -
+* **[`pulz-arena`](crates/arena)** -
   A generational arena allocator with compact generational indices
 
 ## License
