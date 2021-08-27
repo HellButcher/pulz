@@ -2,7 +2,7 @@ use crate::{
     archetype::Archetypes,
     component::{ComponentMap, Components},
     entity::{Entities, Entity},
-    storage::{ComponentStorageMap, SparseStorageMapper},
+    storage::ComponentStorageMap,
 };
 
 mod entity_ref;
@@ -10,11 +10,10 @@ mod entity_ref;
 pub use entity_ref::{EntityMut, EntityRef};
 
 pub struct World {
-    components: Components,
-    archetypes: Archetypes,
-    entities: Entities,
-
-    sparse_storage: ComponentStorageMap<SparseStorageMapper>,
+    pub(crate) components: Components,
+    pub(crate) archetypes: Archetypes,
+    pub(crate) entities: Entities,
+    pub(crate) storage: ComponentStorageMap,
 
     // tracks removed components
     removed: ComponentMap<Vec<Entity>>,
@@ -26,7 +25,7 @@ impl World {
             components: Components::new(),
             archetypes: Archetypes::new(),
             entities: Entities::new(),
-            sparse_storage: ComponentStorageMap::new(),
+            storage: ComponentStorageMap::new(),
             removed: ComponentMap::new(),
         }
     }
@@ -41,15 +40,15 @@ impl World {
         &mut self.components
     }
 
-    #[inline]
-    pub(crate) fn archetypes(&self) -> &Archetypes {
-        &self.archetypes
-    }
+    // #[inline]
+    // pub(crate) fn archetypes(&self) -> &Archetypes {
+    //     &self.archetypes
+    // }
 
-    #[inline]
-    pub(crate) fn entities(&self) -> &Entities {
-        &self.entities
-    }
+    // #[inline]
+    // pub(crate) fn entities(&self) -> &Entities {
+    //     &self.entities
+    // }
 
     /// Returns `true` if the world contains the given entity.
     #[inline]
@@ -70,11 +69,11 @@ impl World {
     }
 
     #[inline]
-    pub fn get<T>(&self, entity: Entity) -> Option<&T>
+    pub fn get<T>(&self, entity: Entity) -> Option<T>
     where
-        T: 'static,
+        T: Copy + Clone + 'static,
     {
-        self.entity(entity)?.get()
+        self.entity(entity)?.borrow::<T>().map(|v| *v)
     }
 
     /// Removes the entity and all its components from the world.
@@ -112,21 +111,22 @@ impl Default for World {
 
 #[cfg(test)]
 mod test {
+
     use super::*;
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     struct A(usize);
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     struct B(usize);
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     struct C(usize);
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     struct D(usize);
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     struct E(usize);
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     struct F(usize);
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     struct G(usize);
 
     #[test]
@@ -145,11 +145,11 @@ mod test {
                 .insert(E(i));
         }
         for (i, entity) in entities.iter().enumerate() {
-            assert_eq!(Some(&A(i)), world.get::<A>(*entity));
-            assert_eq!(Some(&B(i)), world.get::<B>(*entity));
-            assert_eq!(Some(&C(i * 2)), world.get::<C>(*entity));
-            assert_eq!(Some(&D(i)), world.get::<D>(*entity));
-            assert_eq!(Some(&E(i)), world.get::<E>(*entity));
+            assert_eq!(Some(A(i)), world.get::<A>(*entity));
+            assert_eq!(Some(B(i)), world.get::<B>(*entity));
+            assert_eq!(Some(C(i * 2)), world.get::<C>(*entity));
+            assert_eq!(Some(D(i)), world.get::<D>(*entity));
+            assert_eq!(Some(E(i)), world.get::<E>(*entity));
             assert_eq!(None, world.get::<F>(*entity));
             assert_eq!(None, world.get::<G>(*entity));
         }
@@ -165,19 +165,19 @@ mod test {
         }
         for (i, entity) in entities.iter().enumerate() {
             assert_eq!(None, world.get::<A>(*entity));
-            assert_eq!(Some(&B(i)), world.get::<B>(*entity));
+            assert_eq!(Some(B(i)), world.get::<B>(*entity));
             assert_eq!(None, world.get::<C>(*entity));
-            assert_eq!(Some(&D(i)), world.get::<D>(*entity));
+            assert_eq!(Some(D(i)), world.get::<D>(*entity));
             assert_eq!(None, world.get::<E>(*entity));
-            assert_eq!(Some(&F(i)), world.get::<F>(*entity));
-            assert_eq!(Some(&G(i)), world.get::<G>(*entity));
+            assert_eq!(Some(F(i)), world.get::<F>(*entity));
+            assert_eq!(Some(G(i)), world.get::<G>(*entity));
         }
 
         let mut i = 0usize;
         while i < entities.len() {
             let entity = entities[i];
             assert_eq!(None, world.get::<A>(entity));
-            assert_eq!(Some(&G(i)), world.get::<G>(entity));
+            assert_eq!(Some(G(i)), world.get::<G>(entity));
             world.entity_mut(entity).unwrap().clear();
             i += 100;
         }

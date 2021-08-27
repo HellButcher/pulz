@@ -4,9 +4,7 @@ use std::{
     collections::{btree_map::Entry, BTreeMap},
 };
 
-use crate::storage::{ColumnStorage, SparseStorage, Storage};
-
-pub trait Component: 'static {}
+use crate::storage::{AnyStorage, Storage};
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
@@ -29,15 +27,32 @@ impl ComponentId {
     }
 }
 
-pub(crate) struct ComponentInfo {
-    pub(crate) id: ComponentId,
+pub struct Component {
+    id: ComponentId,
     name: Cow<'static, str>,
     type_id: TypeId,
-    pub(crate) new_storage: fn() -> Box<dyn Storage>,
+    pub(crate) new_storage: fn() -> Box<dyn AnyStorage>,
+}
+
+impl Component {
+    #[inline]
+    pub fn id(&self) -> ComponentId {
+        self.id
+    }
+
+    #[inline]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[inline]
+    pub fn type_id(&self) -> TypeId {
+        self.type_id
+    }
 }
 
 pub struct Components {
-    pub(crate) components: Vec<ComponentInfo>,
+    pub(crate) components: Vec<Component>,
     by_type_id: BTreeMap<TypeId, ComponentId>,
 }
 
@@ -79,11 +94,11 @@ impl Components {
             Entry::Vacant(entry) => {
                 let index = components.len();
                 let id = ComponentId(index as isize); // keep positive => dense
-                components.push(ComponentInfo {
+                components.push(Component {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
-                    new_storage: || Box::new(ColumnStorage::<T>::default()),
+                    new_storage: || Box::new(Storage::<T>::Dense(Default::default())),
                 });
                 entry.insert(id);
                 Ok(id)
@@ -102,11 +117,11 @@ impl Components {
             Entry::Vacant(entry) => {
                 let index = components.len();
                 let id = ComponentId(!index as isize); // make inverse (negative) => sparse
-                components.push(ComponentInfo {
+                components.push(Component {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
-                    new_storage: || Box::new(SparseStorage::<T>::default()),
+                    new_storage: || Box::new(Storage::<T>::Sparse(Default::default())),
                 });
                 entry.insert(id);
                 Ok(id)

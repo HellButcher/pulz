@@ -5,9 +5,9 @@ use std::{
 };
 
 use crate::{
-    component::{ComponentId, ComponentSet, Components},
+    component::{ComponentId, ComponentSet},
     entity::Entity,
-    storage::{ColumnStorageMapper, ComponentStorageMap},
+    storage::slice_get_mut2,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -25,34 +25,31 @@ impl ArchetypeId {
     pub const fn index(self) -> usize {
         self.0
     }
+
+    #[inline]
+    fn next(self) -> ArchetypeId {
+        ArchetypeId(self.0 + 1)
+    }
 }
 
 pub struct Archetype {
     pub(crate) id: ArchetypeId,
     pub(crate) entities: Vec<Entity>,
-    pub(crate) dense_storage: ComponentStorageMap<ColumnStorageMapper>,
+    pub(crate) components: ComponentSet,
 }
 
 impl Archetype {
-    fn new(id: ArchetypeId) -> Self {
+    fn new(id: ArchetypeId, components: ComponentSet) -> Self {
         Self {
             id,
             entities: Vec::new(),
-            dense_storage: ComponentStorageMap::new(),
-        }
-    }
-
-    fn extend(&mut self, dense_components: &ComponentSet, components: &Components) {
-        for index in dense_components.offsets() {
-            let component = &components.components[index];
-            self.dense_storage
-                .get_or_insert_with(component.id, component.new_storage);
+            components,
         }
     }
 
     #[inline]
     pub fn contains_component_id(&self, component_id: ComponentId) -> bool {
-        self.dense_storage.contains_id(component_id)
+        self.components.contains(component_id)
     }
 
     #[inline]
@@ -91,7 +88,7 @@ impl Default for Archetypes {
         // always add the EMPTY archetype at index 0
         archetypes
             .archetypes
-            .push(Archetype::new(ArchetypeId::EMPTY));
+            .push(Archetype::new(ArchetypeId::EMPTY, ComponentSet::new()));
         archetypes
             .archetype_ids
             .insert(ComponentSet::new(), ArchetypeId::EMPTY);
@@ -146,34 +143,17 @@ impl Archetypes {
         id1: ArchetypeId,
         id2: ArchetypeId,
     ) -> Option<(&'_ mut Archetype, &'_ mut Archetype)> {
-        let id1 = id1.index();
-        let id2 = id2.index();
-        match id1.cmp(&id2) {
-            Ordering::Less => {
-                let (a, b) = self.archetypes.split_at_mut(id2);
-                Some((&mut a[id1], &mut b[0]))
-            }
-            Ordering::Greater => {
-                let (a, b) = self.archetypes.split_at_mut(id1);
-                Some((&mut b[0], &mut a[id2]))
-            }
-            Ordering::Equal => None,
-        }
+        slice_get_mut2(&mut self.archetypes, id1.index(), id2.index())
     }
 
-    pub fn get_or_insert(
-        &mut self,
-        dense_ids: ComponentSet,
-        components: &Components,
-    ) -> ArchetypeId {
+    pub fn get_or_insert(&mut self, dense_ids: ComponentSet) -> ArchetypeId {
         let archetypes = &mut self.archetypes;
         *self
             .archetype_ids
             .entry(dense_ids)
             .or_insert_with_key(|dense_ids| {
                 let new_id = ArchetypeId::new(archetypes.len());
-                let mut new_archetype = Archetype::new(new_id);
-                new_archetype.extend(dense_ids, components);
+                let new_archetype = Archetype::new(new_id, dense_ids.clone());
                 archetypes.push(new_archetype);
                 new_id
             })
@@ -245,6 +225,24 @@ impl ArchetypeSet {
         }
     }
 
+    pub fn find_next(&self, id: ArchetypeId) -> Option<ArchetypeId> {
+        let mut id = id.next();
+        let (mut index, mut bits) = Self::split(id);
+        while let Some(value) = self.0.get(index) {
+            if *value & bits != 0 {
+                return Some(id);
+            }
+            id = id.next();
+            if bits > (!0 >> 1) {
+                index += 1;
+                bits = 1;
+            } else {
+                bits <<= 1;
+            }
+        }
+        return None;
+    }
+
     fn sub_iter(start: usize, mut value: u64) -> impl Iterator<Item = ArchetypeId> {
         let mut i = start;
         std::iter::from_fn(move || {
@@ -291,11 +289,10 @@ mod tests {
 
     #[test]
     fn empty_archetype_should_have_empty_id() {
-        let components = Components::new();
         let mut archetypes = Archetypes::new();
         assert_eq!(
             ArchetypeId::EMPTY,
-            archetypes.get_or_insert(ComponentSet::new(), &components)
+            archetypes.get_or_insert(ComponentSet::new())
         );
         assert_eq!(ArchetypeId::EMPTY, archetypes[ArchetypeId::EMPTY].id)
     }
