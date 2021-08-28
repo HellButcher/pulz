@@ -28,6 +28,7 @@
 mod archetype;
 pub mod component;
 mod entity;
+pub mod query;
 mod storage;
 pub mod world;
 
