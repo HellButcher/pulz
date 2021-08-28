@@ -186,11 +186,6 @@ impl<'w> EntityMut<'w> {
     where
         T: 'static,
     {
-        // if let Some(boxed) = self.insert_components.get(component_id) {
-        //     if let Some(value) = boxed.as_ref().downcast_ref::<Option<T>>() {
-        //         return ComponentRef::filter_map(component, |_| value.as_ref());
-        //     }
-        // }
         let storage = self.world.storage.borrow::<T>(component_id)?;
         ref_filter_map(storage, |storage| {
             storage.get(self.entity, self.location.archetype_id, self.location.index)
@@ -204,15 +199,6 @@ impl<'w> EntityMut<'w> {
     where
         T: 'static,
     {
-        // if let Some(boxed) = self.insert_components.get(component_id) {
-        //     if let Some(value) = boxed.as_mut().downcast_mut::<Option<T>>() {
-        //         if let Some(value) = value.as_mut() {
-        //             return Some(ComponentMut::map(component, |_| value));
-        //         } else {
-        //             return None;
-        //         }
-        //     }
-        // }
         let storage = self.world.storage.borrow_mut::<T>(component_id)?;
         refmut_filter_map(storage, |storage| {
             storage.get_mut(self.entity, self.location.archetype_id, self.location.index)

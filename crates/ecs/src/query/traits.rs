@@ -305,9 +305,7 @@ impl Query for () {
     type Prepare = ();
 
     #[inline]
-    fn prepare(_world: &mut World) -> Self::Prepare {
-        ()
-    }
+    fn prepare(_world: &mut World) -> Self::Prepare {}
     #[inline]
     fn update_access(
         _prepared: Self::Prepare,
@@ -326,42 +324,15 @@ impl QueryFetch<'_> for () {
     type Fetch = ();
 
     #[inline]
-    fn fetch(_prepared: Self::Prepare, _world: &World) -> Self {
-        ()
-    }
+    fn fetch(_prepared: Self::Prepare, _world: &World) -> Self {}
 }
 
 impl FetchGet<'_> for () {
     type Target = ();
 
     #[inline]
-    fn get(&mut self, archetype: &Archetype, index: usize) -> () {
-        ()
-    }
+    fn get(&mut self, _archetype: &Archetype, _index: usize) {}
 }
-
-// macro_rules! query_fn {
-//     () => ();
-//     //( $name:ident, ) => (); // ignore single argument fn
-//     ( $($name:ident,)* ) => (
-
-//         impl<R,F $(,$name)*> ItemFn<($($name,)*),R> for F
-//         where
-//             F: FnMut($($name),*) -> R,
-//             $($name : Query,)*
-//         {
-//             fn call(&mut self, item: ($($name,)*)) -> R {
-//                 #[allow(non_snake_case)]
-//                 let ($($name,)*) = item;
-//                 self($($name),*)
-//             }
-//         }
-
-//         peel! { query_fn : $($name,)* }
-//     )
-// }
-
-// query_fn! { T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, }
 
 pub trait ItemFn<I, R> {
     fn call(&mut self, item: I) -> R;

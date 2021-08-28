@@ -40,16 +40,6 @@ impl World {
         &mut self.components
     }
 
-    // #[inline]
-    // pub(crate) fn archetypes(&self) -> &Archetypes {
-    //     &self.archetypes
-    // }
-
-    // #[inline]
-    // pub(crate) fn entities(&self) -> &Entities {
-    //     &self.entities
-    // }
-
     /// Returns `true` if the world contains the given entity.
     #[inline]
     pub fn contains_entity(&self, entity: Entity) -> bool {

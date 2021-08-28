@@ -6,11 +6,10 @@ use crate::{
 
 mod exec;
 mod one;
-mod query;
+mod traits;
 
 use self::exec::{QueryExecution, QueryIter};
-pub use self::query::*;
-//pub use self::exec::QueryExecution;
+pub use self::traits::*;
 
 pub struct PreparedQuery<Q>
 where

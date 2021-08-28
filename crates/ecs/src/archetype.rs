@@ -1,5 +1,4 @@
 use std::{
-    cmp::Ordering,
     collections::BTreeMap,
     ops::{Index, IndexMut},
 };
@@ -27,8 +26,8 @@ impl ArchetypeId {
     }
 
     #[inline]
-    fn next(self) -> ArchetypeId {
-        ArchetypeId(self.0 + 1)
+    fn next(self) -> Self {
+        Self(self.0 + 1)
     }
 }
 
@@ -240,7 +239,7 @@ impl ArchetypeSet {
                 bits <<= 1;
             }
         }
-        return None;
+        None
     }
 
     fn sub_iter(start: usize, mut value: u64) -> impl Iterator<Item = ArchetypeId> {

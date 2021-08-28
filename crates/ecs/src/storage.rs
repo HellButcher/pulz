@@ -126,14 +126,10 @@ impl ComponentStorageMap {
         with_components: &Components,
         component_id: ComponentId,
     ) -> &mut dyn AnyStorage {
-        self.0
-            .get_or_insert_with(component_id, || {
-                let component = &with_components.components[component_id.offset()];
-                let storage = (component.new_storage)();
-                RefCell::new(storage)
-            })
-            .get_mut()
-            .as_mut()
+        self.get_or_insert_with(component_id, || {
+            let component = &with_components.components[component_id.offset()];
+            (component.new_storage)()
+        })
     }
 }
 
@@ -263,7 +259,7 @@ where
                 }
             }
             Storage::Sparse(map) => {
-                if let Some(_) = map.remove(&entity) {
+                if map.remove(&entity).is_some() {
                     return true;
                 }
             }
@@ -353,7 +349,7 @@ where
 }
 
 #[inline]
-pub(crate) fn slice_get_mut2<T>(
+pub fn slice_get_mut2<T>(
     slice: &mut [T],
     index1: usize,
     index2: usize,
