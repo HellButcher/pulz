@@ -80,8 +80,8 @@ impl Entities {
     }
 
     #[inline]
-    pub fn get(&self, entity: Entity) -> Option<&EntityLocation> {
-        self.arena.get(entity.0)
+    pub fn get(&self, entity: Entity) -> Option<EntityLocation> {
+        self.arena.get(entity.0).copied()
     }
 
     #[inline]

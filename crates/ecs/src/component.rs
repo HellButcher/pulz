@@ -77,7 +77,7 @@ impl Components {
     #[inline]
     pub fn get_or_insert_id<T>(&mut self) -> ComponentId
     where
-        T: 'static,
+        T: Send + Sync + 'static,
     {
         match self.insert::<T>() {
             Ok(id) | Err(id) => id,
@@ -86,7 +86,7 @@ impl Components {
 
     pub fn insert<T>(&mut self) -> Result<ComponentId, ComponentId>
     where
-        T: 'static,
+        T: Send + Sync + 'static,
     {
         let type_id = std::any::TypeId::of::<T>();
         let components = &mut self.components;
@@ -109,7 +109,7 @@ impl Components {
 
     pub fn insert_sparse<T>(&mut self) -> Result<ComponentId, ComponentId>
     where
-        T: 'static,
+        T: Send + Sync + 'static,
     {
         let type_id = std::any::TypeId::of::<T>();
         let components = &mut self.components;

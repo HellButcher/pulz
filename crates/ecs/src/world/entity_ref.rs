@@ -1,14 +1,10 @@
-use std::{
-    any::Any,
-    cell::{Ref, RefMut},
-    panic,
-};
+use std::{any::Any, panic};
 
 use crate::{
     archetype::{Archetype, ArchetypeId},
     component::{ComponentId, ComponentMap, ComponentSet},
     entity::{Entity, EntityLocation},
-    world::World,
+    world::{Ref, RefMut, World},
 };
 
 /// A shared reference to a entity of a world.
@@ -49,6 +45,15 @@ where
 }
 
 impl<'w> EntityRef<'w> {
+    #[inline]
+    fn new(world: &'w World, entity: Entity, location: EntityLocation) -> Self {
+        Self {
+            world,
+            entity,
+            location,
+        }
+    }
+
     /// Returns the id this entity
     #[inline]
     pub const fn id(&self) -> Entity {
@@ -233,7 +238,7 @@ impl<'w> EntityMut<'w> {
     #[inline]
     pub fn insert<T>(&mut self, value: T) -> &mut Self
     where
-        T: 'static,
+        T: Send + Sync + 'static,
     {
         let component_id = self.world.components.get_or_insert_id::<T>();
         self.insert_by_id(component_id, value)
@@ -478,11 +483,9 @@ impl World {
     /// Returns a shared reference ([`EntityRef`]) to the entity with the given
     /// id.
     pub fn entity(&self, entity: Entity) -> Option<EntityRef<'_>> {
-        self.entities.get(entity).map(|location| EntityRef {
-            world: self,
-            entity,
-            location: *location,
-        })
+        self.entities
+            .get(entity)
+            .map(|location| EntityRef::new(self, entity, location))
     }
 
     /// Returns an exclusive reference ([`EntityMut`]) to the entity with the

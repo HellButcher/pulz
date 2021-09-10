@@ -1,8 +1,9 @@
 use std::{
     any::{Any, TypeId},
-    cell::{Ref, RefCell, RefMut},
     cmp::Ordering,
 };
+
+use atomic_refcell::{AtomicRef as Ref, AtomicRefCell, AtomicRefMut as RefMut};
 
 use fnv::FnvHashMap;
 
@@ -12,7 +13,7 @@ use crate::{
     Entity,
 };
 
-pub struct ComponentStorageMap(ComponentMap<RefCell<Box<dyn AnyStorage>>>);
+pub struct ComponentStorageMap(ComponentMap<AtomicRefCell<Box<dyn AnyStorage>>>);
 
 impl ComponentStorageMap {
     #[inline]
@@ -115,7 +116,7 @@ impl ComponentStorageMap {
         F: FnOnce() -> Box<dyn AnyStorage>,
     {
         self.0
-            .get_or_insert_with(component_id, || RefCell::new(create()))
+            .get_or_insert_with(component_id, || AtomicRefCell::new(create()))
             .get_mut()
             .as_mut()
     }
@@ -138,7 +139,7 @@ pub enum Storage<T> {
     Sparse(FnvHashMap<Entity, T>),
 }
 
-pub trait AnyStorage: Any {
+pub trait AnyStorage: Send + Sync + Any {
     fn component_type_id(&self) -> TypeId;
     fn contains(&self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool;
     fn swap_remove(&mut self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool;
@@ -230,7 +231,7 @@ where
 
 impl<T> AnyStorage for Storage<T>
 where
-    T: 'static,
+    T: Send + Sync + 'static,
 {
     #[inline]
     fn component_type_id(&self) -> TypeId {

@@ -7,13 +7,14 @@ use crate::{
 
 mod entity_ref;
 
+pub use atomic_refcell::{AtomicRef as Ref, AtomicRefMut as RefMut};
 pub use entity_ref::{EntityMut, EntityRef};
 
 pub struct World {
-    pub(crate) components: Components,
-    pub(crate) archetypes: Archetypes,
-    pub(crate) entities: Entities,
-    pub(crate) storage: ComponentStorageMap,
+    components: Components,
+    archetypes: Archetypes,
+    entities: Entities,
+    storage: ComponentStorageMap,
 
     // tracks removed components
     removed: ComponentMap<Vec<Entity>>,
@@ -38,6 +39,21 @@ impl World {
     #[inline]
     pub fn components_mut(&mut self) -> &mut Components {
         &mut self.components
+    }
+
+    #[inline]
+    pub(crate) fn archetypes(&self) -> &Archetypes {
+        &self.archetypes
+    }
+
+    #[inline]
+    pub(crate) fn entities(&self) -> &Entities {
+        &self.entities
+    }
+
+    #[inline]
+    pub(crate) fn storage(&self) -> &ComponentStorageMap {
+        &self.storage
     }
 
     /// Returns `true` if the world contains the given entity.
