@@ -2,6 +2,7 @@ use crate::{
     archetype::Archetypes,
     component::{ComponentMap, Components},
     entity::{Entities, Entity},
+    query::{exec::QueryExec, Query},
     storage::ComponentStorageMap,
 };
 
@@ -80,6 +81,14 @@ impl World {
         T: Copy + Clone + 'static,
     {
         self.entity(entity)?.borrow::<T>().map(|v| *v)
+    }
+
+    #[inline]
+    pub fn query<'w, Q>(&'w mut self) -> QueryExec<'w, Q>
+    where
+        Q: Query<'w>,
+    {
+        QueryExec::new(self)
     }
 
     /// Removes the entity and all its components from the world.
