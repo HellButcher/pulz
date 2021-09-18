@@ -8,6 +8,7 @@ use atomic_refcell::AtomicRefCell;
 pub use atomic_refcell::{AtomicRef as Res, AtomicRefMut as ResMut};
 
 use crate::{
+    system::param::{SystemParam, SystemParamFetch},
     World,
 };
 
@@ -173,5 +174,116 @@ impl Resources {
         unsafe { self.resources.get_unchecked_mut(id.0) }.value =
             Some(AtomicRefCell::new(Box::new(value)));
         id
+    }
+}
+
+impl<'a, T> SystemParam for Res<'a, T>
+where
+    T: Send + Sync + 'static,
+{
+    type Prepared = ResourceId;
+    type Fetch = Self;
+
+    #[inline]
+    fn prepare(world: &mut World) -> Self::Prepared {
+        world
+            .resources_mut()
+            .get_id::<T>()
+            .expect("resource not registered")
+    }
+}
+
+impl<'a, T> SystemParamFetch<'a> for Res<'_, T>
+where
+    T: Send + Sync + 'static,
+{
+    type Output = Res<'a, T>;
+    #[inline]
+    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
+        world.resources().borrow_id(*prepared).unwrap()
+    }
+}
+
+impl<T> SystemParam for ResMut<'_, T>
+where
+    T: Send + Sync + 'static,
+{
+    type Prepared = ResourceId;
+    type Fetch = Self;
+    #[inline]
+    fn prepare(world: &mut World) -> Self::Prepared {
+        world
+            .resources_mut()
+            .get_id::<T>()
+            .expect("resource not registered")
+    }
+}
+
+impl<'a, T> SystemParamFetch<'a> for ResMut<'_, T>
+where
+    T: Send + Sync + 'static,
+{
+    type Output = ResMut<'a, T>;
+    #[inline]
+    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
+        world.resources().borrow_mut_id(*prepared).unwrap()
+    }
+}
+
+impl<T> SystemParam for Option<Res<'_, T>>
+where
+    T: Sync + 'static,
+{
+    type Prepared = Option<ResourceId>;
+    type Fetch = Self;
+
+    #[inline]
+    fn prepare(world: &mut World) -> Self::Prepared {
+        world.resources_mut().get_id::<T>()
+    }
+}
+
+impl<'a, T> SystemParamFetch<'a> for Option<Res<'_, T>>
+where
+    T: Sync + 'static,
+{
+    type Output = Option<Res<'a, T>>;
+
+    #[inline]
+    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
+        if let Some(prepared) = *prepared {
+            world.resources().borrow_id(prepared)
+        } else {
+            None
+        }
+    }
+}
+
+impl<T> SystemParam for Option<ResMut<'_, T>>
+where
+    T: Send + 'static,
+{
+    type Prepared = Option<ResourceId>;
+    type Fetch = Self;
+
+    #[inline]
+    fn prepare(world: &mut World) -> Self::Prepared {
+        world.resources_mut().get_id::<T>()
+    }
+}
+
+impl<'a, T> SystemParamFetch<'a> for Option<ResMut<'_, T>>
+where
+    T: Send + 'static,
+{
+    type Output = Option<ResMut<'a, T>>;
+
+    #[inline]
+    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
+        if let Some(prepared) = *prepared {
+            world.resources().borrow_mut_id(prepared)
+        } else {
+            None
+        }
     }
 }

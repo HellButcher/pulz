@@ -156,3 +156,27 @@ where
         None
     }
 }
+
+impl<Q> SystemParam for Query<'_, Q>
+where
+    Q: QueryPrepare + 'static,
+{
+    type Prepared = PreparedQuery<Q>;
+    type Fetch = Self;
+    fn prepare(world: &mut World) -> Self::Prepared {
+        PreparedQuery::<Q>::new(world)
+    }
+}
+
+impl<'w, 'a, Q> SystemParamFetch<'a> for Query<'w, Q>
+where
+    Q: QueryPrepare + 'static,
+{
+    type Output = Query<'a, Q>;
+    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output
+    where
+        Q: 'a,
+    {
+        prepared.query(world)
+    }
+}
