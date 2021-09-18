@@ -154,7 +154,6 @@ impl QueryFetch<'_, '_> for Entity {
     }
 }
 
-
 impl<Q> QueryPrepare for Option<Q>
 where
     Q: QueryPrepare,

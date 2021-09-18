@@ -1,12 +1,14 @@
 use std::marker::PhantomData;
 
-use crate::{World, archetype::Archetype, component::{ComponentId, ComponentSet}};
+use crate::{
+    archetype::Archetype,
+    component::{ComponentId, ComponentSet},
+    World,
+};
 
 use super::{Query, QueryFetch, QueryPrepare};
 
-
-
-pub trait Filter{
+pub trait Filter {
     type Prepared: Sized + Copy;
     fn prepare(world: &mut World) -> Self::Prepared;
 
@@ -14,9 +16,9 @@ pub trait Filter{
     fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool;
 }
 
-
 impl<T> Filter for &'_ T
-    where T: Send + Sync + 'static
+where
+    T: Send + Sync + 'static,
 {
     type Prepared = ComponentId;
     #[inline]
@@ -31,7 +33,8 @@ impl<T> Filter for &'_ T
 }
 
 impl<T> Filter for &'_ mut T
-    where T: Send + Sync + 'static
+where
+    T: Send + Sync + 'static,
 {
     type Prepared = ComponentId;
     #[inline]
@@ -45,9 +48,7 @@ impl<T> Filter for &'_ mut T
     }
 }
 
-
-impl Filter for ()
-{
+impl Filter for () {
     type Prepared = ();
     #[inline(always)]
     fn prepare(_world: &mut World) {}
@@ -58,7 +59,7 @@ impl Filter for ()
     }
 }
 
-#[derive(Copy,Clone,Debug,Eq,PartialEq,Ord,PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct Or<T>(pub T);
 
@@ -71,7 +72,7 @@ where
     $($name: Filter,)+
 {
     type Prepared = ($($name::Prepared,)+);
-    
+
     #[inline]
     fn prepare(world: &mut World) -> Self::Prepared {
         ($($name::prepare(world),)+)
@@ -88,7 +89,7 @@ where
     $($name: Filter,)+
 {
     type Prepared = ($($name::Prepared,)+);
-    
+
     #[inline]
     fn prepare(world: &mut World) -> Self::Prepared {
         ($($name::prepare(world),)+)
@@ -106,10 +107,9 @@ where
 
 tuple! { T0.0, T1.1, T2.2, T3.3, T4.4, T5.5, T6.6, T7.7, T8.8, T9.9, T10.10, T11.11, }
 
-
 pub struct Without<F, Q>(PhantomData<(Q, fn(F))>);
 
-impl<F,Q> QueryPrepare for Without<F, Q>
+impl<F, Q> QueryPrepare for Without<F, Q>
 where
     F: Filter,
     Q: QueryPrepare,
@@ -133,7 +133,7 @@ where
 
     #[inline(always)]
     fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool {
-      !F::matches_archetype(prepared.0, archetype) && Q::matches_archetype(prepared.1, archetype)
+        !F::matches_archetype(prepared.0, archetype) && Q::matches_archetype(prepared.1, archetype)
     }
 
     #[inline(always)]
@@ -142,7 +142,7 @@ where
     }
 }
 
-impl<'w, F, Q> Query<'w> for Without<F,Q>
+impl<'w, F, Q> Query<'w> for Without<F, Q>
 where
     F: Filter,
     Q: Query<'w>,
@@ -156,7 +156,7 @@ where
     }
 }
 
-impl<'w, 'a, F, Q> QueryFetch<'w, 'a> for Without<F,Q>
+impl<'w, 'a, F, Q> QueryFetch<'w, 'a> for Without<F, Q>
 where
     F: Filter,
     Q: QueryFetch<'w, 'a>,
@@ -179,8 +179,7 @@ where
 
 pub struct With<F, Q>(PhantomData<(Q, fn(F))>);
 
-
-impl<F,Q> QueryPrepare for With<F, Q>
+impl<F, Q> QueryPrepare for With<F, Q>
 where
     F: Filter,
     Q: QueryPrepare,
@@ -204,7 +203,7 @@ where
 
     #[inline(always)]
     fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool {
-      F::matches_archetype(prepared.0, archetype) && Q::matches_archetype(prepared.1, archetype)
+        F::matches_archetype(prepared.0, archetype) && Q::matches_archetype(prepared.1, archetype)
     }
 
     #[inline(always)]
@@ -213,7 +212,7 @@ where
     }
 }
 
-impl<'w, F, Q> Query<'w> for With<F,Q>
+impl<'w, F, Q> Query<'w> for With<F, Q>
 where
     F: Filter,
     Q: Query<'w>,
@@ -227,7 +226,7 @@ where
     }
 }
 
-impl<'w, 'a, F,Q> QueryFetch<'w, 'a> for With<F,Q>
+impl<'w, 'a, F, Q> QueryFetch<'w, 'a> for With<F, Q>
 where
     F: Filter,
     Q: QueryFetch<'w, 'a>,
