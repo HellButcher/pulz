@@ -4,7 +4,7 @@ use crate::{
     World,
 };
 
-use self::exec::QueryExec;
+use self::exec::Query;
 
 // mostly based on `hecs` (https://github.com/Ralith/hecs/blob/9a2405c703ea0eb6481ad00d55e74ddd226c1494/src/query.rs)
 
@@ -12,9 +12,11 @@ use self::exec::QueryExec;
 pub trait QueryPrepare {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
-    type Prepared: Sized + Copy;
+    type Prepared: Send + Sync + Sized + Copy + 'static;
 
-    type State: Sized + Copy;
+    type State: Sized + Copy + 'static;
+
+    type Borrow: for<'w> QueryBorrow<'w, Prepared = Self::Prepared>;
 
     /// Looks up data that can be re-used between multiple query invocations
     fn prepare(world: &mut World) -> Self::Prepared;
@@ -31,26 +33,26 @@ pub trait QueryPrepare {
     fn state(prepared: Self::Prepared, archetype: &Archetype) -> Self::State;
 }
 
-pub trait Query<'w>: QueryPrepare {
-    type Borrow: 'w;
+pub trait QueryBorrow<'w>: QueryPrepare<Borrow = Self> {
+    type Borrowed: Send;
 
     #[doc(hidden)]
     type Fetch: for<'a> QueryFetch<'w, 'a>;
 
     /// Acquire dynamic borrows from `archetype`
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrow;
+    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed;
 }
 
 /// Type of values yielded by a query
-pub type QueryItem<'w, 'a, Q> = <<Q as Query<'w>>::Fetch as QueryFetch<'w, 'a>>::Item;
+pub type QueryItem<'w, 'a, Q> = <<Q as QueryBorrow<'w>>::Fetch as QueryFetch<'w, 'a>>::Item;
 
-pub trait QueryFetch<'w, 'a>: Query<'w, Fetch = Self> {
+pub trait QueryFetch<'w, 'a>: QueryBorrow<'w, Fetch = Self> {
     /// Type of value to be fetched
     type Item;
 
     /// Access the given item in this archetype
     fn get(
-        this: &'a mut Self::Borrow,
+        this: &'a mut Self::Borrowed,
         state: Self::State,
         archetype: &Archetype,
         index: usize,
@@ -138,14 +140,14 @@ where
     }
 }
 
-impl<'w, Q> PreparedQuery<Q>
+impl<Q> PreparedQuery<Q>
 where
-    Q: Query<'w>,
+    Q: QueryPrepare,
 {
     #[inline]
-    pub fn query(&'w mut self, world: &'w World) -> QueryExec<'w, Q> {
+    pub fn query<'w>(&'w mut self, world: &'w World) -> Query<'w, Q> {
         self.update_archetypes(world);
-        QueryExec::new_prepared(self, world)
+        Query::new_prepared(self, world)
     }
 }
 

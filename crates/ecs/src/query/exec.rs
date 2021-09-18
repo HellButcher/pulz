@@ -1,33 +1,37 @@
 use std::borrow::Cow;
 
-use crate::{archetype::ArchetypeId, Entity, World};
+use crate::{
+    archetype::ArchetypeId,
+    system::param::{SystemParam, SystemParamFetch},
+    Entity, World,
+};
 
-use super::{PreparedQuery, Query, QueryFetch, QueryItem};
+use super::{PreparedQuery, QueryBorrow, QueryFetch, QueryItem, QueryPrepare};
 
-pub struct QueryExec<'w, Q>
+pub struct Query<'w, Q>
 where
-    Q: Query<'w>,
+    Q: QueryPrepare,
 {
     prepared: Cow<'w, PreparedQuery<Q>>,
     world: &'w World,
-    borrow: Q::Borrow,
+    borrow: <Q::Borrow as QueryBorrow<'w>>::Borrowed,
 }
 
 pub struct QueryIter<'w, 'a, Q>
 where
-    Q: Query<'w>,
+    Q: QueryBorrow<'w>,
 {
     prepared: &'a PreparedQuery<Q>,
     world: &'w World,
-    borrow: &'a mut Q::Borrow,
+    borrow: &'a mut Q::Borrowed,
     archetype_id: Option<ArchetypeId>,
     state: Option<Q::State>,
     index: usize,
 }
 
-impl<'w, Q> QueryExec<'w, Q>
+impl<'w, Q> Query<'w, Q>
 where
-    Q: Query<'w>,
+    Q: QueryPrepare,
 {
     pub fn new(world: &'w mut World) -> Self {
         // TODO: try to not require mut world
@@ -36,7 +40,7 @@ where
         Self {
             prepared: Cow::Owned(prepared),
             world,
-            borrow: Q::borrow(world, tmp),
+            borrow: <Q::Borrow as QueryBorrow<'w>>::borrow(world, tmp),
         }
     }
 
@@ -44,7 +48,7 @@ where
         Self {
             prepared: Cow::Borrowed(prepared),
             world,
-            borrow: Q::borrow(world, prepared.prepared),
+            borrow: <Q::Borrow as QueryBorrow<'w>>::borrow(world, prepared.prepared),
         }
     }
 
@@ -103,7 +107,7 @@ where
     }
 }
 
-impl<'w: 'a, 'a, Q> IntoIterator for &'a mut QueryExec<'w, Q>
+impl<'w: 'a, 'a, Q> IntoIterator for &'a mut Query<'w, Q>
 where
     Q: QueryFetch<'w, 'a>,
 {

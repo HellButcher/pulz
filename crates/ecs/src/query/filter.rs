@@ -6,10 +6,10 @@ use crate::{
     World,
 };
 
-use super::{Query, QueryFetch, QueryPrepare};
+use super::{QueryBorrow, QueryFetch, QueryPrepare};
 
 pub trait Filter {
-    type Prepared: Sized + Copy;
+    type Prepared: Send + Sync + Sized + Copy + 'static;
     fn prepare(world: &mut World) -> Self::Prepared;
 
     /// Checks if the archetype matches the query
@@ -116,6 +116,7 @@ where
 {
     type Prepared = (F::Prepared, Q::Prepared);
     type State = Q::State;
+    type Borrow = Without<F, Q::Borrow>;
 
     #[inline]
     fn prepare(world: &mut World) -> Self::Prepared {
@@ -142,16 +143,16 @@ where
     }
 }
 
-impl<'w, F, Q> Query<'w> for Without<F, Q>
+impl<'w, F, Q> QueryBorrow<'w> for Without<F, Q>
 where
     F: Filter,
-    Q: Query<'w>,
+    Q: QueryBorrow<'w>,
 {
-    type Borrow = Q::Borrow;
+    type Borrowed = Q::Borrowed;
     type Fetch = Without<F, Q::Fetch>;
 
     #[inline(always)]
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrow {
+    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed {
         Q::borrow(world, prepared.1)
     }
 }
@@ -165,7 +166,7 @@ where
 
     #[inline(always)]
     fn get(
-        this: &'a mut Self::Borrow,
+        this: &'a mut Self::Borrowed,
         state: Q::State,
         archetype: &Archetype,
         index: usize,
@@ -186,6 +187,7 @@ where
 {
     type Prepared = (F::Prepared, Q::Prepared);
     type State = Q::State;
+    type Borrow = With<F, Q::Borrow>;
 
     #[inline]
     fn prepare(world: &mut World) -> Self::Prepared {
@@ -212,16 +214,16 @@ where
     }
 }
 
-impl<'w, F, Q> Query<'w> for With<F, Q>
+impl<'w, F, Q> QueryBorrow<'w> for With<F, Q>
 where
     F: Filter,
-    Q: Query<'w>,
+    Q: QueryBorrow<'w>,
 {
-    type Borrow = Q::Borrow;
+    type Borrowed = Q::Borrowed;
     type Fetch = With<F, Q::Fetch>;
 
     #[inline(always)]
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrow {
+    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed {
         Q::borrow(world, prepared.1)
     }
 }
@@ -235,7 +237,7 @@ where
 
     #[inline(always)]
     fn get(
-        this: &'a mut Self::Borrow,
+        this: &'a mut Self::Borrowed,
         state: Q::State,
         archetype: &Archetype,
         index: usize,

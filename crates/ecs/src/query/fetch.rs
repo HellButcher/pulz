@@ -1,4 +1,4 @@
-use super::{Query, QueryFetch, QueryPrepare};
+use super::{QueryBorrow, QueryFetch, QueryPrepare};
 use crate::archetype::Archetype;
 use crate::world::{Ref, RefMut};
 use crate::Entity;
@@ -11,6 +11,7 @@ use crate::{
 impl<T: Send + Sync + 'static> QueryPrepare for &'_ T {
     type Prepared = ComponentId;
     type State = ();
+    type Borrow = Self;
 
     #[inline]
     fn prepare(world: &mut World) -> ComponentId {
@@ -35,12 +36,12 @@ impl<T: Send + Sync + 'static> QueryPrepare for &'_ T {
     fn state(_prepared: Self::Prepared, _archetype: &Archetype) {}
 }
 
-impl<'w, T: Send + Sync + 'static> Query<'w> for &'_ T {
-    type Borrow = Ref<'w, Storage<T>>;
+impl<'w, T: Send + Sync + 'static> QueryBorrow<'w> for &'_ T {
+    type Borrowed = Ref<'w, Storage<T>>;
     type Fetch = Self;
 
     #[inline]
-    fn borrow(world: &'w World, component_id: Self::Prepared) -> Self::Borrow {
+    fn borrow(world: &'w World, component_id: Self::Prepared) -> Self::Borrowed {
         world
             .storage()
             .borrow(component_id)
@@ -53,7 +54,7 @@ impl<'w, 'a, T: Send + Sync + 'static> QueryFetch<'w, 'a> for &'_ T {
 
     #[inline]
     fn get(
-        this: &'a mut Self::Borrow,
+        this: &'a mut Self::Borrowed,
         _state: (),
         archetype: &Archetype,
         index: usize,
@@ -66,6 +67,7 @@ impl<'w, 'a, T: Send + Sync + 'static> QueryFetch<'w, 'a> for &'_ T {
 impl<T: Send + Sync + 'static> QueryPrepare for &'_ mut T {
     type Prepared = ComponentId;
     type State = ();
+    type Borrow = Self;
 
     #[inline]
     fn prepare(world: &mut World) -> ComponentId {
@@ -90,12 +92,12 @@ impl<T: Send + Sync + 'static> QueryPrepare for &'_ mut T {
     fn state(_prepared: Self::Prepared, _archetype: &Archetype) {}
 }
 
-impl<'w, T: Send + Sync + 'static> Query<'w> for &'_ mut T {
-    type Borrow = RefMut<'w, Storage<T>>;
+impl<'w, T: Send + Sync + 'static> QueryBorrow<'w> for &'_ mut T {
+    type Borrowed = RefMut<'w, Storage<T>>;
     type Fetch = Self;
 
     #[inline]
-    fn borrow(world: &'w World, component_id: Self::Prepared) -> Self::Borrow {
+    fn borrow(world: &'w World, component_id: Self::Prepared) -> Self::Borrowed {
         world
             .storage()
             .borrow_mut(component_id)
@@ -108,7 +110,7 @@ impl<'w, 'a, T: Send + Sync + 'static> QueryFetch<'w, 'a> for &'_ mut T {
 
     #[inline]
     fn get(
-        this: &'a mut Self::Borrow,
+        this: &'a mut Self::Borrowed,
         _state: (),
         archetype: &Archetype,
         index: usize,
@@ -121,6 +123,7 @@ impl<'w, 'a, T: Send + Sync + 'static> QueryFetch<'w, 'a> for &'_ mut T {
 impl QueryPrepare for Entity {
     type Prepared = ();
     type State = ();
+    type Borrow = Self;
 
     #[inline(always)]
     fn prepare(_world: &mut World) {}
@@ -137,8 +140,8 @@ impl QueryPrepare for Entity {
     fn state(_prepared: Self::Prepared, _archetype: &Archetype) {}
 }
 
-impl Query<'_> for Entity {
-    type Borrow = ();
+impl QueryBorrow<'_> for Entity {
+    type Borrowed = ();
     type Fetch = Self;
 
     #[inline(always)]
@@ -149,7 +152,7 @@ impl QueryFetch<'_, '_> for Entity {
     type Item = Entity;
 
     #[inline(always)]
-    fn get(_this: &mut Self::Borrow, _state: (), archetype: &Archetype, index: usize) -> Entity {
+    fn get(_this: &mut Self::Borrowed, _state: (), archetype: &Archetype, index: usize) -> Entity {
         archetype.entities[index]
     }
 }
@@ -160,6 +163,7 @@ where
 {
     type Prepared = Q::Prepared;
     type State = (bool, Q::State);
+    type Borrow = Option<Q::Borrow>;
 
     #[inline]
     fn prepare(world: &mut World) -> Self::Prepared {
@@ -189,15 +193,15 @@ where
     }
 }
 
-impl<'w, Q> Query<'w> for Option<Q>
+impl<'w, Q> QueryBorrow<'w> for Option<Q>
 where
-    Q: Query<'w>,
+    Q: QueryBorrow<'w>,
 {
-    type Borrow = Q::Borrow;
+    type Borrowed = Q::Borrowed;
     type Fetch = Option<Q::Fetch>;
 
     #[inline]
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrow {
+    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed {
         Q::borrow(world, prepared)
     }
 }
@@ -210,7 +214,7 @@ where
 
     #[inline]
     fn get(
-        this: &'a mut Self::Borrow,
+        this: &'a mut Self::Borrowed,
         state: (bool, F::State),
         archetype: &Archetype,
         index: usize,
@@ -230,6 +234,7 @@ where
 impl QueryPrepare for () {
     type Prepared = ();
     type State = ();
+    type Borrow = Self;
 
     #[inline(always)]
     fn prepare(_world: &mut World) {}
@@ -251,8 +256,8 @@ impl QueryPrepare for () {
     fn state(_prepared: Self::Prepared, _archetype: &Archetype) {}
 }
 
-impl Query<'_> for () {
-    type Borrow = ();
+impl QueryBorrow<'_> for () {
+    type Borrowed = ();
     type Fetch = ();
 
     #[inline(always)]
@@ -263,7 +268,7 @@ impl QueryFetch<'_, '_> for () {
     type Item = ();
 
     #[inline(always)]
-    fn get(_this: &mut Self::Borrow, _state: (), _archetype: &Archetype, _index: usize) {}
+    fn get(_this: &mut Self::Borrowed, _state: (), _archetype: &Archetype, _index: usize) {}
 }
 
 macro_rules! tuple {
@@ -276,6 +281,7 @@ where
 {
     type Prepared = ($($name::Prepared,)+);
     type State = ($($name::State,)+);
+    type Borrow = ($($name::Borrow,)+);
 
     #[inline]
     fn prepare(world: &mut World) -> Self::Prepared {
@@ -302,15 +308,15 @@ where
     }
 }
 
-impl<'w, $($name),+> Query<'w> for ($($name,)+)
+impl<'w, $($name),+> QueryBorrow<'w> for ($($name,)+)
 where
-    $($name: Query<'w>,)+
+    $($name: QueryBorrow<'w>,)+
 {
-    type Borrow = ($($name::Borrow,)+);
+    type Borrowed = ($($name::Borrowed,)+);
     type Fetch = ($($name::Fetch,)+);
 
     #[inline]
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrow {
+    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed {
         ($($name::borrow(world, prepared.$index),)+)
     }
 }
@@ -322,7 +328,7 @@ where
     type Item = ($($name::Item,)+);
 
     #[inline(always)]
-    fn get(this: &'a mut Self::Borrow, state: Self::State, archetype: &Archetype, index: usize) -> Self::Item where 'w: 'a {
+    fn get(this: &'a mut Self::Borrowed, state: Self::State, archetype: &Archetype, index: usize) -> Self::Item where 'w: 'a {
         ($($name::get(&mut this.$index, state.$index, archetype, index),)+)
     }
 }
