@@ -37,7 +37,9 @@ mod archetype;
 pub mod component;
 mod entity;
 pub mod query;
+pub mod schedule;
 mod storage;
+pub mod system;
 pub mod world;
 
 pub use entity::Entity;
