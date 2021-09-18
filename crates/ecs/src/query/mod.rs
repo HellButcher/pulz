@@ -60,7 +60,10 @@ pub trait QueryFetch<'w, 'a>: Query<'w, Fetch = Self> {
 }
 
 pub mod exec;
-pub mod fetch;
+mod fetch;
+mod filter;
+pub use fetch::*;
+pub use filter::*;
 
 pub struct PreparedQuery<Q>
 where
