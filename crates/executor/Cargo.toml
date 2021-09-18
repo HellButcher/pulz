@@ -1,0 +1,18 @@
+[package]
+name = "pulz-executor"
+version = "0.1.0"
+authors = ["Christoph Hommelsheim <main@chommel.eu>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HellButcher/pulz.git"
+readme = "README.md"
+edition = "2018"
+
+[features]
+#default = ["async-std"]
+
+[dependencies]
+tokio = {version = "1.11", features = ["rt"], default-features = false, optional = true }
+async-std = {version = "1.10", optional = true }
+
+[dev-dependencies]
+async-std = { version = "1.10", features = ["attributes"] }

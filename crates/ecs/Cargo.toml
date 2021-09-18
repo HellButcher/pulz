@@ -13,5 +13,10 @@ edition = "2018"
 
 [dependencies]
 pulz-arena = { path = "../arena" }
+pulz-executor = { path = "../executor" }
 fnv = "1.0"
 atomic_refcell = "0.1"
+
+[dev-dependencies]
+pulz-executor = { path = "../executor", features = ["async-std"] }
+async-std = { version = "1.10", features = ["attributes"] }
