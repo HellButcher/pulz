@@ -1,6 +1,6 @@
 #![warn(
-    // missing_docs,
-    // rustdoc::missing_doc_code_examples,
+    missing_docs,
+    rustdoc::missing_doc_code_examples,
     future_incompatible,
     rust_2018_idioms,
     unused,
@@ -17,8 +17,8 @@
     clippy::use_self,
     clippy::suspicious_operation_groupings,
     clippy::useless_let_if_seq,
-    // clippy::missing_errors_doc,
-    // clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
     clippy::wildcard_imports
 )]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo.png")]
@@ -27,16 +27,30 @@
 
 use std::{future::Future, pin::Pin};
 
+/// An owned dynamically typed [`Future`]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// An owned dynamically typed [`Future`] without `Send` requirement
 pub type LocalBoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
+/// A handle that awaits the result of a spawned task.
+///
+/// Dropping a [`JoinHandle`] will detach the task, meaning that there is no longer
+/// a handle to the task and no way to `join` on it.
 pub trait JoinHandle: Future + Unpin {
+    /// Cancels the tasks and blocks until it is cancelled.
     fn cancel_and_block(self);
 }
 
+/// An Abstraction over common functionalities of async runtimes.
 pub trait Executor {
+    /// The return-type used by `spawn(..)`
     type JoinHandle: JoinHandle;
+
+    /// Spawns an async task.
     fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) -> Self::JoinHandle;
+
+    /// Spawns a task and blocks the current thread on its result.
     fn block_on(&self, fut: impl Future<Output = ()>);
 }
 
@@ -83,6 +97,7 @@ mod async_std {
     use super::{Executor, JoinHandle};
     use std::future::Future;
 
+    /// An `Executor` implementation for `async-std`
     pub struct AsyncStd;
 
     impl JoinHandle for async_std::task::JoinHandle<()> {
