@@ -16,6 +16,12 @@ A collection of rust crates for game-development.
   [![Crates.io](https://img.shields.io/crates/v/pulz-arena.svg?label=pulz-arena)](https://crates.io/crates/pulz-arena)
   [![docs.rs](https://docs.rs/pulz-arena/badge.svg)](https://docs.rs/pulz-arena/)
 
+* **[`pulz-executor`](crates/executor)** -
+  Abstractions of some async runtimes
+
+  [![Crates.io](https://img.shields.io/crates/v/pulz-executor.svg?label=pulz-executor)](https://crates.io/crates/pulz-executor)
+  [![docs.rs](https://docs.rs/pulz-executor/badge.svg)](https://docs.rs/pulz-executor/)
+
 * **[`pulz-ecs`](crates/ecs)** -
   An _archetype_ based ECS (Entity Component System)
 

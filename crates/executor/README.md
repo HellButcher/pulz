@@ -7,13 +7,15 @@
 [![license: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
 [![Rust CI](https://github.com/HellButcher/pulz/actions/workflows/rust.yml/badge.svg)](https://github.com/HellButcher/pulz/actions/workflows/rust.yml)
 
-<!-- TODO: Short Introduction -->
-**TODO**
+Abstractions of some async runtimes
 
-## Example
+## Feature Flags
 
-<!-- TODO: basic Usage Example -->
-**TODO**
+The implementions for different runtimes are available behind feature-flags.
+The followinf flags are arailable:
+
+* `async-std`
+* `tokio`
 
 ## License
 

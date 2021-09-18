@@ -1,5 +1,6 @@
 [package]
 name = "pulz-executor"
+description = "Abstractions of some async runtimes"
 version = "0.1.0"
 authors = ["Christoph Hommelsheim <main@chommel.eu>"]
 license = "MIT OR Apache-2.0"
