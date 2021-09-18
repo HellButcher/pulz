@@ -3,6 +3,7 @@ use crate::{
     component::{ComponentMap, Components},
     entity::{Entities, Entity},
     query::{exec::Query, QueryBorrow},
+    resource::Resources,
     storage::ComponentStorageMap,
 };
 
@@ -12,6 +13,7 @@ pub use atomic_refcell::{AtomicRef as Ref, AtomicRefMut as RefMut};
 pub use entity_ref::{EntityMut, EntityRef};
 
 pub struct World {
+    resources: Resources,
     components: Components,
     archetypes: Archetypes,
     entities: Entities,
@@ -24,12 +26,23 @@ pub struct World {
 impl World {
     pub fn new() -> Self {
         Self {
+            resources: Resources::new(),
             components: Components::new(),
             archetypes: Archetypes::new(),
             entities: Entities::new(),
             storage: ComponentStorageMap::new(),
             removed: ComponentMap::new(),
         }
+    }
+
+    #[inline]
+    pub fn resources(&self) -> &Resources {
+        &self.resources
+    }
+
+    #[inline]
+    pub fn resources_mut(&mut self) -> &mut Resources {
+        &mut self.resources
     }
 
     #[inline]

@@ -37,6 +37,7 @@ mod archetype;
 pub mod component;
 mod entity;
 pub mod query;
+pub mod resource;
 pub mod schedule;
 mod storage;
 pub mod system;
