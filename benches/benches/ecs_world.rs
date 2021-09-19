@@ -233,7 +233,7 @@ pub fn world_spawn_sparse(c: &mut Criterion) {
 
 fn pulz_insert_many_components2<T>(e: &mut pulz_ecs::world::EntityMut, value: T)
 where
-    T: Copy + 'static,
+    T: Send + Sync + Copy + 'static,
 {
     e.insert((value, A(1)));
     e.insert((value, B(1)));
@@ -249,7 +249,7 @@ where
 
 fn pulz_insert_many_components<T>(e: &mut pulz_ecs::world::EntityMut, value: T)
 where
-    T: Copy + 'static,
+    T: Send + Sync + Copy + 'static,
 {
     pulz_insert_many_components2(e, (value, A(2)));
     pulz_insert_many_components2(e, (value, B(2)));
