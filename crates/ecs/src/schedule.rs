@@ -72,8 +72,13 @@ impl<E: Executor> Schedule<E> {
                 SystemVariant::Concurrent(ref mut system) => {
                     assert!(i < next_order_index && next_order_index <= self.order.len());
                     let system: &mut dyn System = system.as_mut();
-                    let world = &*world; // shared borrow
-                    tasks.spawn(next_order_index, move || system.run(world));
+                    if system.is_send() {
+                        let world = world.as_send(); // shared borrow
+                        tasks.spawn(next_order_index, move || system.run_send(world));
+                    } else {
+                        let world = &*world;
+                        tasks.spawn_local(next_order_index, move || system.run(world));
+                    }
                 }
                 SystemVariant::Exclusive(ref mut system) => {
                     system.run(world);
@@ -114,9 +119,12 @@ mod tests {
         struct A;
         struct Sys(Arc<std::sync::atomic::AtomicUsize>);
         let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        impl System for Sys {
+        unsafe impl System for Sys {
             fn run(&mut self, _arg: &World) {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            }
+            fn is_send(&self) -> bool {
+                true
             }
         }
         struct ExSys;

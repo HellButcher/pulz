@@ -1,6 +1,10 @@
 use crate::World;
 
-pub trait SystemParam: Send + Sized {
+/// # Unsafe
+/// The value ov IS_SEND must be correct: when it says true, then the type must be Send!
+pub unsafe trait SystemParam: Sized {
+    const IS_SEND: bool;
+
     type Prepared: Send + Sync;
     type Fetch: for<'a> SystemParamFetch<'a, Prepared = Self::Prepared>;
     fn prepare(world: &mut World) -> Self::Prepared;
@@ -13,7 +17,9 @@ pub trait SystemParamFetch<'a>: SystemParam<Fetch = Self> {
         Self: 'a;
 }
 
-impl SystemParam for () {
+unsafe impl SystemParam for () {
+    const IS_SEND: bool = true;
+
     type Prepared = ();
     type Fetch = ();
     #[inline]
@@ -29,10 +35,12 @@ macro_rules! tuple {
   () => ();
   ( $($name:ident.$index:tt,)+ ) => (
 
-      impl<$($name),+> SystemParam for ($($name,)+)
+      unsafe impl<$($name),+> SystemParam for ($($name,)+)
       where
           $($name : SystemParam),+
       {
+          const IS_SEND: bool = $($name::IS_SEND)&&+;
+
           type Prepared = ($($name::Prepared,)+) ;
           type Fetch = ($($name::Fetch,)+) ;
           #[inline]

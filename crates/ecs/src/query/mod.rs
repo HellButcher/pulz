@@ -1,6 +1,7 @@
 use crate::{
     archetype::{Archetype, ArchetypeId, ArchetypeSet},
     component::{ComponentId, ComponentSet},
+    world::{BaseWorld, WorldSend},
     World,
 };
 
@@ -19,7 +20,7 @@ pub trait QueryPrepare {
     type Borrow: for<'w> QueryBorrow<'w, Prepared = Self::Prepared>;
 
     /// Looks up data that can be re-used between multiple query invocations
-    fn prepare(world: &mut World) -> Self::Prepared;
+    fn prepare(world: &mut WorldSend) -> Self::Prepared;
 
     fn update_access(
         prepared: Self::Prepared,
@@ -40,7 +41,7 @@ pub trait QueryBorrow<'w>: QueryPrepare<Borrow = Self> {
     type Fetch: for<'a> QueryFetch<'w, 'a>;
 
     /// Acquire dynamic borrows from `archetype`
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed;
+    fn borrow(world: &'w WorldSend, prepared: Self::Prepared) -> Self::Borrowed;
 }
 
 /// Type of values yielded by a query
@@ -84,7 +85,8 @@ impl<Q> PreparedQuery<Q>
 where
     Q: QueryPrepare,
 {
-    pub fn new(world: &mut World) -> Self {
+    pub fn new<Marker>(world: &mut BaseWorld<Marker>) -> Self {
+        let world = world.as_send_mut();
         let prepared = Q::prepare(world);
         let mut shared_access = ComponentSet::new();
         let mut exclusive_access = ComponentSet::new();
@@ -107,7 +109,7 @@ where
         query
     }
 
-    pub fn update_archetypes(&mut self, world: &World) {
+    pub fn update_archetypes(&mut self, world: &WorldSend) {
         let archetypes = world.archetypes();
         let last_archetype_index = archetypes.len();
         let old_archetype_index =
@@ -120,6 +122,13 @@ where
                 self.matching_archetypes.insert(id);
             }
         }
+    }
+
+    #[inline]
+    pub fn query<'w, Marker>(&'w mut self, world: &'w BaseWorld<Marker>) -> Query<'w, Q> {
+        let world = world.as_send();
+        self.update_archetypes(world);
+        Query::new_prepared(self, world)
     }
 }
 
@@ -137,17 +146,6 @@ where
             last_archetype_index: self.last_archetype_index,
             matching_archetypes: self.matching_archetypes.clone(),
         }
-    }
-}
-
-impl<Q> PreparedQuery<Q>
-where
-    Q: QueryPrepare,
-{
-    #[inline]
-    pub fn query<'w>(&'w mut self, world: &'w World) -> Query<'w, Q> {
-        self.update_archetypes(world);
-        Query::new_prepared(self, world)
     }
 }
 

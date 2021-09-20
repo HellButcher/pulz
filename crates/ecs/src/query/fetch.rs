@@ -1,6 +1,6 @@
 use super::{QueryBorrow, QueryFetch, QueryPrepare};
 use crate::archetype::Archetype;
-use crate::world::{Ref, RefMut};
+use crate::world::{Ref, RefMut, WorldSend};
 use crate::Entity;
 use crate::{
     component::{ComponentId, ComponentSet},
@@ -14,7 +14,7 @@ impl<T: Send + Sync + 'static> QueryPrepare for &'_ T {
     type Borrow = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> ComponentId<T> {
+    fn prepare(world: &mut WorldSend) -> ComponentId<T> {
         world.components_mut().get_or_insert_id::<T>()
     }
 
@@ -41,7 +41,7 @@ impl<'w, T: Send + Sync + 'static> QueryBorrow<'w> for &'_ T {
     type Fetch = Self;
 
     #[inline]
-    fn borrow(world: &'w World, component_id: Self::Prepared) -> Self::Borrowed {
+    fn borrow(world: &'w WorldSend, component_id: Self::Prepared) -> Self::Borrowed {
         world
             .storage()
             .borrow(component_id)
@@ -70,7 +70,7 @@ impl<T: Send + Sync + 'static> QueryPrepare for &'_ mut T {
     type Borrow = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> ComponentId<T> {
+    fn prepare(world: &mut WorldSend) -> ComponentId<T> {
         world.components_mut().get_or_insert_id::<T>()
     }
 
@@ -97,7 +97,7 @@ impl<'w, T: Send + Sync + 'static> QueryBorrow<'w> for &'_ mut T {
     type Fetch = Self;
 
     #[inline]
-    fn borrow(world: &'w World, component_id: Self::Prepared) -> Self::Borrowed {
+    fn borrow(world: &'w WorldSend, component_id: Self::Prepared) -> Self::Borrowed {
         world
             .storage()
             .borrow_mut(component_id)
@@ -126,7 +126,7 @@ impl QueryPrepare for Entity {
     type Borrow = Self;
 
     #[inline(always)]
-    fn prepare(_world: &mut World) {}
+    fn prepare(_world: &mut WorldSend) {}
 
     #[inline(always)]
     fn update_access(_prepared: (), _shared: &mut ComponentSet, _exclusive: &mut ComponentSet) {}
@@ -145,7 +145,7 @@ impl QueryBorrow<'_> for Entity {
     type Fetch = Self;
 
     #[inline(always)]
-    fn borrow(_world: &World, _prepared: ()) {}
+    fn borrow(_world: &WorldSend, _prepared: ()) {}
 }
 
 impl QueryFetch<'_, '_> for Entity {
@@ -166,7 +166,7 @@ where
     type Borrow = Option<Q::Borrow>;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
+    fn prepare(world: &mut WorldSend) -> Self::Prepared {
         Q::prepare(world)
     }
 
@@ -201,7 +201,7 @@ where
     type Fetch = Option<Q::Fetch>;
 
     #[inline]
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed {
+    fn borrow(world: &'w WorldSend, prepared: Self::Prepared) -> Self::Borrowed {
         Q::borrow(world, prepared)
     }
 }
@@ -237,7 +237,7 @@ impl QueryPrepare for () {
     type Borrow = Self;
 
     #[inline(always)]
-    fn prepare(_world: &mut World) {}
+    fn prepare(_world: &mut WorldSend) {}
 
     #[inline(always)]
     fn update_access(
@@ -261,7 +261,7 @@ impl QueryBorrow<'_> for () {
     type Fetch = ();
 
     #[inline(always)]
-    fn borrow(_world: &World, _prepared: Self::Prepared) {}
+    fn borrow(_world: &WorldSend, _prepared: Self::Prepared) {}
 }
 
 impl QueryFetch<'_, '_> for () {
@@ -284,7 +284,7 @@ where
     type Borrow = ($($name::Borrow,)+);
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
+    fn prepare(world: &mut WorldSend) -> Self::Prepared {
         ($($name::prepare(world),)+)
     }
 
@@ -316,7 +316,7 @@ where
     type Fetch = ($($name::Fetch,)+);
 
     #[inline]
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed {
+    fn borrow(world: &'w WorldSend, prepared: Self::Prepared) -> Self::Borrowed {
         ($($name::borrow(world, prepared.$index),)+)
     }
 }

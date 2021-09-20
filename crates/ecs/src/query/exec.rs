@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use crate::{
     archetype::ArchetypeId,
     system::param::{SystemParam, SystemParamFetch},
+    world::WorldSend,
     Entity, World,
 };
 
@@ -13,7 +14,7 @@ where
     Q: QueryPrepare,
 {
     prepared: Cow<'w, PreparedQuery<Q>>,
-    world: &'w World,
+    world: &'w WorldSend,
     borrow: <Q::Borrow as QueryBorrow<'w>>::Borrowed,
 }
 
@@ -22,7 +23,7 @@ where
     Q: QueryBorrow<'w>,
 {
     prepared: &'a PreparedQuery<Q>,
-    world: &'w World,
+    world: &'w WorldSend,
     borrow: &'a mut Q::Borrowed,
     archetype_id: Option<ArchetypeId>,
     state: Option<Q::State>,
@@ -33,7 +34,7 @@ impl<'w, Q> Query<'w, Q>
 where
     Q: QueryPrepare,
 {
-    pub fn new(world: &'w mut World) -> Self {
+    pub fn new(world: &'w mut WorldSend) -> Self {
         // TODO: try to not require mut world
         let prepared = PreparedQuery::new(world);
         let tmp = prepared.prepared;
@@ -44,7 +45,7 @@ where
         }
     }
 
-    pub(crate) fn new_prepared(prepared: &'w PreparedQuery<Q>, world: &'w World) -> Self {
+    pub(crate) fn new_prepared(prepared: &'w PreparedQuery<Q>, world: &'w WorldSend) -> Self {
         Self {
             prepared: Cow::Borrowed(prepared),
             world,
@@ -157,14 +158,15 @@ where
     }
 }
 
-impl<Q> SystemParam for Query<'_, Q>
+unsafe impl<Q> SystemParam for Query<'_, Q>
 where
     Q: QueryPrepare + 'static,
 {
+    const IS_SEND: bool = true;
     type Prepared = PreparedQuery<Q>;
     type Fetch = Self;
     fn prepare(world: &mut World) -> Self::Prepared {
-        PreparedQuery::<Q>::new(world)
+        PreparedQuery::<Q>::new(world.as_send_mut())
     }
 }
 
@@ -177,6 +179,6 @@ where
     where
         Q: 'a,
     {
-        prepared.query(world)
+        prepared.query(world.as_send())
     }
 }

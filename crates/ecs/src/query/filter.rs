@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     archetype::Archetype,
     component::{ComponentId, ComponentSet},
+    world::WorldSend,
     World,
 };
 
@@ -10,7 +11,7 @@ use super::{QueryBorrow, QueryFetch, QueryPrepare};
 
 pub trait Filter {
     type Prepared: Send + Sync + Sized + Copy + 'static;
-    fn prepare(world: &mut World) -> Self::Prepared;
+    fn prepare(world: &mut WorldSend) -> Self::Prepared;
 
     /// Checks if the archetype matches the query
     fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool;
@@ -22,7 +23,7 @@ where
 {
     type Prepared = ComponentId<T>;
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
+    fn prepare(world: &mut WorldSend) -> Self::Prepared {
         world.components_mut().get_or_insert_id::<T>()
     }
 
@@ -38,7 +39,7 @@ where
 {
     type Prepared = ComponentId<T>;
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
+    fn prepare(world: &mut WorldSend) -> Self::Prepared {
         world.components_mut().get_or_insert_id::<T>()
     }
 
@@ -51,7 +52,7 @@ where
 impl Filter for () {
     type Prepared = ();
     #[inline(always)]
-    fn prepare(_world: &mut World) {}
+    fn prepare(_world: &mut WorldSend) {}
 
     #[inline(always)]
     fn matches_archetype(_prepared: (), _archetype: &Archetype) -> bool {
@@ -74,7 +75,7 @@ where
     type Prepared = ($($name::Prepared,)+);
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
+    fn prepare(world: &mut WorldSend) -> Self::Prepared {
         ($($name::prepare(world),)+)
     }
 
@@ -91,7 +92,7 @@ where
     type Prepared = ($($name::Prepared,)+);
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
+    fn prepare(world: &mut WorldSend) -> Self::Prepared {
         ($($name::prepare(world),)+)
     }
 
@@ -119,7 +120,7 @@ where
     type Borrow = Without<F, Q::Borrow>;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
+    fn prepare(world: &mut WorldSend) -> Self::Prepared {
         (F::prepare(world), Q::prepare(world))
     }
 
@@ -152,7 +153,7 @@ where
     type Fetch = Without<F, Q::Fetch>;
 
     #[inline(always)]
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed {
+    fn borrow(world: &'w WorldSend, prepared: Self::Prepared) -> Self::Borrowed {
         Q::borrow(world, prepared.1)
     }
 }
@@ -190,7 +191,7 @@ where
     type Borrow = With<F, Q::Borrow>;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
+    fn prepare(world: &mut WorldSend) -> Self::Prepared {
         (F::prepare(world), Q::prepare(world))
     }
 
@@ -223,7 +224,7 @@ where
     type Fetch = With<F, Q::Fetch>;
 
     #[inline(always)]
-    fn borrow(world: &'w World, prepared: Self::Prepared) -> Self::Borrowed {
+    fn borrow(world: &'w WorldSend, prepared: Self::Prepared) -> Self::Borrowed {
         Q::borrow(world, prepared.1)
     }
 }

@@ -3,7 +3,7 @@ use crate::{
     component::{ComponentMap, Components},
     entity::{Entities, Entity},
     query::{exec::Query, QueryBorrow},
-    resource::Resources,
+    resource::{FromWorld, ResourceId, Resources, SendMarker, UnsendMarker},
     storage::ComponentStorageMap,
 };
 
@@ -12,8 +12,11 @@ mod entity_ref;
 pub use atomic_refcell::{AtomicRef as Ref, AtomicRefMut as RefMut};
 pub use entity_ref::{EntityMut, EntityRef};
 
-pub struct World {
-    resources: Resources,
+pub type WorldSend = BaseWorld<SendMarker>;
+pub type World = BaseWorld<UnsendMarker>;
+
+pub struct BaseWorld<Marker = UnsendMarker> {
+    resources: Resources<Marker>,
     components: Components,
     archetypes: Archetypes,
     entities: Entities,
@@ -23,7 +26,7 @@ pub struct World {
     removed: ComponentMap<Vec<Entity>>,
 }
 
-impl World {
+impl<Marker> BaseWorld<Marker> {
     pub fn new() -> Self {
         Self {
             resources: Resources::new(),
@@ -36,7 +39,7 @@ impl World {
     }
 
     #[inline]
-    pub const fn resources(&self) -> &Resources {
+    pub const fn resources(&self) -> &Resources<Marker> {
         &self.resources
     }
 
@@ -96,7 +99,7 @@ impl World {
     where
         Q: QueryBorrow<'w>,
     {
-        Query::new(self)
+        Query::new(self.as_send_mut())
     }
 
     /// Removes the entity and all its components from the world.
@@ -132,6 +135,31 @@ impl World {
         self.resources.insert(value)
     }
 
+    #[inline]
+    pub fn as_send(&self) -> &WorldSend {
+        // SAFETY: same type but different Phantom-Data.
+        // Unsend -> Send is allowed, because it will restrict access-methods even more (to only accept send+sync types)
+        unsafe { std::mem::transmute(self) }
+    }
+
+    #[inline]
+    pub fn as_send_mut(&mut self) -> &mut WorldSend {
+        // SAFETY: same type but different Phantom-Data.
+        // Unsend -> Send is allowed, because it will restrict access-methods even more (to only accept send+sync types)
+        unsafe { std::mem::transmute(self) }
+    }
+
+    /// # Unsafe
+    /// User must ensure, that no UnSend Resources are send to a other thread
+    #[inline]
+    pub unsafe fn as_unsend(&self) -> &World {
+        // SAFETY: same type but different Phantom-Data.
+        // Send -> Unsend is unsafe (see doc)
+        std::mem::transmute(self)
+    }
+}
+
+impl World {
     pub fn init_resource<T>(&mut self) -> ResourceId<T>
     where
         T: 'static + Send + Sync + FromWorld,

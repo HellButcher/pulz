@@ -4,12 +4,12 @@ use crate::{
     archetype::{Archetype, ArchetypeId},
     component::{ComponentId, ComponentMap, ComponentSet},
     entity::{Entity, EntityLocation},
-    world::{Ref, RefMut, World},
+    world::{BaseWorld, Ref, RefMut, WorldSend},
 };
 
 /// A shared reference to a entity of a world.
 pub struct EntityRef<'w> {
-    world: &'w World,
+    world: &'w WorldSend,
     entity: Entity,
     location: EntityLocation,
 }
@@ -46,7 +46,7 @@ where
 
 impl<'w> EntityRef<'w> {
     #[inline]
-    fn new(world: &'w World, entity: Entity, location: EntityLocation) -> Self {
+    fn new(world: &'w WorldSend, entity: Entity, location: EntityLocation) -> Self {
         Self {
             world,
             entity,
@@ -111,7 +111,7 @@ impl<'w> EntityRef<'w> {
 
 /// An exclusive reference to a entity of a world.
 pub struct EntityMut<'w> {
-    world: &'w mut World,
+    world: &'w mut WorldSend,
     entity: Entity,
     location: EntityLocation,
     remove_components: ComponentSet,
@@ -119,7 +119,7 @@ pub struct EntityMut<'w> {
 }
 
 impl<'w> EntityMut<'w> {
-    fn new(world: &'w mut World, entity: Entity, location: EntityLocation) -> Self {
+    fn new(world: &'w mut WorldSend, entity: Entity, location: EntityLocation) -> Self {
         Self {
             world,
             entity,
@@ -479,13 +479,13 @@ impl Drop for EntityMut<'_> {
     }
 }
 
-impl World {
+impl<Marker> BaseWorld<Marker> {
     /// Returns a shared reference ([`EntityRef`]) to the entity with the given
     /// id.
     pub fn entity(&self, entity: Entity) -> Option<EntityRef<'_>> {
         self.entities
             .get(entity)
-            .map(|location| EntityRef::new(self, entity, location))
+            .map(|location| EntityRef::new(self.as_send(), entity, location))
     }
 
     /// Returns an exclusive reference ([`EntityMut`]) to the entity with the
@@ -493,7 +493,7 @@ impl World {
     pub fn entity_mut(&mut self, entity: Entity) -> Option<EntityMut<'_>> {
         if let Some(location) = self.entities.get_mut(entity) {
             let location = *location;
-            Some(EntityMut::new(self, entity, location))
+            Some(EntityMut::new(self.as_send_mut(), entity, location))
         } else {
             None
         }
@@ -508,6 +508,6 @@ impl World {
         self.entities[entity].index = empty_archetype.len();
         empty_archetype.entities.push(entity);
         let location = self.entities[entity];
-        EntityMut::new(self, entity, location)
+        EntityMut::new(self.as_send_mut(), entity, location)
     }
 }

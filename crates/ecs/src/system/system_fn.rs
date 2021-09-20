@@ -13,6 +13,7 @@ where
 {
     func: F,
     prepared: Option<Param::Prepared>,
+    is_send: bool,
     marker: PhantomData<fn() -> (Param,)>,
 }
 
@@ -30,6 +31,7 @@ where
         Self {
             func,
             prepared: None,
+            is_send: Param::IS_SEND,
             marker: PhantomData,
         }
     }
@@ -47,12 +49,12 @@ where
 
 #[doc(hidden)]
 pub struct SystemFnMarker;
-impl<'l, Param, F> IntoSystem<'l, (SystemFnMarker, Param)> for F
+impl<Param, F> IntoSystem<(SystemFnMarker, Param)> for F
 where
-    Param: SystemParam + 'l,
-    F: SystemParamFn<Param, ()> + Send + Sync + 'l,
+    Param: SystemParam + 'static,
+    F: SystemParamFn<Param, ()>,
 {
-    fn into_system(self) -> SystemDescriptor<'l> {
+    fn into_system(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Concurrent(Box::new(SystemFn::<Param, F>::new(self))),
             dependencies: Vec::new(),
@@ -60,10 +62,11 @@ where
     }
 }
 
-impl<Param, F> System for SystemFn<Param, F>
+// TODO: analyze safety
+unsafe impl<Param, F> System for SystemFn<Param, F>
 where
-    Param: SystemParam,
-    F: SystemParamFn<Param, ()> + Send + Sync,
+    Param: SystemParam + 'static,
+    F: SystemParamFn<Param, ()>,
 {
     #[inline]
     fn initialize(&mut self, world: &mut World) {
@@ -76,15 +79,19 @@ where
         let prepared = self.prepared.as_mut().expect("uninitialized");
         SystemParamFn::call(func, prepared, world)
     }
+
+    fn is_send(&self) -> bool {
+        self.is_send
+    }
 }
 
 #[doc(hidden)]
 pub struct ExclusiveSystemFnMarker;
-impl<'l, F> IntoSystem<'l, ExclusiveSystemFnMarker> for F
+impl<F> IntoSystem<ExclusiveSystemFnMarker> for F
 where
-    F: ExclusiveSystemParamFn<()> + 'l,
+    F: ExclusiveSystemParamFn<()> + 'static,
 {
-    fn into_system(self) -> SystemDescriptor<'l> {
+    fn into_system(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(ExclusiveSystemFn { func: self })),
             dependencies: Vec::new(),
@@ -102,17 +109,17 @@ where
     }
 }
 
-pub trait SystemParamFn<Param: SystemParam, Out>: Send + Sync {
+pub trait SystemParamFn<Param: SystemParam, Out>: Send + Sync + 'static {
     fn call(&mut self, prepared: &mut Param::Prepared, world: &World) -> Out;
 }
 
-pub trait ExclusiveSystemParamFn<Out> {
+pub trait ExclusiveSystemParamFn<Out>: 'static {
     fn call(&mut self, world: &mut World) -> Out;
 }
 
 impl<Out, F> SystemParamFn<(), Out> for F
 where
-    F: FnMut() -> Out + Send + Sync,
+    F: FnMut() -> Out + Send + Sync + 'static,
 {
     #[inline]
     fn call(&mut self, _prepared: &mut (), _world: &World) -> Out {
@@ -122,7 +129,7 @@ where
 
 impl<Out, F> ExclusiveSystemParamFn<Out> for F
 where
-    F: FnMut(&mut World) -> Out + Send + Sync,
+    F: FnMut(&mut World) -> Out + Send + Sync + 'static,
 {
     #[inline]
     fn call(&mut self, world: &mut World) -> Out {
@@ -136,7 +143,7 @@ macro_rules! tuple {
 
       impl<Out, F $(,$name)*> SystemParamFn<($($name,)*),Out> for F
       where
-          F: Send + Sync,
+          F: Send + Sync + 'static,
           $($name: SystemParam,)*
           for<'a> &'a mut F: FnMut($($name),*) -> Out
           + FnMut($(<$name::Fetch as SystemParamFetch<'a>>::Output),*) -> Out,
@@ -164,6 +171,8 @@ tuple! { T0.0, T1.1, T2.2, T3.3, T4.4, T5.5, T6.6, T7.7, T8.8, T9.9, T10.10, T11
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::{ExclusiveSystemFn, ExclusiveSystemParamFn, SystemFn, SystemParamFn};
     use crate::{
         query::exec::Query,
@@ -244,14 +253,17 @@ mod tests {
 
     #[test]
     fn test_system_fn() {
-        let value = std::sync::atomic::AtomicUsize::new(0);
-        let sys_a = |mut a: ResMut<'_, A>| {
-            value.store(a.0, std::sync::atomic::Ordering::Release);
-            a.0 += 10;
+        let value = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let sys_a = {
+            let value = value.clone();
+            move |mut a: ResMut<'_, A>| {
+                value.store(a.0, std::sync::atomic::Ordering::Release);
+                a.0 += 10;
+            }
         };
 
         let mut world = World::new();
-        world.resources_mut().insert(A(11));
+        world.insert_resource(A(11));
 
         let mut sys = IntoSystem::into_system(sys_a);
         match sys.system_variant {
@@ -262,7 +274,7 @@ mod tests {
             _ => unreachable!("unexpected value"),
         }
 
-        assert_eq!(11, value.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(11, value.clone().load(std::sync::atomic::Ordering::Acquire));
 
         assert_eq!(21, world.resources().borrow::<A>().unwrap().0);
     }

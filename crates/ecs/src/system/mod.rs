@@ -1,28 +1,40 @@
-use crate::World;
+use pulz_executor::Executor;
+
+use crate::{world::WorldSend, World};
 
 pub mod param;
 pub mod system_fn;
 
-pub trait System: Send + Sync {
+/// # Unsafe
+/// when is_send returns true, the implemention of run must ensure, that no unsend resources are accessed
+pub unsafe trait System: Send + Sync + 'static {
     fn initialize(&mut self, _world: &mut World) {}
     fn run(&mut self, arg: &World);
+
+    fn is_send(&self) -> bool;
+
+    fn run_send(&mut self, arg: &WorldSend) {
+        assert!(self.is_send(), "system is not send");
+        // SAFETY: no unsend resources are accessed (defined by unsafe trait contract)
+        unsafe { self.run(arg.as_unsend()) }
+    }
 }
 
-pub trait ExclusiveSystem {
+pub trait ExclusiveSystem: 'static {
     fn initialize(&mut self, _world: &mut World) {}
     fn run(&mut self, arg: &mut World);
 }
 
-pub trait IntoSystem<'l, Marker: 'l> {
-    fn into_system(self) -> SystemDescriptor<'l>;
+pub trait IntoSystem<Marker> {
+    fn into_system(self) -> SystemDescriptor;
 }
 
-pub struct SystemDescriptor<'l> {
-    pub(crate) system_variant: SystemVariant<'l>,
+pub struct SystemDescriptor {
+    pub(crate) system_variant: SystemVariant,
     pub(crate) dependencies: Vec<usize>,
 }
 
-impl SystemDescriptor<'_> {
+impl SystemDescriptor {
     pub fn exclusive(self) -> Self {
         match self.system_variant {
             SystemVariant::Exclusive(_) => self,
@@ -36,18 +48,23 @@ impl SystemDescriptor<'_> {
     }
 }
 
-pub(crate) enum SystemVariant<'l> {
-    Exclusive(Box<dyn ExclusiveSystem + 'l>),
-    Concurrent(Box<dyn System + 'l>),
+pub(crate) enum SystemVariant {
+    Exclusive(Box<dyn ExclusiveSystem>),
+    Concurrent(Box<dyn System>),
 }
 
-impl<S> System for Box<S>
+unsafe impl<S> System for Box<S>
 where
     S: System,
 {
     #[inline]
     fn run(&mut self, arg: &World) {
         self.as_mut().run(arg)
+    }
+
+    #[inline]
+    fn is_send(&self) -> bool {
+        self.as_ref().is_send()
     }
 }
 
@@ -62,9 +79,9 @@ where
 }
 
 #[doc(hidden)]
-pub struct ConcurrentAsExclusiveSystem<'l>(Box<dyn System + 'l>);
+pub struct ConcurrentAsExclusiveSystem(Box<dyn System>);
 
-impl<'l> ExclusiveSystem for ConcurrentAsExclusiveSystem<'l> {
+impl ExclusiveSystem for ConcurrentAsExclusiveSystem {
     #[inline]
     fn run(&mut self, arg: &mut World) {
         self.0.run(arg)
@@ -73,20 +90,20 @@ impl<'l> ExclusiveSystem for ConcurrentAsExclusiveSystem<'l> {
 
 #[doc(hidden)]
 pub struct SystemDescriptorMarker;
-impl<'l> IntoSystem<'l, SystemDescriptorMarker> for SystemDescriptor<'l> {
+impl IntoSystem<SystemDescriptorMarker> for SystemDescriptor {
     #[inline]
-    fn into_system(self) -> SystemDescriptor<'l> {
+    fn into_system(self) -> SystemDescriptor {
         self
     }
 }
 
 #[doc(hidden)]
 pub struct ConcurrentSystemMarker;
-impl<'l, S> IntoSystem<'l, ConcurrentSystemMarker> for S
+impl<S> IntoSystem<ConcurrentSystemMarker> for S
 where
-    S: System + 'l,
+    S: System,
 {
-    fn into_system(self) -> SystemDescriptor<'l> {
+    fn into_system(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Concurrent(Box::new(self)),
             dependencies: Vec::new(),
@@ -96,11 +113,11 @@ where
 
 #[doc(hidden)]
 pub struct ExclusiveSystemMarker;
-impl<'l, S> IntoSystem<'l, ExclusiveSystemMarker> for S
+impl<S> IntoSystem<ExclusiveSystemMarker> for S
 where
-    S: ExclusiveSystem + 'l,
+    S: ExclusiveSystem,
 {
-    fn into_system(self) -> SystemDescriptor<'l> {
+    fn into_system(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(self)),
             dependencies: Vec::new(),
