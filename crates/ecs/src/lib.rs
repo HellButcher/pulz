@@ -33,6 +33,9 @@ macro_rules! peel {
 
 pub use pulz_executor as executor;
 
+#[doc(hidden)]
+pub enum Void {}
+
 mod archetype;
 pub mod component;
 mod entity;

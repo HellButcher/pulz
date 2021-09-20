@@ -20,14 +20,14 @@ impl<T> Filter for &'_ T
 where
     T: Send + Sync + 'static,
 {
-    type Prepared = ComponentId;
+    type Prepared = ComponentId<T>;
     #[inline]
     fn prepare(world: &mut World) -> Self::Prepared {
         world.components_mut().get_or_insert_id::<T>()
     }
 
     #[inline]
-    fn matches_archetype(component_id: ComponentId, archetype: &Archetype) -> bool {
+    fn matches_archetype(component_id: ComponentId<T>, archetype: &Archetype) -> bool {
         archetype.contains_component_id(component_id)
     }
 }
@@ -36,14 +36,14 @@ impl<T> Filter for &'_ mut T
 where
     T: Send + Sync + 'static,
 {
-    type Prepared = ComponentId;
+    type Prepared = ComponentId<T>;
     #[inline]
     fn prepare(world: &mut World) -> Self::Prepared {
         world.components_mut().get_or_insert_id::<T>()
     }
 
     #[inline]
-    fn matches_archetype(component_id: ComponentId, archetype: &Archetype) -> bool {
+    fn matches_archetype(component_id: ComponentId<T>, archetype: &Archetype) -> bool {
         archetype.contains_component_id(component_id)
     }
 }

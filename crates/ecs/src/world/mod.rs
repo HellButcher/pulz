@@ -36,17 +36,12 @@ impl World {
     }
 
     #[inline]
-    pub fn resources(&self) -> &Resources {
+    pub const fn resources(&self) -> &Resources {
         &self.resources
     }
 
     #[inline]
-    pub fn resources_mut(&mut self) -> &mut Resources {
-        &mut self.resources
-    }
-
-    #[inline]
-    pub fn components(&self) -> &Components {
+    pub const fn components(&self) -> &Components {
         &self.components
     }
 
@@ -56,17 +51,17 @@ impl World {
     }
 
     #[inline]
-    pub(crate) fn archetypes(&self) -> &Archetypes {
+    pub(crate) const fn archetypes(&self) -> &Archetypes {
         &self.archetypes
     }
 
     #[inline]
-    pub(crate) fn entities(&self) -> &Entities {
+    pub(crate) const fn entities(&self) -> &Entities {
         &self.entities
     }
 
     #[inline]
-    pub(crate) fn storage(&self) -> &ComponentStorageMap {
+    pub(crate) const fn storage(&self) -> &ComponentStorageMap {
         &self.storage
     }
 
@@ -127,6 +122,46 @@ impl World {
             e.despawn();
             true
         })
+    }
+
+    #[inline]
+    pub fn insert_resource<T>(&mut self, value: T) -> ResourceId<T>
+    where
+        T: 'static + Send + Sync,
+    {
+        self.resources.insert(value)
+    }
+
+    pub fn init_resource<T>(&mut self) -> ResourceId<T>
+    where
+        T: 'static + Send + Sync + FromWorld,
+    {
+        if let Some(id) = self.resources.get_id::<T>() {
+            id
+        } else {
+            let value = T::from_world(self);
+            self.resources.insert(value)
+        }
+    }
+
+    #[inline]
+    pub fn insert_unsend_resource<T>(&mut self, value: T) -> ResourceId<T>
+    where
+        T: 'static,
+    {
+        self.resources.insert_unsend(value)
+    }
+
+    pub fn init_unsend_resource<T>(&mut self) -> ResourceId<T>
+    where
+        T: 'static + FromWorld,
+    {
+        if let Some(id) = self.resources.get_id::<T>() {
+            id
+        } else {
+            let value = T::from_world(self);
+            self.resources.insert_unsend(value)
+        }
     }
 }
 

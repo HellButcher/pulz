@@ -2,15 +2,33 @@ use std::{
     any::TypeId,
     borrow::Cow,
     collections::{btree_map::Entry, BTreeMap},
+    marker::PhantomData,
 };
 
 use crate::storage::{AnyStorage, Storage};
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Hash, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
-pub struct ComponentId(isize);
+pub struct ComponentId<T = crate::Void>(isize, PhantomData<fn() -> T>);
 
-impl ComponentId {
+impl<T> std::fmt::Debug for ComponentId<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ComponentId").field(&self.0).finish()
+    }
+}
+impl<T> Copy for ComponentId<T> {}
+impl<T> Clone for ComponentId<T> {
+    fn clone(&self) -> Self {
+        Self(self.0, PhantomData)
+    }
+}
+
+impl<T> ComponentId<T> {
+    #[inline(always)]
+    fn cast<X>(self) -> ComponentId<X> {
+        ComponentId(self.0, PhantomData)
+    }
+
     #[inline]
     pub fn is_sparse(self) -> bool {
         self.0 < 0
@@ -66,16 +84,19 @@ impl Components {
     }
 
     #[inline]
-    pub fn get_id<T>(&self) -> Option<ComponentId>
+    pub fn get_id<T>(&self) -> Option<ComponentId<T>>
     where
         T: 'static,
     {
         let type_id = std::any::TypeId::of::<T>();
-        self.by_type_id.get(&type_id).copied()
+        self.by_type_id
+            .get(&type_id)
+            .copied()
+            .map(ComponentId::cast)
     }
 
     #[inline]
-    pub fn get_or_insert_id<T>(&mut self) -> ComponentId
+    pub fn get_or_insert_id<T>(&mut self) -> ComponentId<T>
     where
         T: Send + Sync + 'static,
     {
@@ -84,7 +105,7 @@ impl Components {
         }
     }
 
-    pub fn insert<T>(&mut self) -> Result<ComponentId, ComponentId>
+    pub fn insert<T>(&mut self) -> Result<ComponentId<T>, ComponentId<T>>
     where
         T: Send + Sync + 'static,
     {
@@ -93,7 +114,7 @@ impl Components {
         match self.by_type_id.entry(type_id) {
             Entry::Vacant(entry) => {
                 let index = components.len();
-                let id = ComponentId(index as isize); // keep positive => dense
+                let id = ComponentId(index as isize, PhantomData); // keep positive => dense
                 components.push(Component {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
@@ -101,13 +122,13 @@ impl Components {
                     new_storage: || Box::new(Storage::<T>::Dense(Default::default())),
                 });
                 entry.insert(id);
-                Ok(id)
+                Ok(id.cast())
             }
-            Entry::Occupied(entry) => Err(*entry.get()),
+            Entry::Occupied(entry) => Err((*entry.get()).cast()),
         }
     }
 
-    pub fn insert_sparse<T>(&mut self) -> Result<ComponentId, ComponentId>
+    pub fn insert_sparse<T>(&mut self) -> Result<ComponentId<T>, ComponentId<T>>
     where
         T: Send + Sync + 'static,
     {
@@ -116,7 +137,7 @@ impl Components {
         match self.by_type_id.entry(type_id) {
             Entry::Vacant(entry) => {
                 let index = components.len();
-                let id = ComponentId(!index as isize); // make inverse (negative) => sparse
+                let id = ComponentId(!index as isize, PhantomData); // make inverse (negative) => sparse
                 components.push(Component {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
@@ -124,9 +145,9 @@ impl Components {
                     new_storage: || Box::new(Storage::<T>::Sparse(Default::default())),
                 });
                 entry.insert(id);
-                Ok(id)
+                Ok(id.cast())
             }
-            Entry::Occupied(entry) => Err(*entry.get()),
+            Entry::Occupied(entry) => Err((*entry.get()).cast()),
         }
     }
 }
@@ -146,7 +167,7 @@ impl ComponentSet {
     }
 
     #[inline]
-    fn split(id: ComponentId) -> (usize, u64) {
+    fn split<X>(id: ComponentId<X>) -> (usize, u64) {
         let offset = id.offset();
         let index = offset / 64;
         let bits = 1u64 << (offset % 64);
@@ -154,7 +175,7 @@ impl ComponentSet {
     }
 
     #[inline]
-    pub fn contains(&self, id: ComponentId) -> bool {
+    pub fn contains<X>(&self, id: ComponentId<X>) -> bool {
         let (index, bits) = Self::split(id);
         if let Some(value) = self.0.get(index) {
             *value & bits != 0
@@ -163,7 +184,7 @@ impl ComponentSet {
         }
     }
 
-    pub fn insert(&mut self, id: ComponentId) {
+    pub fn insert<X>(&mut self, id: ComponentId<X>) {
         let (index, bits) = Self::split(id);
         if index >= self.0.len() {
             self.0.resize(index + 1, 0);
@@ -173,7 +194,7 @@ impl ComponentSet {
         *value |= bits;
     }
 
-    pub fn remove(&mut self, id: ComponentId) {
+    pub fn remove<X>(&mut self, id: ComponentId<X>) {
         let (index, bits) = Self::split(id);
         if let Some(value) = self.0.get_mut(index) {
             *value &= !bits;
@@ -252,17 +273,17 @@ impl<T> ComponentMap<T> {
     }
 
     #[inline]
-    fn search(&self, id: ComponentId) -> Result<usize, usize> {
-        self.0.binary_search_by(|(item_id, _)| item_id.cmp(&id))
+    fn search<X>(&self, id: ComponentId<X>) -> Result<usize, usize> {
+        self.0.binary_search_by(|(item_id, _)| item_id.0.cmp(&id.0))
     }
 
     #[inline]
-    pub fn contains(&self, id: ComponentId) -> bool {
+    pub fn contains<X>(&self, id: ComponentId<X>) -> bool {
         self.search(id).is_ok()
     }
 
     #[inline]
-    pub fn get(&self, id: ComponentId) -> Option<&T> {
+    pub fn get<X>(&self, id: ComponentId<X>) -> Option<&T> {
         if let Ok(index) = self.search(id) {
             // SAFETY: index was found by search
             Some(unsafe { &self.0.get_unchecked(index).1 })
@@ -272,7 +293,7 @@ impl<T> ComponentMap<T> {
     }
 
     #[inline]
-    pub fn get_mut(&mut self, id: ComponentId) -> Option<&mut T> {
+    pub fn get_mut<X>(&mut self, id: ComponentId<X>) -> Option<&mut T> {
         if let Ok(index) = self.search(id) {
             // SAFETY: index was found by search
             Some(unsafe { &mut self.0.get_unchecked_mut(index).1 })
@@ -282,7 +303,7 @@ impl<T> ComponentMap<T> {
     }
 
     #[inline]
-    pub fn remove(&mut self, id: ComponentId) -> Option<T> {
+    pub fn remove<X>(&mut self, id: ComponentId<X>) -> Option<T> {
         match self.search(id) {
             Ok(index) => Some(self.0.remove(index).1),
             Err(_) => None,
@@ -290,7 +311,7 @@ impl<T> ComponentMap<T> {
     }
 
     #[inline]
-    pub fn insert(&mut self, id: ComponentId, value: T) -> &mut T {
+    pub fn insert<X>(&mut self, id: ComponentId<X>, value: T) -> &mut T {
         match self.search(id) {
             Ok(index) => {
                 // SAFETY: index was found by search
@@ -299,7 +320,7 @@ impl<T> ComponentMap<T> {
                 item
             }
             Err(index) => {
-                self.0.insert(index, (id, value));
+                self.0.insert(index, (id.cast(), value));
                 // SAFETY: index was inserted
                 unsafe { &mut self.0.get_unchecked_mut(index).1 }
             }
@@ -307,7 +328,7 @@ impl<T> ComponentMap<T> {
     }
 
     #[inline]
-    pub fn get_or_insert_with<F>(&mut self, id: ComponentId, create: F) -> &mut T
+    pub fn get_or_insert_with<X, F>(&mut self, id: ComponentId<X>, create: F) -> &mut T
     where
         F: FnOnce() -> T,
     {
@@ -317,7 +338,7 @@ impl<T> ComponentMap<T> {
                 unsafe { &mut self.0.get_unchecked_mut(index).1 }
             }
             Err(index) => {
-                self.0.insert(index, (id, create()));
+                self.0.insert(index, (id.cast(), create()));
                 // SAFETY: index was inserted
                 unsafe { &mut self.0.get_unchecked_mut(index).1 }
             }

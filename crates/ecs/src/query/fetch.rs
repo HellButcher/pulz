@@ -9,12 +9,12 @@ use crate::{
 };
 
 impl<T: Send + Sync + 'static> QueryPrepare for &'_ T {
-    type Prepared = ComponentId;
+    type Prepared = ComponentId<T>;
     type State = ();
     type Borrow = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> ComponentId {
+    fn prepare(world: &mut World) -> ComponentId<T> {
         world.components_mut().get_or_insert_id::<T>()
     }
 
@@ -28,7 +28,7 @@ impl<T: Send + Sync + 'static> QueryPrepare for &'_ T {
     }
 
     #[inline]
-    fn matches_archetype(component_id: ComponentId, archetype: &Archetype) -> bool {
+    fn matches_archetype(component_id: ComponentId<T>, archetype: &Archetype) -> bool {
         component_id.is_sparse() || archetype.contains_component_id(component_id)
     }
 
@@ -65,12 +65,12 @@ impl<'w, 'a, T: Send + Sync + 'static> QueryFetch<'w, 'a> for &'_ T {
 }
 
 impl<T: Send + Sync + 'static> QueryPrepare for &'_ mut T {
-    type Prepared = ComponentId;
+    type Prepared = ComponentId<T>;
     type State = ();
     type Borrow = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> ComponentId {
+    fn prepare(world: &mut World) -> ComponentId<T> {
         world.components_mut().get_or_insert_id::<T>()
     }
 
@@ -84,7 +84,7 @@ impl<T: Send + Sync + 'static> QueryPrepare for &'_ mut T {
     }
 
     #[inline]
-    fn matches_archetype(component_id: ComponentId, archetype: &Archetype) -> bool {
+    fn matches_archetype(component_id: ComponentId<T>, archetype: &Archetype) -> bool {
         component_id.is_sparse() || archetype.contains_component_id(component_id)
     }
 

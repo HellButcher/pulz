@@ -22,7 +22,7 @@ impl ComponentStorageMap {
     }
 
     #[inline]
-    pub fn contains_id(&self, component_id: ComponentId) -> bool {
+    pub fn contains_id<X>(&self, component_id: ComponentId<X>) -> bool {
         self.0.contains(component_id)
     }
 
@@ -44,12 +44,12 @@ impl ComponentStorageMap {
     }
 
     #[inline]
-    pub fn get_mut_dyn(&mut self, component_id: ComponentId) -> Option<&mut dyn AnyStorage> {
+    pub fn get_mut_dyn<X>(&mut self, component_id: ComponentId<X>) -> Option<&mut dyn AnyStorage> {
         Some(self.0.get_mut(component_id)?.get_mut().as_mut())
     }
 
     #[inline]
-    pub fn get_mut<T>(&mut self, component_id: ComponentId) -> Option<&mut Storage<T>>
+    pub fn get_mut<T>(&mut self, component_id: ComponentId<T>) -> Option<&mut Storage<T>>
     where
         T: 'static,
     {
@@ -58,12 +58,15 @@ impl ComponentStorageMap {
     }
 
     #[inline]
-    pub fn borrow_dyn(&self, component_id: ComponentId) -> Option<Ref<'_, dyn AnyStorage>> {
+    pub fn borrow_dyn<X>(&self, component_id: ComponentId<X>) -> Option<Ref<'_, dyn AnyStorage>> {
         Some(Ref::map(self.0.get(component_id)?.borrow(), Box::as_ref))
     }
 
     #[inline]
-    pub fn borrow_mut_dyn(&self, component_id: ComponentId) -> Option<RefMut<'_, dyn AnyStorage>> {
+    pub fn borrow_mut_dyn<X>(
+        &self,
+        component_id: ComponentId<X>,
+    ) -> Option<RefMut<'_, dyn AnyStorage>> {
         Some(RefMut::map(
             self.0.get(component_id)?.borrow_mut(),
             Box::as_mut,
@@ -71,7 +74,7 @@ impl ComponentStorageMap {
     }
 
     #[inline]
-    pub fn borrow<T>(&self, component_id: ComponentId) -> Option<Ref<'_, Storage<T>>>
+    pub fn borrow<T>(&self, component_id: ComponentId<T>) -> Option<Ref<'_, Storage<T>>>
     where
         T: 'static,
     {
@@ -89,7 +92,7 @@ impl ComponentStorageMap {
     }
 
     #[inline]
-    pub fn borrow_mut<T>(&self, component_id: ComponentId) -> Option<RefMut<'_, Storage<T>>>
+    pub fn borrow_mut<T>(&self, component_id: ComponentId<T>) -> Option<RefMut<'_, Storage<T>>>
     where
         T: 'static,
     {
@@ -107,9 +110,9 @@ impl ComponentStorageMap {
     }
 
     #[inline]
-    pub fn get_or_insert_with<F>(
+    pub fn get_or_insert_with<X, F>(
         &mut self,
-        component_id: ComponentId,
+        component_id: ComponentId<X>,
         create: F,
     ) -> &mut dyn AnyStorage
     where
@@ -122,10 +125,10 @@ impl ComponentStorageMap {
     }
 
     #[inline]
-    pub fn get_or_insert(
+    pub fn get_or_insert<X>(
         &mut self,
         with_components: &Components,
-        component_id: ComponentId,
+        component_id: ComponentId<X>,
     ) -> &mut dyn AnyStorage {
         self.get_or_insert_with(component_id, || {
             let component = &with_components.components[component_id.offset()];

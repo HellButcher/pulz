@@ -77,7 +77,7 @@ impl<'w> EntityRef<'w> {
         }
     }
 
-    pub fn contains_id(&self, component_id: ComponentId) -> bool {
+    pub fn contains_id<X>(&self, component_id: ComponentId<X>) -> bool {
         if component_id.is_sparse() {
             matches!(self.world.storage.borrow_dyn(component_id), Some(storage) if storage.contains(self.entity, self.location.archetype_id, self.location.index))
         } else {
@@ -97,11 +97,11 @@ impl<'w> EntityRef<'w> {
 
     /// Returns a shared reference to the given component of this entity.
     #[inline]
-    pub fn borrow_id<T>(&self, component_id: ComponentId) -> Option<Ref<'_, T>>
+    pub fn borrow_id<T>(&self, component_id: ComponentId<T>) -> Option<Ref<'_, T>>
     where
         T: 'static,
     {
-        let storage = self.world.storage.borrow::<T>(component_id)?;
+        let storage = self.world.storage.borrow(component_id)?;
         ref_filter_map(storage, |storage| {
             storage.get(self.entity, self.location.archetype_id, self.location.index)
         })
@@ -152,7 +152,7 @@ impl<'w> EntityMut<'w> {
         }
     }
 
-    pub fn contains_id(&self, component_id: ComponentId) -> bool {
+    pub fn contains_id<X>(&self, component_id: ComponentId<X>) -> bool {
         if self.remove_components.contains(component_id) {
             return false;
         } else if self.insert_components.contains(component_id) {
@@ -187,7 +187,7 @@ impl<'w> EntityMut<'w> {
 
     /// Returns a shared reference to the given component of this entity.
     #[inline]
-    pub fn borrow_by_id<T>(&self, component_id: ComponentId) -> Option<Ref<'_, T>>
+    pub fn borrow_by_id<T>(&self, component_id: ComponentId<T>) -> Option<Ref<'_, T>>
     where
         T: 'static,
     {
@@ -200,7 +200,7 @@ impl<'w> EntityMut<'w> {
 
     /// Returns a shared reference to the given component of this entity.
     #[inline]
-    pub fn borrow_mut_by_id<T>(&self, component_id: ComponentId) -> Option<RefMut<'_, T>>
+    pub fn borrow_mut_by_id<T>(&self, component_id: ComponentId<T>) -> Option<RefMut<'_, T>>
     where
         T: 'static,
     {
@@ -222,7 +222,7 @@ impl<'w> EntityMut<'w> {
     }
 
     /// Returns an exclusive reference to the given component of this entity.
-    pub fn get_mut_by_id<T>(&mut self, component_id: ComponentId) -> Option<&mut T>
+    pub fn get_mut_by_id<T>(&mut self, component_id: ComponentId<T>) -> Option<&mut T>
     where
         T: 'static,
     {
@@ -244,7 +244,7 @@ impl<'w> EntityMut<'w> {
         self.insert_by_id(component_id, value)
     }
 
-    pub fn insert_by_id<T>(&mut self, component_id: ComponentId, value: T) -> &mut Self
+    pub fn insert_by_id<T>(&mut self, component_id: ComponentId<T>, value: T) -> &mut Self
     where
         T: 'static,
     {
@@ -266,7 +266,7 @@ impl<'w> EntityMut<'w> {
         self
     }
 
-    pub fn remove_by_id(&mut self, component_id: ComponentId) -> &mut Self {
+    pub fn remove_by_id<X>(&mut self, component_id: ComponentId<X>) -> &mut Self {
         self.insert_components.remove(component_id);
         self.remove_components.insert(component_id);
         self
