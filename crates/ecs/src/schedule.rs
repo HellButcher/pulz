@@ -1,39 +1,48 @@
-use std::{future::Future, pin::Pin, task::Poll};
+use pulz_executor::{Executor, ExecutorScope, SingleThreadedExecutor};
 
 use crate::{
-    executor::{BoxFuture, Executor, JoinHandle},
-    system::{IntoSystem, System, SystemDescriptor, SystemVariant},
-    World,
+    system::{ExclusiveSystem, IntoSystem, System, SystemDescriptor, SystemVariant},
+    world::World,
 };
 
-#[derive(Default)]
-pub struct Schedule<'l> {
-    systems: Vec<SystemDescriptor<'l>>,
+pub struct Schedule<E> {
+    systems: Vec<SystemDescriptor>,
     // topoligical order of the systems, and the offset (index into `order`) where the system is required first
     order: Vec<(usize, usize)>,
     dirty: bool,
+    executor: E,
 }
 
-impl<'l> Schedule<'l> {
+impl Schedule<SingleThreadedExecutor> {
+    #[inline]
     pub const fn new() -> Self {
+        Self::with_executor(SingleThreadedExecutor)
+    }
+}
+
+impl<E> Schedule<E> {
+    pub const fn with_executor(executor: E) -> Self {
         Self {
             systems: Vec::new(),
             order: Vec::new(),
             dirty: true,
+            executor,
         }
     }
 
-    pub fn with<Marker: 'l>(mut self, system: impl IntoSystem<'l, Marker>) -> Self {
+    #[inline]
+    pub fn with<Marker>(mut self, system: impl IntoSystem<Marker>) -> Self {
         self.add_system(system);
         self
     }
 
-    pub fn add_system<Marker: 'l>(&mut self, system: impl IntoSystem<'l, Marker>) -> &mut Self {
+    #[inline]
+    pub fn add_system<Marker>(&mut self, system: impl IntoSystem<Marker>) -> &mut Self {
         self.add_system_inner(system.into_system());
         self
     }
 
-    fn add_system_inner(&mut self, system: SystemDescriptor<'l>) {
+    fn add_system_inner(&mut self, system: SystemDescriptor) {
         self.dirty = true;
         self.systems.push(system)
     }
@@ -44,108 +53,57 @@ impl<'l> Schedule<'l> {
     }
 }
 
-struct ScheduleFuture<'a, 'l, E: Executor> {
-    executor: &'a E,
-    world: &'a mut World,
-    schedule: &'a mut Schedule<'l>,
-    tasks: Vec<Vec<E::JoinHandle>>,
-    i: usize,
-}
-
-impl<'a, 'l, E: Executor> ScheduleFuture<'a, 'l, E> {
-    fn poll_tasks(&mut self, cx: &mut std::task::Context<'_>) -> Poll<()> {
-        if let Some(wait_for) = self.tasks.get_mut(self.i) {
-            while let Some(item) = wait_for.last_mut() {
-                let item = Pin::new(item);
-                match item.poll(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(_) => {
-                        wait_for.pop();
-                    }
-                }
-            }
-        }
-        Poll::Ready(())
-    }
-
-    fn has_open_tasks(&self) -> bool {
-        self.tasks.iter().any(|e| !e.is_empty())
-    }
-    fn abort_all(&mut self) {
-        for wait_for in self.tasks.iter_mut() {
-            while let Some(item) = wait_for.pop() {
-                item.cancel_and_block();
-            }
-        }
-    }
-}
-
-impl<'a, 'l, E: Executor> Future for ScheduleFuture<'a, 'l, E> {
-    type Output = ();
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        // SAFETY: we dont move anything
-        let this = unsafe { self.get_unchecked_mut() };
-        while let Some(&(system_index, next_order_index)) = this.schedule.order.get(this.i) {
-            match this.poll_tasks(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(()) => (),
-            };
-            let system = &mut this.schedule.systems[system_index];
-            match system.system_variant {
-                SystemVariant::Concurrent(ref mut system) => {
-                    assert!(this.i < next_order_index && next_order_index < this.tasks.len());
-                    let system: &mut dyn System = system.as_mut();
-                    let world: &mut World = this.world;
-                    let fut: BoxFuture<'_, ()> = Box::pin(async move { system.run(world) });
-                    //SAFETY: we wait/block for fut. to be completed when dropped
-                    let fut: BoxFuture<'static, ()> = unsafe { std::mem::transmute(fut) };
-                    this.tasks[next_order_index].push(this.executor.spawn(fut));
-                }
-                SystemVariant::Exclusive(ref mut system) => {
-                    system.run(this.world);
-                }
-            }
-            this.i += 1;
-        }
-        this.poll_tasks(cx)
-    }
-}
-
-impl<'a, 'l, E: Executor> Drop for ScheduleFuture<'a, 'l, E> {
-    fn drop(&mut self) {
-        if self.has_open_tasks() {
-            self.abort_all()
-        }
-    }
-}
-
-impl<'l> Schedule<'l> {
-    pub async fn run<E>(&mut self, executor: &E, world: &mut World)
-    where
-        E: Executor,
-    {
+impl<E: Executor> Schedule<E> {
+    pub fn run(&mut self, world: &mut World) {
         if self.dirty {
             self.rebuild();
             self.dirty = false;
         }
 
-        let mut tasks = Vec::new();
-        tasks.resize_with(self.order.len() + 1, Default::default);
-        ScheduleFuture {
-            executor,
-            world,
-            schedule: self,
-            tasks,
-            i: 0,
+        let mut tasks = ExecutorScope::with_capacity(&self.executor, self.order.len());
+
+        let mut i = 0;
+        while let Some(&(system_index, next_order_index)) = self.order.get(i) {
+            // wait for dependencies
+            tasks.wait_for(i);
+
+            let system = &mut self.systems[system_index];
+            match system.system_variant {
+                SystemVariant::Concurrent(ref mut system) => {
+                    assert!(i < next_order_index && next_order_index <= self.order.len());
+                    let system: &mut dyn System = system.as_mut();
+                    let world = &*world; // shared borrow
+                    tasks.spawn(next_order_index, move || system.run(world));
+                }
+                SystemVariant::Exclusive(ref mut system) => {
+                    system.run(world);
+                }
+            }
+            i += 1;
         }
-        .await
+    }
+}
+
+impl<E: Default> Default for Schedule<E> {
+    #[inline]
+    fn default() -> Self {
+        Self::with_executor(E::default())
+    }
+}
+
+impl<E: Executor> ExclusiveSystem for Schedule<E> {
+    #[inline]
+    fn run(&mut self, arg: &mut World) {
+        self.run(arg)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::{
-        executor::AsyncStd,
+        executor::AsyncStdExecutor,
         system::{ExclusiveSystem, System},
     };
 
@@ -153,11 +111,10 @@ mod tests {
 
     #[async_std::test]
     async fn test_schedule() {
-        let executor = AsyncStd;
         struct A;
-        struct Sys<'l>(&'l std::sync::atomic::AtomicUsize);
-        let counter = std::sync::atomic::AtomicUsize::new(0);
-        impl<'l> System for Sys<'l> {
+        struct Sys(Arc<std::sync::atomic::AtomicUsize>);
+        let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        impl System for Sys {
             fn run(&mut self, _arg: &World) {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             }
@@ -170,12 +127,14 @@ mod tests {
         }
 
         let mut world = World::new();
-        let mut schedule = Schedule::new().with(Sys(&counter)).with(ExSys);
+        let mut schedule = Schedule::with_executor(AsyncStdExecutor)
+            .with(Sys(counter.clone()))
+            .with(ExSys);
 
         assert_eq!(0, counter.load(std::sync::atomic::Ordering::Acquire));
         assert_eq!(0, world.entities().len());
 
-        schedule.run(&executor, &mut world).await;
+        schedule.run(&mut world);
 
         assert_eq!(1, counter.load(std::sync::atomic::Ordering::Acquire));
         assert_eq!(1, world.entities().len());
