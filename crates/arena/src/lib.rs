@@ -31,6 +31,7 @@ use core::{
     iter::{FromIterator, FusedIterator},
     mem::{replace, ManuallyDrop},
     num::NonZeroU32,
+    ops::DerefMut,
 };
 
 use alloc::vec::Vec;
@@ -228,8 +229,13 @@ impl Generation {
 /// ```
 #[derive(Clone)]
 pub struct Arena<T> {
-    storage: Vec<Entry<T>>,
+    storage: Storage<T>,
     next_free: u32,
+}
+
+#[derive(Clone)]
+struct Storage<T> {
+    data: Vec<Entry<T>>,
     len: u32,
 }
 
@@ -271,6 +277,118 @@ impl<T: Clone> Clone for Entry<T> {
     }
 }
 
+impl<T> Storage<T> {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            len: 0,
+        }
+    }
+    pub fn capacity(&self) -> usize {
+        self.data.capacity()
+    }
+    pub fn reserve(&mut self, additional_capacity: usize) {
+        let buffer_len = self.data.len() - self.len as usize;
+        if additional_capacity > buffer_len {
+            self.data.reserve(additional_capacity - buffer_len);
+        }
+    }
+    pub fn reserve_exact(&mut self, additional_capacity: usize) {
+        let buffer_len = self.data.len() - self.len as usize;
+        if additional_capacity > buffer_len {
+            self.data.reserve_exact(additional_capacity - buffer_len);
+        }
+    }
+    #[inline]
+    pub const fn len(&self) -> u32 {
+        self.len
+    }
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn push_new_free_entry(
+        &mut self,
+        alloc: bool,
+        next_free: u32,
+    ) -> Option<(u32, &mut Generation, &mut EntryData<T>)> {
+        let next_offset = self.data.len();
+        if alloc || next_offset < self.data.capacity() {
+            self.data
+                .push(Entry(Generation::NEW, EntryData { next_free }));
+            // SAFETY: we just have created the element at next_offset
+            let entry = unsafe { self.data.get_unchecked_mut(next_offset) };
+            Some((next_offset as u32, &mut entry.0, &mut entry.1))
+        } else {
+            None
+        }
+    }
+
+    pub fn remove(&mut self, index: Index, next_free: &mut u32) -> Option<T> {
+        let (offset, generation) = index.into_parts();
+        debug_assert!(!generation.is_removed());
+        match self.data.get_mut(offset as usize) {
+            Some(Entry(entry_gen, entry)) if *entry_gen == generation => {
+                entry_gen.remove();
+                self.len -= 1;
+                // SAFETY: user has an index with current generation: item was occupied
+                let value = unsafe { ManuallyDrop::take(&mut entry.occupied) };
+                entry.next_free = replace(next_free, offset);
+                Some(value)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn get(&self, index: Index) -> Option<&T> {
+        let (offset, generation) = index.into_parts();
+        debug_assert!(!generation.is_removed());
+        match self.data.get(offset as usize) {
+            Some(Entry(entry_gen, entry)) if *entry_gen == generation => {
+                // SAFETY: user has an index with current generation: item was occupied
+                Some(unsafe { &entry.occupied })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn get_mut(&mut self, index: Index) -> Option<&mut T> {
+        let (offset, generation) = index.into_parts();
+        debug_assert!(!generation.is_removed());
+        match self.data.get_mut(offset as usize) {
+            Some(Entry(entry_gen, entry)) if *entry_gen == generation => {
+                // SAFETY: user has an index with current generation: item was occupied
+                Some(unsafe { &mut entry.occupied })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn drain(&mut self) -> Drain<'_, T> {
+        let len = replace(&mut self.len, 0);
+        Drain {
+            len: len as usize,
+            inner: self.data.drain(..).enumerate(),
+        }
+    }
+
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            len: self.len as usize,
+            inner: self.data.iter().enumerate(),
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        IterMut {
+            len: self.len as usize,
+            inner: self.data.iter_mut().enumerate(),
+        }
+    }
+}
+
 impl<T> Default for Arena<T> {
     #[inline]
     fn default() -> Self {
@@ -295,9 +413,8 @@ impl<T> Arena<T> {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            storage: Vec::new(),
+            storage: Storage::new(),
             next_free: u32::MAX,
-            len: 0,
         }
     }
 
@@ -355,11 +472,9 @@ impl<T> Arena<T> {
     /// assert!(arena.capacity() >= 16);
     /// assert_eq!(1, arena.len());
     /// ```
+    #[inline]
     pub fn reserve(&mut self, additional_capacity: usize) {
-        let buffer_len = self.storage.len() - self.len as usize;
-        if additional_capacity > buffer_len {
-            self.storage.reserve(additional_capacity - buffer_len);
-        }
+        self.storage.reserve(additional_capacity)
     }
 
     /// Reserves the minimum capacity for exactly `additional` more elements to
@@ -378,11 +493,9 @@ impl<T> Arena<T> {
     /// assert_eq!(16, arena.capacity());
     /// assert_eq!(1, arena.len());
     /// ```
+    #[inline]
     pub fn reserve_exact(&mut self, additional_capacity: usize) {
-        let buffer_len = self.storage.len() - self.len as usize;
-        if additional_capacity > buffer_len {
-            self.storage.reserve_exact(additional_capacity - buffer_len);
-        }
+        self.storage.reserve_exact(additional_capacity)
     }
 
     /// Clears the arena by removing all values.
@@ -425,7 +538,7 @@ impl<T> Arena<T> {
     /// ```
     #[inline]
     pub const fn len(&self) -> u32 {
-        self.len
+        self.storage.len()
     }
 
     /// Returns `true` if the arena contains no elements.
@@ -447,7 +560,7 @@ impl<T> Arena<T> {
     /// ```
     #[inline]
     pub const fn is_empty(&self) -> bool {
-        self.len == 0
+        self.storage.is_empty()
     }
 
     /// Attempts to insert `value` into the arena at a free spot.
@@ -482,7 +595,7 @@ impl<T> Arena<T> {
             entry.occupied = ManuallyDrop::new(value);
             generation.increment();
             let index = Index(offset, *generation);
-            self.len += 1;
+            self.storage.len += 1;
             Ok(index)
         } else {
             Err(value)
@@ -539,7 +652,7 @@ impl<T> Arena<T> {
             let value = create(index);
             entry.occupied = ManuallyDrop::new(value);
             *generation = new_generation;
-            self.len += 1;
+            self.storage.len += 1;
             Ok(index)
         } else {
             Err(create)
@@ -569,7 +682,7 @@ impl<T> Arena<T> {
         entry.occupied = ManuallyDrop::new(value);
         generation.increment();
         let index = Index(offset, *generation);
-        self.len += 1;
+        self.storage.len += 1;
         index
     }
 
@@ -610,7 +723,7 @@ impl<T> Arena<T> {
         let value = create(index);
         entry.occupied = ManuallyDrop::new(value);
         *generation = new_generation;
-        self.len += 1;
+        self.storage.len += 1;
         index
     }
 
@@ -619,26 +732,14 @@ impl<T> Arena<T> {
         let storage = &mut self.storage;
         let next_free_head = &mut self.next_free;
         let next_free = *next_free_head as usize;
-        if next_free < storage.len() {
+        if next_free < storage.data.len() {
             // SAFETY: we have checked for next_free<len
-            let Entry(generation, entry) = unsafe { storage.get_unchecked_mut(next_free) };
+            let Entry(generation, entry) = unsafe { storage.data.get_unchecked_mut(next_free) };
             // SAFETY: entry was in the free-list: so we can use `next_free`
             *next_free_head = unsafe { entry.next_free };
             return Some((next_free as u32, generation, entry));
         }
-        let next_offset = storage.len();
-        if alloc || next_offset < storage.capacity() {
-            storage.push(Entry(
-                Generation::NEW,
-                EntryData {
-                    next_free: u32::MAX,
-                },
-            ));
-            // SAFETY: we just have created the element at next_offset
-            let entry = unsafe { storage.get_unchecked_mut(next_offset) };
-            return Some((next_offset as u32, &mut entry.0, &mut entry.1));
-        }
-        None
+        storage.push_new_free_entry(alloc, u32::MAX)
     }
 
     /// Removes the element at the given `index` from this arena.
@@ -661,20 +762,9 @@ impl<T> Arena<T> {
     /// assert_eq!(None, arena.remove(index0));
     /// assert_eq!(1, arena.len());
     /// ```
+    #[inline]
     pub fn remove(&mut self, index: Index) -> Option<T> {
-        let (offset, generation) = index.into_parts();
-        debug_assert!(!generation.is_removed());
-        match self.storage.get_mut(offset as usize) {
-            Some(Entry(entry_gen, entry)) if *entry_gen == generation => {
-                entry_gen.remove();
-                self.len -= 1;
-                // SAFETY: user has an index with current generation: item was occupied
-                let value = unsafe { ManuallyDrop::take(&mut entry.occupied) };
-                entry.next_free = replace(&mut self.next_free, offset);
-                Some(value)
-            }
-            _ => None,
-        }
+        self.storage.remove(index, &mut self.next_free)
     }
 
     /// Checks, if the element at the given `index` is still in the arena.
@@ -721,16 +811,9 @@ impl<T> Arena<T> {
     /// assert_eq!(1, arena.len());
     /// assert_eq!(None, arena.get(index0));
     /// ```
+    #[inline]
     pub fn get(&self, index: Index) -> Option<&T> {
-        let (offset, generation) = index.into_parts();
-        debug_assert!(!generation.is_removed());
-        match self.storage.get(offset as usize) {
-            Some(Entry(entry_gen, entry)) if *entry_gen == generation => {
-                // SAFETY: user has an index with current generation: item was occupied
-                Some(unsafe { &entry.occupied })
-            }
-            _ => None,
-        }
+        self.storage.get(index)
     }
 
     /// Get a exclusive reference to the element at the given `index`.
@@ -750,16 +833,9 @@ impl<T> Arena<T> {
     /// *element = "bar";
     /// assert_eq!("bar", arena[index0]);
     /// ```
+    #[inline]
     pub fn get_mut(&mut self, index: Index) -> Option<&mut T> {
-        let (offset, generation) = index.into_parts();
-        debug_assert!(!generation.is_removed());
-        match self.storage.get_mut(offset as usize) {
-            Some(Entry(entry_gen, entry)) if *entry_gen == generation => {
-                // SAFETY: user has an index with current generation: item was occupied
-                Some(unsafe { &mut entry.occupied })
-            }
-            _ => None,
-        }
+        self.storage.get_mut(index)
     }
 
     /// Creates a _draining_ iterator that removes all elements from this arena
@@ -785,13 +861,10 @@ impl<T> Arena<T> {
     /// }
     /// assert!(arena.is_empty());
     /// ```
+    #[inline]
     pub fn drain(&mut self) -> Drain<'_, T> {
-        let len = replace(&mut self.len, 0);
         self.next_free = u32::MAX;
-        Drain {
-            len: len as usize,
-            inner: self.storage.drain(..).enumerate(),
-        }
+        self.storage.drain()
     }
 
     /// Creates an shared iterator over the elements of this arena.
@@ -813,11 +886,9 @@ impl<T> Arena<T> {
     /// }
     /// assert_eq!(3, arena.len());
     /// ```
+    #[inline]
     pub fn iter(&self) -> Iter<'_, T> {
-        Iter {
-            len: self.len as usize,
-            inner: self.storage.iter().enumerate(),
-        }
+        self.storage.iter()
     }
 
     /// Creates an exclusive iterator over the elements of this arena.
@@ -842,11 +913,9 @@ impl<T> Arena<T> {
     /// assert_eq!(3, arena[indices[1]]);
     /// assert_eq!(6, arena[indices[2]]);
     /// ```
+    #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
-        IterMut {
-            len: self.len as usize,
-            inner: self.storage.iter_mut().enumerate(),
-        }
+        self.storage.iter_mut()
     }
 }
 
@@ -1085,6 +1154,494 @@ impl<'a, T> ExactSizeIterator for IterMut<'a, T> {
 }
 
 impl<'a, T> FusedIterator for IterMut<'a, T> {}
+
+/// A `Arena`-like collection-type that shares the Indices with an `Arena`.
+///
+/// After inserting elements into a `Arena`, you can use the returned
+/// [`Index`] of the Arena to insert an element into a `Mirror` and to refer to
+/// the newly inserted element in `get` or `remove` operations.
+///
+/// # Example
+///
+/// ```
+/// use pulz_arena::{Arena,Mirror};
+///
+/// let mut arena: Arena<&str> = Arena::new();
+/// let index = arena.insert("test");
+///
+/// let mut mirror: Mirror<u32> = Mirror::new();
+/// mirror.insert(index, 123);
+/// assert_eq!(1, mirror.len());
+///
+/// assert_eq!("test", arena[index]);
+/// assert_eq!(123, mirror[index]);
+/// ```
+#[derive(Clone)]
+pub struct Mirror<T>(Storage<T>);
+
+impl<T> Mirror<T> {
+    /// Constructs a new, empty `Mirror<T>`.
+    ///
+    /// The internal vector will not allocate until elements are inserted into
+    /// it.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use pulz_arena::Mirror;
+    ///
+    /// let mirror = Mirror::<u32>::new();
+    /// assert!(mirror.is_empty());
+    /// ```
+    #[inline]
+    pub const fn new() -> Self {
+        Self(Storage::new())
+    }
+
+    /// Constructs a new, empty `Mirror<T>` with the specified initial capacity.
+    ///
+    /// The mirror will be able to hold at exactly `capacity` elements without
+    /// reallocating.
+    ///
+    /// It is important to note that although the returned mirror has the
+    /// capacity specified, the mirror will have a zero length.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Self {
+        let mut mirror = Self::new();
+        mirror.reserve_exact(capacity);
+        mirror
+    }
+
+    /// Returns the number of elements the arena can hold without reallocating.
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
+
+    /// Reserved capacity for _at least_ `additional` more elements to be
+    /// inserted into this mirror.
+    ///
+    /// The internal vector may reserve more space to avoid frequent
+    /// reallocations. Does nothing, if the capacity is already sufficient.
+    ///
+    /// Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert(42);
+    ///
+    /// let mut mirror = Mirror::new();
+    /// assert_eq!(0, mirror.capacity());
+    /// mirror.insert(index0, "foo");
+    /// mirror.reserve_exact(15);
+    /// assert!(mirror.capacity() >= 16);
+    /// assert_eq!(1, mirror.len());
+    /// ```
+    #[inline]
+    pub fn reserve(&mut self, additional_capacity: usize) {
+        self.0.reserve(additional_capacity)
+    }
+
+    /// Reserves the minimum capacity for exactly `additional` more elements to
+    /// be inserted into this mirror.
+    ///
+    /// Does nothing, if the capacity is already sufficient.
+    ///
+    /// Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert(42);
+    ///
+    /// let mut mirror = Mirror::new();
+    /// assert_eq!(0, mirror.capacity());
+    /// mirror.insert(index0, "foo");
+    /// mirror.reserve_exact(15);
+    /// assert_eq!(16, mirror.capacity());
+    /// assert_eq!(1, mirror.len());
+    /// ```
+    #[inline]
+    pub fn reserve_exact(&mut self, additional_capacity: usize) {
+        self.0.reserve_exact(additional_capacity)
+    }
+
+    /// Clears the mirror by removing all values.
+    ///
+    /// Note this method has no effect on the allocated capacity of the mirror.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert(42);
+    /// let index1 = arena.insert(123);
+    /// let index2 = arena.insert(456);
+    ///
+    /// let mut mirror = Mirror::new();
+    /// mirror.insert(index0, "test");
+    /// mirror.insert(index1, "foo");
+    /// mirror.insert(index2, "bar");
+    /// assert!(!mirror.is_empty());
+    /// mirror.clear();
+    /// assert!(mirror.is_empty());
+    /// ```
+    #[inline]
+    pub fn clear(&mut self) {
+        self.drain();
+    }
+
+    /// Returns the number of elements in this mirror.
+    ///
+    /// Also referred to as its 'length' or 'size'.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert(42);
+    /// let index1 = arena.insert(123);
+    ///
+    /// let mut mirror = Mirror::new();
+    /// assert_eq!(0, mirror.len());
+    /// mirror.insert(index0, "test");
+    /// assert_eq!(1, mirror.len());
+    /// mirror.insert(index1, "foo");
+    /// assert_eq!(2, mirror.len());
+    /// assert_eq!(Some("test"), mirror.remove(index0));
+    /// assert_eq!(1, mirror.len());
+    /// ```
+    #[inline]
+    pub const fn len(&self) -> u32 {
+        self.0.len()
+    }
+
+    /// Returns `true` if the mirror contains no elements.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena = Arena::new();
+    /// let index0 = arena.insert(42);
+    ///
+    /// let mut mirror = Mirror::new();
+    /// assert!(mirror.is_empty());
+    /// mirror.insert(index0, "test");
+    /// assert!(!mirror.is_empty());
+    /// mirror.remove(index0);
+    /// assert!(mirror.is_empty());
+    /// ```
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Inserts `value` into the arena at the given index,
+    /// allocating more capacity if necessary.
+    ///
+    /// * If the spot is not occupied, the value is inserted and `Ok(None)` is
+    ///   returned.
+    /// * If the spot is occupied by an entry with the an older or equal
+    ///   `Generation`, the entry is replaced and the old value is returned
+    ///   as `Ok(Some(T))`
+    ///
+    /// # Errors
+    ///
+    /// * If the spot at the index is already occupied by an entry with a newer
+    ///   `Generation`, a reference pointing to the existing entry is returned
+    ///   as `Err(&mut T)`.
+    ///
+    /// This function can be used to create multiple `Arena`s of different entries,
+    /// that share the same identity:
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena: Arena<&str> = Arena::new();
+    /// let mut mirror: Mirror<u32> = Mirror::new();
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// assert_eq!(2, arena.len());
+    /// assert_eq!(0, mirror.len());
+    /// assert_eq!(Ok(None), mirror.insert(index0, 1));
+    /// assert_eq!(Ok(None), mirror.insert(index1, 2));
+    /// assert_eq!(2, mirror.len());
+    /// assert_eq!("test", arena[index0]);
+    /// assert_eq!(1, mirror[index0]);
+    /// assert_eq!("foo", arena[index1]);
+    /// assert_eq!(2, mirror[index1]);
+    /// ```
+    pub fn insert(&mut self, index: Index, value: T) -> Result<Option<T>, &mut T> {
+        let offset = index.offset() as usize;
+        // allocate free entries until offset
+        if self.0.data.len() <= offset {
+            self.0.data.resize_with(offset + 1, || {
+                Entry(
+                    Generation::NEW,
+                    EntryData {
+                        next_free: u32::MAX,
+                    },
+                )
+            });
+        }
+
+        // SAFETY: we allocated free entries until offset
+        let entry = unsafe { self.0.data.get_unchecked_mut(offset) };
+
+        let new_generation = index.generation();
+        if entry.is_removed() {
+            // replace (including generation)
+            entry.0 = new_generation;
+            entry.1.occupied = ManuallyDrop::new(value);
+            self.0.len += 1;
+            Ok(None)
+        } else if entry.0 <= new_generation {
+            entry.0 = new_generation;
+            // SAFETY: entry is occupied (not removed)
+            let old_value = replace(unsafe { entry.1.occupied.deref_mut() }, value);
+            Ok(Some(old_value))
+        } else {
+            // SAFETY: entry is occupied (not removed)
+            let old_ref = unsafe { entry.1.occupied.deref_mut() };
+            Err(old_ref)
+        }
+    }
+
+    /// Removes the element at the given `index` from this arena.
+    ///
+    /// The method returns the old value, if it is still in the arena.
+    /// If it is not in the arena, then `None` is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena: Arena<&str> = Arena::new();
+    /// let mut mirror: Mirror<u32> = Mirror::new();
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// mirror.insert(index0, 1);
+    /// mirror.insert(index1, 2);
+    /// assert_eq!(2, mirror.len());
+    /// assert_eq!(1, mirror[index0]);
+    /// assert_eq!(2, mirror[index1]);
+    ///
+    /// assert_eq!(Some(2), mirror.remove(index1));
+    /// assert_eq!(1, mirror.len());
+    /// ```
+    #[inline]
+    pub fn remove(&mut self, index: Index) -> Option<T> {
+        let mut dummy = u32::MAX;
+        self.0.remove(index, &mut dummy)
+    }
+
+    /// Checks, if the element at the given `index` is still in the arena.
+    ///
+    /// Returns `true` if there is a element for the given `index`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena: Arena<&str> = Arena::new();
+    /// let mut mirror: Mirror<u32> = Mirror::new();
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// assert!(!mirror.contains(index0));
+    /// assert!(!mirror.contains(index1));
+    /// mirror.insert(index0, 1);
+    /// mirror.insert(index1, 2);
+    /// assert!(mirror.contains(index0));
+    /// assert!(mirror.contains(index1));
+    /// assert_eq!(Some(1), mirror.remove(index0));
+    /// assert!(!mirror.contains(index0)); // element not in the mirror
+    /// assert!(mirror.contains(index1));
+    /// ```
+    #[inline]
+    pub fn contains(&self, index: Index) -> bool {
+        self.get(index).is_some()
+    }
+
+    /// Get a shared reference to the element at the given `index`.
+    ///
+    /// If there is no element at the given `index`, None is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena: Arena<&str> = Arena::new();
+    /// let mut mirror: Mirror<u32> = Mirror::new();
+    /// let index0 = arena.insert("test");
+    /// let index1 = arena.insert("foo");
+    /// assert_eq!(None, mirror.get(index0));
+    /// assert_eq!(None, mirror.get(index1));
+    /// mirror.insert(index0, 1);
+    /// mirror.insert(index1, 2);
+    /// assert_eq!(Some(&1), mirror.get(index0));
+    /// assert_eq!(Some(&2), mirror.get(index1));
+    /// ```
+    #[inline]
+    pub fn get(&self, index: Index) -> Option<&T> {
+        self.0.get(index)
+    }
+
+    /// Get a exclusive reference to the element at the given `index`.
+    ///
+    /// If there is no element at the given `index`, None is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena: Arena<&str> = Arena::new();
+    /// let mut mirror: Mirror<u32> = Mirror::new();
+    /// let index = arena.insert("test");
+    /// assert_eq!(None, mirror.get_mut(index));
+    /// mirror.insert(index, 1);
+    /// assert_eq!(1, mirror[index]);
+    /// let entry = mirror.get_mut(index).unwrap();
+    /// *entry = 123;
+    /// assert_eq!(123, mirror[index]);
+    /// ```
+    #[inline]
+    pub fn get_mut(&mut self, index: Index) -> Option<&mut T> {
+        self.0.get_mut(index)
+    }
+
+    /// Creates a _draining_ iterator that removes all elements from this arena
+    /// and yields the removed items.
+    ///
+    /// When the iterator is dropped, all the remaining elements are removed and
+    /// dropped!
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};
+    /// let mut arena = Arena::new();
+    /// let indices = [
+    ///     arena.insert(0),
+    ///     arena.insert(1),
+    ///     arena.insert(2),
+    /// ];
+    /// assert_eq!(3, arena.len());
+    /// let mut mirror = Mirror::new();
+    /// for (i, &index) in indices.iter().enumerate() {
+    ///    mirror.insert(index, i*2);
+    /// }
+    /// assert_eq!(3, mirror.len());
+    /// for (i, (index, element)) in mirror.drain().enumerate() {
+    ///    assert_eq!(indices[i], index);
+    ///    assert_eq!(i * 2, element);
+    /// }
+    /// assert!(mirror.is_empty());
+    /// assert_eq!(3, arena.len());
+    /// ```
+    #[inline]
+    pub fn drain(&mut self) -> Drain<'_, T> {
+        self.0.drain()
+    }
+
+    /// Creates an shared iterator over the elements of this arena.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};;
+    /// let mut arena = Arena::new();
+    /// let indices = [
+    ///     arena.insert(0),
+    ///     arena.insert(1),
+    ///     arena.insert(2),
+    /// ];
+    /// let mut mirror = Mirror::new();
+    /// for (i, &index) in indices.iter().enumerate() {
+    ///    mirror.insert(index, i*2);
+    /// }
+    /// assert_eq!(3, mirror.len());
+    /// for (i, (index, &element)) in mirror.iter().enumerate() {
+    ///    assert_eq!(indices[i], index);
+    ///    assert_eq!(i * 2, element);
+    /// }
+    /// assert_eq!(3, mirror.len());
+    /// ```
+    #[inline]
+    pub fn iter(&self) -> Iter<'_, T> {
+        self.0.iter()
+    }
+
+    /// Creates an exclusive iterator over the elements of this arena.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use pulz_arena::{Arena,Mirror};;
+    /// let mut arena = Arena::new();
+    /// let indices = [
+    ///     arena.insert(0),
+    ///     arena.insert(1),
+    ///     arena.insert(2),
+    /// ];
+    /// let mut mirror = Mirror::new();
+    /// for (i, &index) in indices.iter().enumerate() {
+    ///    mirror.insert(index, i*2);
+    /// }
+    /// assert_eq!(3, mirror.len());
+    /// for (i, (index, element)) in mirror.iter_mut().enumerate() {
+    ///    assert_eq!(indices[i], index);
+    ///    *element *= 3;
+    /// }
+    /// assert_eq!(3, mirror.len());
+    /// assert_eq!(0, mirror[indices[0]]);
+    /// assert_eq!(6, mirror[indices[1]]);
+    /// assert_eq!(12, mirror[indices[2]]);
+    /// ```
+    #[inline]
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        self.0.iter_mut()
+    }
+}
+
+impl<T> core::ops::Index<Index> for Mirror<T> {
+    type Output = T;
+    #[inline]
+    fn index(&self, index: Index) -> &T {
+        self.get(index).expect("invalid index")
+    }
+}
+
+impl<T> core::ops::IndexMut<Index> for Mirror<T> {
+    #[inline]
+    fn index_mut(&mut self, index: Index) -> &mut T {
+        self.get_mut(index).expect("invalid index")
+    }
+}
+
+impl<T> Extend<(Index, T)> for Mirror<T> {
+    fn extend<I: IntoIterator<Item = (Index, T)>>(&mut self, iter: I) {
+        for (index, value) in iter {
+            let _ = self.insert(index, value);
+        }
+    }
+}
+
+impl<T> FromIterator<(Index, T)> for Mirror<T> {
+    fn from_iter<I: IntoIterator<Item = (Index, T)>>(iter: I) -> Self {
+        let iter = iter.into_iter();
+        let (lower, upper) = iter.size_hint();
+        let cap = upper.unwrap_or(lower);
+        let cap = max(cap, 1);
+        debug_assert!(cap <= u32::MAX as usize);
+        let mut arena = Self::with_capacity(cap);
+        arena.extend(iter);
+        arena
+    }
+}
 
 #[cfg(test)]
 mod tests {
