@@ -1,6 +1,10 @@
 # `pulz-arena` Changelog
 All notable changes to this crate will be documented in this file.
 
+## v0.2.0 (2021-09-25)
+
+ * Added `Mirror`
+
 ## v0.1.1 (2021-08-16)
 
  * Update Documentation and logo
