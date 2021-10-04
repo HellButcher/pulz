@@ -1,32 +1,27 @@
-use pulz_executor::{Executor, ExecutorScope, SingleThreadedExecutor};
+use std::rc::Rc;
+
+use pulz_executor::{Executor, ExecutorScope};
 
 use crate::{
     system::{ExclusiveSystem, IntoSystem, System, SystemDescriptor, SystemVariant},
     world::World,
 };
 
-pub struct Schedule<E> {
+pub struct Schedule {
     systems: Vec<SystemDescriptor>,
     // topoligical order of the systems, and the offset (index into `order`) where the system is required first
     order: Vec<(usize, usize)>,
     dirty: bool,
-    executor: E,
+    executor: Option<Rc<dyn ScheduleExecutor>>,
 }
 
-impl Schedule<SingleThreadedExecutor> {
-    #[inline]
-    pub const fn new() -> Self {
-        Self::with_executor(SingleThreadedExecutor)
-    }
-}
-
-impl<E> Schedule<E> {
-    pub const fn with_executor(executor: E) -> Self {
+impl Schedule {
+    pub fn new() -> Self {
         Self {
             systems: Vec::new(),
             order: Vec::new(),
             dirty: true,
-            executor,
+            executor: None,
         }
     }
 
@@ -51,26 +46,68 @@ impl<E> Schedule<E> {
         // TODO: simple order
         self.order = (0..self.systems.len()).map(|i| (i, i + 1)).collect();
     }
+
+    #[inline]
+    pub fn with_executor<E: Executor>(mut self, executor: E) -> Self {
+        self.set_executor(executor);
+        self
+    }
+
+    #[inline]
+    pub fn set_executor<E: Executor>(&mut self, executor: E) -> &mut Self {
+        self.executor = Some(Rc::new(executor));
+        self
+    }
+
+    #[inline]
+    pub fn run(&mut self, world: &mut World) {
+        let old_active_exec = world
+            .resources_mut()
+            .get_mut::<Rc<dyn ScheduleExecutor>>()
+            .cloned();
+        if let Some(exec) = self.executor.clone() {
+            let active_exec_id = world.resources_mut().insert_unsend(exec.clone());
+
+            exec.execute_schedule(world, self);
+
+            if let Some(old) = old_active_exec {
+                world.resources_mut().insert_unsend(old);
+            } else {
+                world.resources_mut().remove_id(active_exec_id);
+            }
+        } else if let Some(exec) = old_active_exec {
+            exec.execute_schedule(world, self);
+        } else {
+            panic!("no executor active");
+        }
+    }
 }
 
-impl<E: Executor> Schedule<E> {
-    pub fn run(&mut self, world: &mut World) {
-        if self.dirty {
-            self.rebuild();
-            self.dirty = false;
+trait ScheduleExecutor: 'static {
+    fn execute_schedule(&self, world: &mut World, schedule: &mut Schedule);
+}
+
+impl<E: Executor> ScheduleExecutor for E {
+    fn execute_schedule(&self, world: &mut World, schedule: &mut Schedule) {
+        if schedule.dirty {
+            schedule.rebuild();
+            schedule.dirty = false;
+            for sys in &mut schedule.systems {
+                sys.initialize(world)
+            }
         }
 
-        let mut tasks = ExecutorScope::with_capacity(&self.executor, self.order.len());
+        let mut tasks = ExecutorScope::with_capacity(self, schedule.order.len());
 
         let mut i = 0;
-        while let Some(&(system_index, next_order_index)) = self.order.get(i) {
+        while let Some(&(system_index, next_order_index)) = schedule.order.get(i) {
             // wait for dependencies
             tasks.wait_for(i);
 
-            let system = &mut self.systems[system_index];
+            let system = &mut schedule.systems[system_index];
             match system.system_variant {
                 SystemVariant::Concurrent(ref mut system) => {
-                    assert!(i < next_order_index && next_order_index <= self.order.len());
+                    assert!(i < next_order_index && next_order_index <= schedule.order.len());
                     let system: &mut dyn System = system.as_mut();
                     if system.is_send() {
                         let world = world.as_send(); // shared borrow
@@ -89,17 +126,17 @@ impl<E: Executor> Schedule<E> {
     }
 }
 
-impl<E: Default> Default for Schedule<E> {
+impl Default for Schedule {
     #[inline]
     fn default() -> Self {
-        Self::with_executor(E::default())
+        Self::new()
     }
 }
 
-impl<E: Executor> ExclusiveSystem for Schedule<E> {
+impl ExclusiveSystem for Schedule {
     #[inline]
-    fn run(&mut self, arg: &mut World) {
-        self.run(arg)
+    fn run(&mut self, world: &mut World) {
+        self.run(world)
     }
 }
 
@@ -135,14 +172,12 @@ mod tests {
         }
 
         let mut world = World::new();
-        let mut schedule = Schedule::with_executor(AsyncStdExecutor)
-            .with(Sys(counter.clone()))
-            .with(ExSys);
+        let mut schedule = Schedule::new().with(Sys(counter.clone())).with(ExSys);
 
         assert_eq!(0, counter.load(std::sync::atomic::Ordering::Acquire));
         assert_eq!(0, world.entities().len());
 
-        schedule.run(&mut world);
+        AsyncStdExecutor.execute_schedule(&mut world, &mut schedule);
 
         assert_eq!(1, counter.load(std::sync::atomic::Ordering::Acquire));
         assert_eq!(1, world.entities().len());
