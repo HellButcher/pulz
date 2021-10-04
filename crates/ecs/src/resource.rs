@@ -2,6 +2,7 @@ use std::{
     any::{Any, TypeId},
     borrow::Cow,
     collections::{btree_map::Entry, BTreeMap},
+    hash::Hash,
     marker::PhantomData,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -15,7 +16,6 @@ use crate::{
     World,
 };
 
-#[derive(Hash, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct ResourceId<T = crate::Void>(usize, PhantomData<fn() -> T>);
 
@@ -26,8 +26,34 @@ impl<T> std::fmt::Debug for ResourceId<T> {
 }
 impl<T> Copy for ResourceId<T> {}
 impl<T> Clone for ResourceId<T> {
+    #[inline]
     fn clone(&self) -> Self {
         Self(self.0, PhantomData)
+    }
+}
+impl<T> Eq for ResourceId<T> {}
+impl<T> Ord for ResourceId<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+impl<T> PartialEq<Self> for ResourceId<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl<T> PartialOrd<Self> for ResourceId<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+impl<T> Hash for ResourceId<T> {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
     }
 }
 
@@ -55,57 +81,32 @@ pub struct Resource<Marker> {
 unsafe impl Send for Resource<SendMarker> {}
 unsafe impl Sync for Resource<SendMarker> {}
 
-// Send + Sync versions of borrow, borrow_mut and get_mut
-impl Resource<SendMarker> {
+pub struct TakenRes<T> {
+    id: ResourceId,
+    value: Box<T>,
+}
+impl<T> TakenRes<T> {
     #[inline]
-    fn borrow<T>(&self) -> Option<Res<'_, T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        Res::filter_map(self.value.as_ref()?.borrow(), |v| v.downcast_ref::<T>())
+    pub fn id(&self) -> ResourceId<T> {
+        self.id.cast()
     }
 
     #[inline]
-    fn borrow_mut<T>(&self) -> Option<ResMut<'_, T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        ResMut::filter_map(self.value.as_ref()?.borrow_mut(), |v| v.downcast_mut::<T>())
-    }
-
-    #[inline]
-    fn get_mut<T>(&mut self) -> Option<&mut T>
-    where
-        T: Send + Sync + 'static,
-    {
-        self.value.as_mut()?.get_mut().downcast_mut::<T>()
+    pub fn into_inner(self) -> T {
+        *self.value
     }
 }
-
-// Unsend versions of borrow, borrow_mut and get_mut
-impl Resource<UnsendMarker> {
+impl<T> Deref for TakenRes<T> {
+    type Target = T;
     #[inline]
-    fn borrow<T>(&self) -> Option<Res<'_, T>>
-    where
-        T: 'static,
-    {
-        Res::filter_map(self.value.as_ref()?.borrow(), |v| v.downcast_ref::<T>())
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
-
+}
+impl<T> DerefMut for TakenRes<T> {
     #[inline]
-    fn borrow_mut<T>(&self) -> Option<ResMut<'_, T>>
-    where
-        T: 'static,
-    {
-        ResMut::filter_map(self.value.as_ref()?.borrow_mut(), |v| v.downcast_mut::<T>())
-    }
-
-    #[inline]
-    fn get_mut<T>(&mut self) -> Option<&mut T>
-    where
-        T: 'static,
-    {
-        self.value.as_mut()?.get_mut().downcast_mut::<T>()
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
     }
 }
 
@@ -191,6 +192,7 @@ impl<Marker> Resources<Marker> {
         let id = self.get_or_create_id::<T>();
         // SAFETY: we created the id if not available
         let res = unsafe { self.resources.get_unchecked_mut(id.0) };
+        res.is_send = true;
         res.value = Some(AtomicRefCell::new(Box::new(value)));
         id
     }
@@ -226,6 +228,60 @@ impl Resources<UnsendMarker> {
 
 macro_rules! impl_send_unsend {
     ($Marker:ident : $($bound:tt)+) => {
+
+impl Resource<$Marker> {
+    #[inline]
+    fn borrow<T>(&self) -> Option<Res<'_, T>>
+    where
+        T: $($bound)+,
+    {
+        Res::filter_map(self.value.as_ref()?.borrow(), |v| v.downcast_ref::<T>())
+    }
+
+    #[inline]
+    fn borrow_mut<T>(&self) -> Option<ResMut<'_, T>>
+    where
+        T: $($bound)+,
+    {
+        ResMut::filter_map(self.value.as_ref()?.borrow_mut(), |v| v.downcast_mut::<T>())
+    }
+
+    #[inline]
+    fn get_mut<T>(&mut self) -> Option<&mut T>
+    where
+        T: $($bound)+,
+    {
+        self.value.as_mut()?.get_mut().downcast_mut::<T>()
+    }
+
+    #[inline]
+    fn remove<T>(&mut self) -> Option<TakenRes<T>>
+    where
+        T: $($bound)+,
+    {
+        let value = match self.value.take()?.into_inner().downcast::<T>() {
+            Ok(v) => v,
+            Err(v) => {
+                // put the value back into its place;
+                self.value = Some(AtomicRefCell::new(v));
+                return None;
+            }
+        };
+        Some(TakenRes{
+            id: self.id,
+            value,
+        })
+    }
+
+    fn insert_again<T>(&mut self, taken: TakenRes<T>)
+        where
+        T: $($bound)+,
+    {
+        assert_eq!(self.id, taken.id, "resource id mismatch");
+        assert!(self.value.is_none());
+        self.value = Some(AtomicRefCell::new(taken.value));
+    }
+}
 
 impl Resources<$Marker> {
     #[inline]
@@ -277,6 +333,34 @@ impl Resources<$Marker> {
         self.resources
             .get_mut(resource_id.0)
             .and_then(Resource::<$Marker>::get_mut)
+    }
+
+    #[inline]
+    pub fn remove<T>(&mut self) -> Option<TakenRes<T>>
+    where
+        T: $($bound)+,
+    {
+        self.remove_id(self.get_id::<T>()?)
+    }
+
+    #[inline]
+    pub fn remove_id<T>(&mut self, resource_id: ResourceId<T>) -> Option<TakenRes<T>>
+    where
+        T: $($bound)+,
+    {
+        self.resources
+            .get_mut(resource_id.0)
+            .and_then(Resource::<$Marker>::remove)
+    }
+
+    pub fn insert_again<T>(&mut self, taken: TakenRes<T>)
+        where
+        T: $($bound)+,
+    {
+        self.resources
+            .get_mut(taken.id.0)
+            .unwrap()
+            .insert_again(taken)
     }
 }
 

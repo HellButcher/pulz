@@ -58,6 +58,7 @@ where
         SystemDescriptor {
             system_variant: SystemVariant::Concurrent(Box::new(SystemFn::<Param, F>::new(self))),
             dependencies: Vec::new(),
+            initialized: false,
         }
     }
 }
@@ -95,6 +96,7 @@ where
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(ExclusiveSystemFn { func: self })),
             dependencies: Vec::new(),
+            initialized: false,
         }
     }
 }

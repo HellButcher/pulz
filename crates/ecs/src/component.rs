@@ -2,12 +2,12 @@ use std::{
     any::TypeId,
     borrow::Cow,
     collections::{btree_map::Entry, BTreeMap},
+    hash::Hash,
     marker::PhantomData,
 };
 
 use crate::storage::{AnyStorage, Storage};
 
-#[derive(Hash, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
 pub struct ComponentId<T = crate::Void>(isize, PhantomData<fn() -> T>);
 
@@ -20,6 +20,31 @@ impl<T> Copy for ComponentId<T> {}
 impl<T> Clone for ComponentId<T> {
     fn clone(&self) -> Self {
         Self(self.0, PhantomData)
+    }
+}
+impl<T> Eq for ComponentId<T> {}
+impl<T> Ord for ComponentId<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+impl<T> PartialEq<Self> for ComponentId<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl<T> PartialOrd<Self> for ComponentId<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+impl<T> Hash for ComponentId<T> {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
     }
 }
 

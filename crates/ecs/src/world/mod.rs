@@ -44,6 +44,11 @@ impl<Marker> BaseWorld<Marker> {
     }
 
     #[inline]
+    pub fn resources_mut(&mut self) -> &mut Resources<Marker> {
+        &mut self.resources
+    }
+
+    #[inline]
     pub const fn components(&self) -> &Components {
         &self.components
     }
@@ -160,15 +165,25 @@ impl<Marker> BaseWorld<Marker> {
 }
 
 impl World {
-    pub fn init_resource<T>(&mut self) -> ResourceId<T>
+    pub fn try_init_resource<T>(&mut self) -> Result<ResourceId<T>, ResourceId<T>>
     where
         T: 'static + Send + Sync + FromWorld,
     {
         if let Some(id) = self.resources.get_id::<T>() {
-            id
+            Err(id)
         } else {
             let value = T::from_world(self);
-            self.resources.insert(value)
+            Ok(self.resources.insert(value))
+        }
+    }
+
+    #[inline]
+    pub fn init_resource<T>(&mut self) -> ResourceId<T>
+    where
+        T: 'static + Send + Sync + FromWorld,
+    {
+        match self.try_init_resource() {
+            Ok(id) | Err(id) => id,
         }
     }
 
@@ -180,15 +195,25 @@ impl World {
         self.resources.insert_unsend(value)
     }
 
-    pub fn init_unsend_resource<T>(&mut self) -> ResourceId<T>
+    pub fn try_init_unsend_resource<T>(&mut self) -> Result<ResourceId<T>, ResourceId<T>>
     where
         T: 'static + FromWorld,
     {
         if let Some(id) = self.resources.get_id::<T>() {
-            id
+            Err(id)
         } else {
             let value = T::from_world(self);
-            self.resources.insert_unsend(value)
+            Ok(self.resources.insert_unsend(value))
+        }
+    }
+
+    #[inline]
+    pub fn init_unsend_resource<T>(&mut self) -> ResourceId<T>
+    where
+        T: 'static + FromWorld,
+    {
+        match self.try_init_unsend_resource() {
+            Ok(id) | Err(id) => id,
         }
     }
 }

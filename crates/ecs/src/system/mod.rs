@@ -1,5 +1,3 @@
-use pulz_executor::Executor;
-
 use crate::{world::WorldSend, World};
 
 pub mod param;
@@ -32,6 +30,7 @@ pub trait IntoSystem<Marker> {
 pub struct SystemDescriptor {
     pub(crate) system_variant: SystemVariant,
     pub(crate) dependencies: Vec<usize>,
+    pub(crate) initialized: bool,
 }
 
 impl SystemDescriptor {
@@ -43,7 +42,18 @@ impl SystemDescriptor {
                     system,
                 ))),
                 dependencies: self.dependencies,
+                initialized: self.initialized,
             },
+        }
+    }
+
+    pub fn initialize(&mut self, world: &mut World) {
+        if !self.initialized {
+            self.initialized = true;
+            match self.system_variant {
+                SystemVariant::Exclusive(ref mut system) => system.initialize(world),
+                SystemVariant::Concurrent(ref mut system) => system.initialize(world),
+            }
         }
     }
 }
@@ -107,6 +117,7 @@ where
         SystemDescriptor {
             system_variant: SystemVariant::Concurrent(Box::new(self)),
             dependencies: Vec::new(),
+            initialized: false,
         }
     }
 }
@@ -121,6 +132,7 @@ where
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(self)),
             dependencies: Vec::new(),
+            initialized: false,
         }
     }
 }
