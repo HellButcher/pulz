@@ -14,8 +14,8 @@ edition = "2018"
 #default = ["async-std"]
 
 [dependencies]
-tokio = {version = "1.11", features = ["rt"], default-features = false, optional = true }
-async-std = {version = "1.10", optional = true }
+tokio = { version = "1.12", features = ["rt"], default-features = false, optional = true }
+async-std = { version = "1.10", optional = true }
 
 [dev-dependencies]
 async-std = { version = "1.10", features = ["attributes"] }
