@@ -2,7 +2,7 @@ use std::{any::Any, panic};
 
 use crate::{
     archetype::{Archetype, ArchetypeId},
-    component::{ComponentId, ComponentMap, ComponentSet, Components, Ref, RefMut},
+    component::{Component, ComponentId, ComponentMap, ComponentSet, Components, Ref, RefMut},
     entity::{Entity, EntityLocation},
     get_or_init_component,
     resource::{Res, ResMut, ResourceId, Resources},
@@ -49,7 +49,7 @@ impl<'w> EntityRef<'w> {
     #[inline]
     pub fn contains<T>(&self) -> bool
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         if let Some(component_id) = self.world.components.get_id::<T>() {
             self.contains_id(component_id)
@@ -60,7 +60,7 @@ impl<'w> EntityRef<'w> {
 
     pub fn contains_id<X>(&self, component_id: ComponentId<X>) -> bool
     where
-        X: 'static,
+        X: Component,
     {
         if component_id.is_sparse() {
             matches!(storage_dyn(self.res, &self.world.components, component_id), Some(storage) if storage.contains(self.entity, self.location.archetype_id, self.location.index))
@@ -73,7 +73,7 @@ impl<'w> EntityRef<'w> {
     #[inline]
     pub fn borrow<T>(&self) -> Option<Ref<'_, T>>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         let component_id = self.world.components.get_id::<T>()?;
         self.borrow_id::<T>(component_id)
@@ -83,7 +83,7 @@ impl<'w> EntityRef<'w> {
     #[inline]
     pub fn borrow_id<T>(&self, component_id: ComponentId<T>) -> Option<Ref<'_, T>>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         let storage = storage(self.res, &self.world.components, component_id)?;
         Ref::filter_map(storage, |storage| {
@@ -133,7 +133,7 @@ impl<'w> EntityMut<'w> {
     #[inline]
     pub fn contains<T>(&self) -> bool
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         if let Some(component_id) = self.world.components.get_id::<T>() {
             self.contains_id(component_id)
@@ -144,7 +144,7 @@ impl<'w> EntityMut<'w> {
 
     pub fn contains_id<X>(&self, component_id: ComponentId<X>) -> bool
     where
-        X: 'static,
+        X: Component,
     {
         if self.remove_components.contains(component_id) {
             return false;
@@ -162,7 +162,7 @@ impl<'w> EntityMut<'w> {
     #[inline]
     pub fn borrow<T>(&self) -> Option<Ref<'_, T>>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         let component_id = self.world.components.get_id::<T>()?;
         self.borrow_by_id::<T>(component_id)
@@ -172,7 +172,7 @@ impl<'w> EntityMut<'w> {
     #[inline]
     pub fn borrow_by_id<T>(&self, component_id: ComponentId<T>) -> Option<Ref<'_, T>>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         let storage = storage::<T>(self.res, &self.world.components, component_id)?;
         Ref::filter_map(storage, |storage| {
@@ -184,7 +184,7 @@ impl<'w> EntityMut<'w> {
     #[inline]
     pub fn borrow_mut<T>(&self) -> Option<RefMut<'_, T>>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         let component_id = self.world.components.get_id::<T>()?;
         self.borrow_mut_by_id::<T>(component_id)
@@ -194,7 +194,7 @@ impl<'w> EntityMut<'w> {
     #[inline]
     pub fn borrow_mut_by_id<T>(&self, component_id: ComponentId<T>) -> Option<RefMut<'_, T>>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         let storage = storage_mut::<T>(self.res, &self.world.components, component_id)?;
         RefMut::filter_map(storage, |storage| {
@@ -205,16 +205,15 @@ impl<'w> EntityMut<'w> {
     #[inline]
     pub fn insert<T>(&mut self, value: T) -> &mut Self
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
-        let component_id =
-            get_or_init_component::<T>(self.res, &mut self.world.components, false).1;
+        let component_id = get_or_init_component::<T>(self.res, &mut self.world.components).1;
         self.insert_by_id(component_id, value)
     }
 
     pub fn insert_by_id<T>(&mut self, component_id: ComponentId<T>, value: T) -> &mut Self
     where
-        T: 'static,
+        T: Component,
     {
         self.remove_components.remove(component_id);
         // TODO: try to use a pool inside 'world' for reducing allocations?
@@ -226,7 +225,7 @@ impl<'w> EntityMut<'w> {
     #[inline]
     pub fn remove<T>(&mut self) -> &mut Self
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         if let Some(id) = self.world.components.get_id::<T>() {
             self.remove_by_id(id);
@@ -454,12 +453,12 @@ fn storage<'a, T>(
     res: &'a Resources,
     comps: &Components,
     component_id: ComponentId<T>,
-) -> Option<Res<'a, Storage<T>>>
+) -> Option<Res<'a, T::Storage>>
 where
-    T: Send + Sync + 'static,
+    T: Component,
 {
     let component = comps.get(component_id)?;
-    let storage_id: ResourceId<Storage<T>> = component.storage_id.typed();
+    let storage_id: ResourceId<T::Storage> = component.storage_id.typed();
     res.borrow_res_id(storage_id)
 }
 
@@ -467,12 +466,12 @@ fn storage_mut<'a, T>(
     res: &'a Resources,
     comps: &Components,
     component_id: ComponentId<T>,
-) -> Option<ResMut<'a, Storage<T>>>
+) -> Option<ResMut<'a, T::Storage>>
 where
-    T: Send + Sync + 'static,
+    T: Component,
 {
     let component = comps.get(component_id)?;
-    let storage_id: ResourceId<Storage<T>> = component.storage_id.typed();
+    let storage_id: ResourceId<T::Storage> = component.storage_id.typed();
     res.borrow_res_mut_id(storage_id)
 }
 

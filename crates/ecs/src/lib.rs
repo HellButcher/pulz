@@ -31,6 +31,7 @@ macro_rules! peel {
     ($macro:tt [$($args:tt)*] $name:ident.$index:tt, $($other:tt)+) => (peel!{ $macro [$($args)* $name.$index, ] $($other)+ } );
 }
 
+use component::Component;
 pub use pulz_schedule::*;
 
 #[doc(hidden)]
@@ -47,6 +48,7 @@ pub mod world;
 
 pub use entity::Entity;
 pub use entity_ref::{EntityMut, EntityRef};
+use storage::Storage;
 pub use world::WorldExt;
 
 struct WorldInner {
@@ -72,32 +74,16 @@ impl Default for WorldInner {
 fn get_or_init_component<'a, T>(
     res: &'a mut resource::Resources,
     comps: &'a mut component::Components,
-    mut sparse: bool,
-) -> (
-    resource::ResourceId<storage::Storage<T>>,
-    component::ComponentId<T>,
-)
+) -> (resource::ResourceId<T::Storage>, component::ComponentId<T>)
 where
-    T: Send + Sync + 'static,
+    T: Component,
 {
     if let Some(component_id) = comps.get_id::<T>() {
         let component = comps.get(component_id).unwrap();
         (component.storage_id.typed(), component_id)
-    } else if let Some(storage_id) = res.get_id::<storage::Storage<T>>() {
-        sparse = matches!(
-            res.get_mut_id(storage_id),
-            Some(storage::Storage::Sparse(_))
-        );
-        let component_id = comps.insert(storage_id, sparse).unwrap();
-        (storage_id, component_id)
     } else {
-        let storage = if sparse {
-            storage::Storage::new_sparse()
-        } else {
-            storage::Storage::new_dense()
-        };
-        let storage_id = res.insert::<storage::Storage<T>>(storage);
-        let component_id = comps.insert(storage_id, sparse).unwrap();
+        let storage_id = res.init::<T::Storage>();
+        let component_id = comps.insert(storage_id, T::Storage::SPARSE).unwrap();
         (storage_id, component_id)
     }
 }

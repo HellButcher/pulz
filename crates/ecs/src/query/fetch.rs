@@ -1,6 +1,6 @@
 use crate::{
     archetype::Archetype,
-    component::{ComponentId, ComponentSet, Components},
+    component::{Component, ComponentId, ComponentSet, Components},
     entity::Entity,
     get_or_init_component,
     query::{QueryBorrow, QueryFetch, QueryPrepare},
@@ -8,14 +8,14 @@ use crate::{
     storage::Storage,
 };
 
-impl<T: Send + Sync + 'static> QueryPrepare for &'_ T {
-    type Prepared = (ResourceId<Storage<T>>, ComponentId<T>);
+impl<T: Component> QueryPrepare for &'_ T {
+    type Prepared = (ResourceId<T::Storage>, ComponentId<T>);
     type State = ();
     type Borrow = Self;
 
     #[inline]
     fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
-        get_or_init_component::<T>(res, components, false)
+        get_or_init_component::<T>(res, components)
     }
 
     #[inline]
@@ -39,8 +39,8 @@ impl<T: Send + Sync + 'static> QueryPrepare for &'_ T {
     fn state(_prepared: Self::Prepared, _archetype: &Archetype) {}
 }
 
-impl<'w, T: Send + Sync + 'static> QueryBorrow<'w> for &'_ T {
-    type Borrowed = Res<'w, Storage<T>>;
+impl<'w, T: Component> QueryBorrow<'w> for &'_ T {
+    type Borrowed = Res<'w, T::Storage>;
     type Fetch = Self;
 
     #[inline]
@@ -53,7 +53,7 @@ impl<'w, T: Send + Sync + 'static> QueryBorrow<'w> for &'_ T {
     }
 }
 
-impl<'w, 'a, T: Send + Sync + 'static> QueryFetch<'w, 'a> for &'_ T {
+impl<'w, 'a, T: Component> QueryFetch<'w, 'a> for &'_ T {
     type Item = &'a T;
 
     #[inline]
@@ -68,14 +68,14 @@ impl<'w, 'a, T: Send + Sync + 'static> QueryFetch<'w, 'a> for &'_ T {
     }
 }
 
-impl<T: Send + Sync + 'static> QueryPrepare for &'_ mut T {
-    type Prepared = (ResourceId<Storage<T>>, ComponentId<T>);
+impl<T: Component> QueryPrepare for &'_ mut T {
+    type Prepared = (ResourceId<T::Storage>, ComponentId<T>);
     type State = ();
     type Borrow = Self;
 
     #[inline]
     fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
-        get_or_init_component::<T>(res, components, false)
+        get_or_init_component::<T>(res, components)
     }
 
     #[inline]
@@ -99,8 +99,8 @@ impl<T: Send + Sync + 'static> QueryPrepare for &'_ mut T {
     fn state(_prepared: Self::Prepared, _archetype: &Archetype) {}
 }
 
-impl<'w, T: Send + Sync + 'static> QueryBorrow<'w> for &'_ mut T {
-    type Borrowed = ResMut<'w, Storage<T>>;
+impl<'w, T: Component> QueryBorrow<'w> for &'_ mut T {
+    type Borrowed = ResMut<'w, T::Storage>;
     type Fetch = Self;
 
     #[inline]
@@ -113,7 +113,7 @@ impl<'w, T: Send + Sync + 'static> QueryBorrow<'w> for &'_ mut T {
     }
 }
 
-impl<'w, 'a, T: Send + Sync + 'static> QueryFetch<'w, 'a> for &'_ mut T {
+impl<'w, 'a, T: Component> QueryFetch<'w, 'a> for &'_ mut T {
     type Item = &'a mut T;
 
     #[inline]

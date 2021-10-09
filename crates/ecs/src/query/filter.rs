@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{
     archetype::Archetype,
-    component::{ComponentId, ComponentSet, Components},
+    component::{Component, ComponentId, ComponentSet, Components},
     get_or_init_component,
     query::{QueryBorrow, QueryFetch, QueryPrepare},
     resource::{Resources, ResourcesSend},
@@ -18,12 +18,12 @@ pub trait Filter {
 
 impl<T> Filter for &'_ T
 where
-    T: Send + Sync + 'static,
+    T: Component,
 {
     type Prepared = ComponentId<T>;
     #[inline]
     fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
-        get_or_init_component::<T>(res, components, false).1
+        get_or_init_component::<T>(res, components).1
     }
 
     #[inline]
@@ -34,12 +34,12 @@ where
 
 impl<T> Filter for &'_ mut T
 where
-    T: Send + Sync + 'static,
+    T: Component,
 {
     type Prepared = ComponentId<T>;
     #[inline]
     fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
-        get_or_init_component::<T>(res, components, false).1
+        get_or_init_component::<T>(res, components).1
     }
 
     #[inline]

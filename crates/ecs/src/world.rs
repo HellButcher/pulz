@@ -1,7 +1,7 @@
 use std::mem::ManuallyDrop;
 
 use crate::{
-    component::ComponentId,
+    component::{Component, ComponentId},
     get_or_init_component,
     query::{Query, QueryPrepare},
     resource::{Res, Resources, TakenRes},
@@ -22,17 +22,9 @@ impl WorldMut<'_> {
     #[inline]
     pub fn init<T>(&mut self) -> ComponentId<T>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
-        get_or_init_component(self.res, &mut self.world.components, false).1
-    }
-
-    #[inline]
-    pub fn init_sparse<T>(&mut self) -> ComponentId<T>
-    where
-        T: Send + Sync + 'static,
-    {
-        get_or_init_component(self.res, &mut self.world.components, true).1
+        get_or_init_component::<T>(self.res, &mut self.world.components).1
     }
 }
 

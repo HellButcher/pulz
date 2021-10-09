@@ -14,6 +14,12 @@ use crate::{
 pub type Ref<'w, T> = Res<'w, T>;
 pub type RefMut<'w, T> = ResMut<'w, T>;
 
+pub use pulz_ecs_macros::Component;
+
+pub trait Component: Send + Sync + 'static {
+    type Storage: Storage<Component = Self>;
+}
+
 #[repr(transparent)]
 pub struct ComponentId<T = crate::Void>(isize, PhantomData<fn() -> T>);
 
@@ -85,7 +91,7 @@ impl ComponentId {
     #[inline]
     pub fn typed<T>(self) -> ComponentId<T>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         self.cast()
     }
@@ -134,7 +140,7 @@ impl Components {
     #[inline]
     pub fn get_id<T>(&self) -> Option<ComponentId<T>>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         let type_id = std::any::TypeId::of::<T>();
         self.by_type_id
@@ -143,20 +149,17 @@ impl Components {
             .map(ComponentId::typed)
     }
 
-    pub(crate) fn get<T>(&self, component_id: ComponentId<T>) -> Option<&ComponentInfo>
-    where
-        T: 'static,
-    {
+    pub(crate) fn get<T>(&self, component_id: ComponentId<T>) -> Option<&ComponentInfo> {
         self.components.get(component_id.offset())
     }
 
     pub(crate) fn insert<T>(
         &mut self,
-        storage_id: ResourceId<Storage<T>>,
+        storage_id: ResourceId<T::Storage>,
         sparse: bool,
     ) -> Result<ComponentId<T>, ComponentId<T>>
     where
-        T: Send + Sync + 'static,
+        T: Component,
     {
         let type_id = std::any::TypeId::of::<T>();
         let components = &mut self.components;
@@ -173,8 +176,8 @@ impl Components {
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
                     storage_id: storage_id.untyped(),
-                    any_getter: Storage::<T>::from_res,
-                    any_getter_mut: Storage::<T>::from_res_mut,
+                    any_getter: storage_access::<T>,
+                    any_getter_mut: storage_access_mut::<T>,
                 });
                 entry.insert(id);
                 Ok(id.typed())
@@ -199,6 +202,26 @@ impl Components {
         }
         ComponentSet(result)
     }
+}
+
+fn storage_access<T: Component>(
+    res: &Resources,
+    id: ResourceId,
+) -> Option<Res<'_, dyn AnyStorage>> {
+    Some(Res::map(
+        res.borrow_res_id::<T::Storage>(id.typed())?,
+        |s| {
+            let d: &dyn AnyStorage = s;
+            d
+        },
+    ))
+}
+
+fn storage_access_mut<T: Component>(
+    res: &mut Resources,
+    id: ResourceId,
+) -> Option<&mut dyn AnyStorage> {
+    Some(res.get_mut_id::<T::Storage>(id.typed())?)
 }
 
 /// Bit-Set like structure

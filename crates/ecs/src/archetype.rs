@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::BTreeMap,
     ops::{Index, IndexMut},
 };
@@ -6,7 +7,6 @@ use std::{
 use crate::{
     component::{ComponentId, ComponentSet},
     entity::Entity,
-    storage::slice_get_mut2,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -279,6 +279,25 @@ impl Default for ArchetypeSet {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[inline]
+fn slice_get_mut2<T>(
+    slice: &mut [T],
+    index1: usize,
+    index2: usize,
+) -> Option<(&'_ mut T, &'_ mut T)> {
+    match index1.cmp(&index2) {
+        Ordering::Less => {
+            let (a, b) = slice.split_at_mut(index2);
+            Some((&mut a[index1], &mut b[0]))
+        }
+        Ordering::Greater => {
+            let (a, b) = slice.split_at_mut(index1);
+            Some((&mut b[0], &mut a[index2]))
+        }
+        Ordering::Equal => None,
     }
 }
 

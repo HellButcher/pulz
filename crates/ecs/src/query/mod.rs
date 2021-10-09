@@ -168,14 +168,25 @@ mod test {
 
     use pulz_schedule::resource::Resources;
 
+    use crate::component::Component;
+    use crate::storage::Storage;
     use crate::WorldExt;
 
     use super::PreparedQuery;
 
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     struct A(usize);
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     struct B(usize);
+
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
+    #[component(sparse)]
+    struct C(usize);
+
+    #[test]
+    fn test_c_is_sparse() {
+        assert_eq!(true, <C as Component>::Storage::SPARSE);
+    }
 
     #[test]
     fn test_query() {
