@@ -1,11 +1,13 @@
 use std::mem::ManuallyDrop;
 
 use crate::{
-    component::{Component, ComponentId},
+    archetype::Archetypes,
+    component::{Component, ComponentId, Components},
+    entity::{Entities, Entity},
     get_or_init_component,
     query::{Query, QueryPrepare},
     resource::{Res, Resources, TakenRes},
-    Entity, WorldInner,
+    WorldInner,
 };
 
 pub struct World<'a> {
@@ -19,6 +21,21 @@ pub struct WorldMut<'a> {
 }
 
 impl WorldMut<'_> {
+    #[inline]
+    pub fn archetypes(&self) -> &Archetypes {
+        &self.world.archetypes
+    }
+
+    #[inline]
+    pub fn components(&self) -> &Components {
+        &self.world.components
+    }
+
+    #[inline]
+    pub fn entities(&self) -> &Entities {
+        &self.world.entities
+    }
+
     #[inline]
     pub fn init<T>(&mut self) -> ComponentId<T>
     where
@@ -53,6 +70,21 @@ impl World<'_> {
             res: self.res,
             world: Res::clone(&self.world),
         }
+    }
+
+    #[inline]
+    pub fn archetypes(&self) -> &Archetypes {
+        &self.world.archetypes
+    }
+
+    #[inline]
+    pub fn components(&self) -> &Components {
+        &self.world.components
+    }
+
+    #[inline]
+    pub fn entities(&self) -> &Entities {
+        &self.world.entities
     }
 }
 

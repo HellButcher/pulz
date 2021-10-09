@@ -1,9 +1,8 @@
 use std::any::{Any, TypeId};
 
 use fnv::FnvHashMap;
-use pulz_schedule::resource::FromResources;
 
-use crate::{archetype::ArchetypeId, Entity};
+use crate::{archetype::ArchetypeId, resource::FromResources, Entity};
 
 pub trait Storage: Send + Sync + Any + FromResources {
     const SPARSE: bool;

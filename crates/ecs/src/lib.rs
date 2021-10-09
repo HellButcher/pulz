@@ -31,25 +31,31 @@ macro_rules! peel {
     ($macro:tt [$($args:tt)*] $name:ident.$index:tt, $($other:tt)+) => (peel!{ $macro [$($args)* $name.$index, ] $($other)+ } );
 }
 
-use component::Component;
 pub use pulz_schedule::*;
 
 #[doc(hidden)]
 pub enum Void {}
 
-mod archetype;
+pub mod archetype;
 pub mod component;
 pub mod query;
 
-mod entity;
+pub mod entity;
 mod entity_ref;
 pub mod storage;
 pub mod world;
 
-pub use entity::Entity;
-pub use entity_ref::{EntityMut, EntityRef};
-use storage::Storage;
+pub use entity::{Entity, EntityMut, EntityRef};
 pub use world::WorldExt;
+
+pub mod prelude {
+    pub use crate::{
+        entity::{Entity, EntityMut, EntityRef},
+        resource::{Res, ResMut, Resources},
+        schedule::Schedule,
+        world::WorldExt,
+    };
+}
 
 struct WorldInner {
     entities: entity::Entities,
@@ -76,8 +82,9 @@ fn get_or_init_component<'a, T>(
     comps: &'a mut component::Components,
 ) -> (resource::ResourceId<T::Storage>, component::ComponentId<T>)
 where
-    T: Component,
+    T: component::Component,
 {
+    use storage::Storage;
     if let Some(component_id) = comps.get_id::<T>() {
         let component = comps.get(component_id).unwrap();
         (component.storage_id.typed(), component_id)

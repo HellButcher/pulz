@@ -1,6 +1,7 @@
 use pulz_arena::{Arena, Index};
 
 use crate::archetype::ArchetypeId;
+pub use crate::entity_ref::{EntityMut, EntityRef};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
