@@ -57,6 +57,8 @@ impl ComponentStructArgs {
                 self.sparse = Some(sparse);
             } else if let Some(storage) = attr::storage::parse_if(&ident, &input)? {
                 self.storage = Some(storage);
+            } else {
+                return Err(Error::new_spanned(ident, "unknown attribute"));
             }
             if input.is_empty() {
                 break;

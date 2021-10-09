@@ -43,7 +43,7 @@ pub mod query;
 
 mod entity;
 mod entity_ref;
-mod storage;
+pub mod storage;
 pub mod world;
 
 pub use entity::Entity;

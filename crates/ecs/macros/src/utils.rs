@@ -1,14 +1,21 @@
 use std::ops::{Deref, DerefMut};
 
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream};
 use proc_macro_crate::FoundCrate;
 use quote::ToTokens;
-use syn::{Error, Path, Result, Token, parse::{Parse, ParseStream}, parse_quote};
+use syn::{
+    parse::{Parse, ParseStream},
+    Error, Path, Result, Token,
+};
 
 pub fn resolve_crate(name: &str) -> Result<Path> {
     match proc_macro_crate::crate_name(name).map_err(|e| Error::new(Span::call_site(), e))? {
-        FoundCrate::Itself => Ok(parse_quote!(crate)),
-        FoundCrate::Name(name) => Ok(parse_quote!(::#name)),
+        FoundCrate::Itself => Ok(Path::from(Ident::new("crate", Span::call_site()))),
+        FoundCrate::Name(name) => {
+            let mut path: Path = Ident::new(&name, Span::call_site()).into();
+            path.leading_colon = Some(Token![::](Span::call_site()));
+            Ok(path)
+        }
     }
 }
 
@@ -73,7 +80,9 @@ impl<A: AttributeKeyword> Parse for Attr<A> {
 }
 
 impl<A> ToTokens for Attr<A>
-    where A: AttributeKeyword + ToTokens, A::Arg: ToTokens
+where
+    A: AttributeKeyword + ToTokens,
+    A::Arg: ToTokens,
 {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.ident.to_tokens(tokens);

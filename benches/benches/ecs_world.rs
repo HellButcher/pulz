@@ -14,30 +14,35 @@ fn configure_criterion() -> Criterion {
         .measurement_time(std::time::Duration::from_secs(4))
 }
 
-#[derive(Copy, Clone)]
+use pulz_ecs::{component::Component, resource::Resources, world::WorldExt};
+
+#[derive(Copy, Clone, Component)]
 struct A(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct B(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct C(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct D(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct E(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct F(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct G(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct H(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct I(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct J(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct K(usize);
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Component)]
 struct L(usize);
+
+#[derive(Copy, Clone, Component)]
+struct X<A: Send + Sync + 'static, B: Send + Sync + 'static>(A, B);
 
 // TODO: big number of components / different bigger numbers of components
 
@@ -47,9 +52,9 @@ pub fn world_spawn(c: &mut Criterion) {
     for &entity_count in NUM_ENTITIES {
         group.throughput(Throughput::Elements(entity_count as u64));
         group.bench_function(BenchmarkId::new("pulz", entity_count), |bencher| {
-            use pulz_ecs::World;
             bencher.iter(|| {
-                let mut world = World::new();
+                let mut world = Resources::new();
+                let mut world = world.world_mut();
                 let mut entities = Vec::new();
                 for i in 0..entity_count {
                     entities.push(world.spawn().insert(A(i)).insert(B(i)).insert(C(i)).id());
@@ -115,13 +120,13 @@ pub fn world_spawn_sparse(c: &mut Criterion) {
     for &entity_count in NUM_ENTITIES {
         group.throughput(Throughput::Elements(entity_count as u64));
         group.bench_function(BenchmarkId::new("pulz", entity_count), |bencher| {
-            use pulz_ecs::World;
             bencher.iter(|| {
-                let mut world = World::new();
-                world.components_mut().insert_sparse::<D>().unwrap();
-                world.components_mut().insert_sparse::<E>().unwrap();
-                world.components_mut().insert_sparse::<F>().unwrap();
-                world.components_mut().insert_sparse::<G>().unwrap();
+                let mut world = Resources::new();
+                let mut world = world.world_mut();
+                world.init::<D>();
+                world.init::<E>();
+                world.init::<F>();
+                world.init::<G>();
                 let mut entities = Vec::new();
                 for i in 0..entity_count {
                     entities.push(world.spawn().insert(A(i)).insert(B(i)).insert(C(i)).id());
@@ -231,23 +236,23 @@ pub fn world_spawn_sparse(c: &mut Criterion) {
     group.finish()
 }
 
-fn pulz_insert_many_components2<T>(e: &mut pulz_ecs::world::EntityMut, value: T)
+fn pulz_insert_many_components2<T>(e: &mut pulz_ecs::EntityMut, value: T)
 where
     T: Send + Sync + Copy + 'static,
 {
-    e.insert((value, A(1)));
-    e.insert((value, B(1)));
-    e.insert((value, C(1)));
-    e.insert((value, D(1)));
-    e.insert((value, E(1)));
-    e.insert((value, F(1)));
-    e.insert((value, G(1)));
-    e.insert((value, H(1)));
-    e.insert((value, I(1)));
-    e.insert((value, J(1)));
+    e.insert(X(value, A(1)));
+    e.insert(X(value, B(1)));
+    e.insert(X(value, C(1)));
+    e.insert(X(value, D(1)));
+    e.insert(X(value, E(1)));
+    e.insert(X(value, F(1)));
+    e.insert(X(value, G(1)));
+    e.insert(X(value, H(1)));
+    e.insert(X(value, I(1)));
+    e.insert(X(value, J(1)));
 }
 
-fn pulz_insert_many_components<T>(e: &mut pulz_ecs::world::EntityMut, value: T)
+fn pulz_insert_many_components<T>(e: &mut pulz_ecs::EntityMut, value: T)
 where
     T: Send + Sync + Copy + 'static,
 {
@@ -301,9 +306,9 @@ pub fn world_many_components(c: &mut Criterion) {
     for component_count in [100, 200, 300] {
         group.throughput(Throughput::Elements(component_count * 1000 as u64));
         group.bench_function(BenchmarkId::new("pulz", component_count), |bencher| {
-            use pulz_ecs::World;
             bencher.iter(|| {
-                let mut world = World::new();
+                let mut world = Resources::new();
+                let mut world = world.world_mut();
                 let mut entities = Vec::new();
                 for i in 0..1000 {
                     let mut e = world.spawn();

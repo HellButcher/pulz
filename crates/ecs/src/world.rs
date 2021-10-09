@@ -5,7 +5,7 @@ use crate::{
     get_or_init_component,
     query::{Query, QueryPrepare},
     resource::{Res, Resources, TakenRes},
-    WorldInner,
+    Entity, WorldInner,
 };
 
 pub struct World<'a> {
@@ -25,6 +25,16 @@ impl WorldMut<'_> {
         T: Component,
     {
         get_or_init_component::<T>(self.res, &mut self.world.components).1
+    }
+
+    /// Removes the entity and all its components from the world.
+    pub fn despawn(&mut self, entity: Entity) -> bool {
+        if let Some(ent) = self.entity_mut(entity) {
+            ent.despawn();
+            true
+        } else {
+            false
+        }
     }
 }
 
