@@ -16,7 +16,3 @@ pulz-arena = { path = "../arena" }
 pulz-schedule = { path = "../schedule" }
 pulz-ecs-macros = { path = "macros" }
 fnv = "1.0"
-
-[dev-dependencies]
-pulz-executor = { path = "../executor", features = ["async-std"] }
-async-std = { version = "1.10", features = ["attributes"] }
