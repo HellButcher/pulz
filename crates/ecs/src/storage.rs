@@ -129,11 +129,8 @@ where
         value: T,
     ) -> Option<T> {
         let col = vec_make_available(&mut self.0, archetype.index());
-        if let Some(entry) = col.get_mut(index) {
-            Some(std::mem::replace(entry, value))
-        } else {
-            None
-        }
+        col.get_mut(index)
+            .map(|entry| std::mem::replace(entry, value))
     }
 
     #[inline]
@@ -269,11 +266,7 @@ where
         if remove_from_archetype == insert_to_archetype {
             return None;
         }
-        if let Some(value) = S::swap_remove(self, entity, remove_from_archetype, remove_from_index)
-        {
-            Some(S::insert(self, entity, insert_to_archetype, value))
-        } else {
-            None
-        }
+        S::swap_remove(self, entity, remove_from_archetype, remove_from_index)
+            .map(|value| S::insert(self, entity, insert_to_archetype, value))
     }
 }

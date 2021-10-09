@@ -153,7 +153,7 @@ where
     fn clone(&self) -> Self {
         Self {
             resource_id: self.resource_id,
-            prepared: self.prepared.clone(),
+            prepared: self.prepared,
             shared_access: self.shared_access.clone(),
             exclusive_access: self.exclusive_access.clone(),
             sparse_only: self.sparse_only,

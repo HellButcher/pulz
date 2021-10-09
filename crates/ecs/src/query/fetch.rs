@@ -157,10 +157,10 @@ impl QueryBorrow<'_> for Entity {
 }
 
 impl QueryFetch<'_, '_> for Entity {
-    type Item = Entity;
+    type Item = Self;
 
     #[inline(always)]
-    fn get(_this: &mut Self::Borrowed, _state: (), archetype: &Archetype, index: usize) -> Entity {
+    fn get(_this: &mut Self::Borrowed, _state: (), archetype: &Archetype, index: usize) -> Self {
         archetype.entities[index]
     }
 }

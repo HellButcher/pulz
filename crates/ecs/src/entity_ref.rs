@@ -266,7 +266,7 @@ impl<'w> EntityMut<'w> {
         // remove components and track removal
         for component in &self.world.components.components {
             let id = component.id();
-            if let Some(mut storage) = storage_mut_dyn(self.res, &self.world.components, id) {
+            if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
                 // remove
                 if storage.swap_remove(self.entity, location.archetype_id, location.index) {
                     // track
@@ -301,7 +301,7 @@ impl<'w> Drop for EntityMut<'w> {
         for id in std::mem::take(&mut self.remove_components).iter(components) {
             if id.is_sparse() {
                 // apply removal of sparse components
-                if let Some(mut storage) = storage_mut_dyn(self.res, &self.world.components, id) {
+                if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
                     if storage.swap_remove(self.entity, old_archetype_id, old_index) {
                         // track removal
                         self.world
@@ -327,7 +327,7 @@ impl<'w> Drop for EntityMut<'w> {
         for (id, mut box_value) in std::mem::take(&mut self.insert_components).into_entries() {
             if id.is_sparse() {
                 // apply insertion of sparse components
-                if let Some(mut storage) = storage_mut_dyn(self.res, &self.world.components, id) {
+                if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
                     if storage
                         .insert(self.entity, old_archetype_id, box_value.as_mut())
                         .is_none()
@@ -343,7 +343,7 @@ impl<'w> Drop for EntityMut<'w> {
                     panic!("component {:?} is not available as storage", id);
                 }
             } else if archetype.components.contains(id) {
-                if let Some(mut storage) = storage_mut_dyn(self.res, &self.world.components, id) {
+                if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
                     // update existing dense components
                     if !storage.replace(
                         self.entity,
@@ -399,7 +399,7 @@ impl<'w> Drop for EntityMut<'w> {
 
         // move or remove old components
         for id in old_archetype.components.iter(components) {
-            if let Some(mut storage) = storage_mut_dyn(self.res, &self.world.components, id) {
+            if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
                 if new_archetype.components.contains(id) {
                     let result = storage.swap_remove_and_insert_to(
                         self.entity,
@@ -423,7 +423,7 @@ impl<'w> Drop for EntityMut<'w> {
         }
         // insert new components
         for (id, mut box_value) in insert_dense {
-            if let Some(mut storage) = storage_mut_dyn(self.res, &self.world.components, id) {
+            if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
                 let result = storage.insert(self.entity, new_archetype_id, box_value.as_mut());
                 assert_eq!(
                     Some(new_index),
