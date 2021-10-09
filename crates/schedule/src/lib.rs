@@ -36,6 +36,7 @@ pub use pulz_executor as executor;
 #[doc(hidden)]
 pub enum Void {}
 
+pub mod event;
 pub mod resource;
 pub mod schedule;
 pub mod system;
