@@ -91,7 +91,7 @@ impl ComponentId {
     }
 }
 
-pub struct Component {
+pub(crate) struct ComponentInfo {
     id: ComponentId,
     name: Cow<'static, str>,
     type_id: TypeId,
@@ -100,7 +100,7 @@ pub struct Component {
     pub(crate) any_getter_mut: fn(&mut Resources, ResourceId) -> Option<&mut dyn AnyStorage>,
 }
 
-impl Component {
+impl ComponentInfo {
     #[inline]
     pub fn id(&self) -> ComponentId {
         self.id
@@ -118,7 +118,7 @@ impl Component {
 }
 
 pub struct Components {
-    pub(crate) components: Vec<Component>,
+    pub(crate) components: Vec<ComponentInfo>,
     by_type_id: BTreeMap<TypeId, ComponentId>,
 }
 
@@ -143,7 +143,7 @@ impl Components {
             .map(ComponentId::typed)
     }
 
-    pub(crate) fn get<T>(&self, component_id: ComponentId<T>) -> Option<&Component>
+    pub(crate) fn get<T>(&self, component_id: ComponentId<T>) -> Option<&ComponentInfo>
     where
         T: 'static,
     {
@@ -168,7 +168,7 @@ impl Components {
                 } else {
                     ComponentId(index as isize, PhantomData) // keep positive => dense
                 };
-                components.push(Component {
+                components.push(ComponentInfo {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
