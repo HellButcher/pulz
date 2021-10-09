@@ -1,9 +1,10 @@
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
+#[macro_use]
+mod utils;
 mod bundle;
 mod component;
-mod utils;
 
 #[proc_macro_derive(Component, attributes(component))]
 pub fn derive_component(input: TokenStream) -> TokenStream {

@@ -177,6 +177,7 @@ mod test {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     struct A(usize);
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
+    #[component(storage=crate::storage::DenseStorage)]
     struct B(usize);
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
