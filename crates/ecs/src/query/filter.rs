@@ -2,16 +2,15 @@ use std::marker::PhantomData;
 
 use crate::{
     archetype::Archetype,
-    component::{ComponentId, ComponentSet},
-    world::WorldSend,
-    World,
+    component::{ComponentId, ComponentSet, Components},
+    get_or_init_component,
+    query::{QueryBorrow, QueryFetch, QueryPrepare},
+    resource::{Resources, ResourcesSend},
 };
-
-use super::{QueryBorrow, QueryFetch, QueryPrepare};
 
 pub trait Filter {
     type Prepared: Send + Sync + Sized + Copy + 'static;
-    fn prepare(world: &mut WorldSend) -> Self::Prepared;
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared;
 
     /// Checks if the archetype matches the query
     fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool;
@@ -23,8 +22,8 @@ where
 {
     type Prepared = ComponentId<T>;
     #[inline]
-    fn prepare(world: &mut WorldSend) -> Self::Prepared {
-        world.components_mut().get_or_insert_id::<T>()
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+        get_or_init_component::<T>(res, components, false).1
     }
 
     #[inline]
@@ -39,8 +38,8 @@ where
 {
     type Prepared = ComponentId<T>;
     #[inline]
-    fn prepare(world: &mut WorldSend) -> Self::Prepared {
-        world.components_mut().get_or_insert_id::<T>()
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+        get_or_init_component::<T>(res, components, false).1
     }
 
     #[inline]
@@ -52,7 +51,7 @@ where
 impl Filter for () {
     type Prepared = ();
     #[inline(always)]
-    fn prepare(_world: &mut WorldSend) {}
+    fn prepare(_res: &mut Resources, _components: &mut Components) {}
 
     #[inline(always)]
     fn matches_archetype(_prepared: (), _archetype: &Archetype) -> bool {
@@ -75,8 +74,8 @@ where
     type Prepared = ($($name::Prepared,)+);
 
     #[inline]
-    fn prepare(world: &mut WorldSend) -> Self::Prepared {
-        ($($name::prepare(world),)+)
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+        ($($name::prepare(res, components),)+)
     }
 
     #[inline(always)]
@@ -92,8 +91,8 @@ where
     type Prepared = ($($name::Prepared,)+);
 
     #[inline]
-    fn prepare(world: &mut WorldSend) -> Self::Prepared {
-        ($($name::prepare(world),)+)
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+        ($($name::prepare(res, components),)+)
     }
 
     #[inline(always)]
@@ -120,8 +119,8 @@ where
     type Borrow = Without<F, Q::Borrow>;
 
     #[inline]
-    fn prepare(world: &mut WorldSend) -> Self::Prepared {
-        (F::prepare(world), Q::prepare(world))
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+        (F::prepare(res, components), Q::prepare(res, components))
     }
 
     #[inline]
@@ -153,8 +152,8 @@ where
     type Fetch = Without<F, Q::Fetch>;
 
     #[inline(always)]
-    fn borrow(world: &'w WorldSend, prepared: Self::Prepared) -> Self::Borrowed {
-        Q::borrow(world, prepared.1)
+    fn borrow(res: &'w ResourcesSend, prepared: Self::Prepared) -> Self::Borrowed {
+        Q::borrow(res, prepared.1)
     }
 }
 
@@ -191,8 +190,8 @@ where
     type Borrow = With<F, Q::Borrow>;
 
     #[inline]
-    fn prepare(world: &mut WorldSend) -> Self::Prepared {
-        (F::prepare(world), Q::prepare(world))
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+        (F::prepare(res, components), Q::prepare(res, components))
     }
 
     #[inline]
@@ -224,8 +223,8 @@ where
     type Fetch = With<F, Q::Fetch>;
 
     #[inline(always)]
-    fn borrow(world: &'w WorldSend, prepared: Self::Prepared) -> Self::Borrowed {
-        Q::borrow(world, prepared.1)
+    fn borrow(res: &'w ResourcesSend, prepared: Self::Prepared) -> Self::Borrowed {
+        Q::borrow(res, prepared.1)
     }
 }
 

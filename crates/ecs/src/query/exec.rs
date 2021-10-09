@@ -2,19 +2,19 @@ use std::borrow::Cow;
 
 use crate::{
     archetype::ArchetypeId,
+    entity::Entity,
+    query::{PreparedQuery, QueryBorrow, QueryFetch, QueryItem, QueryPrepare},
+    resource::{Res, Resources},
     system::param::{SystemParam, SystemParamFetch},
-    world::WorldSend,
-    Entity, World,
+    WorldInner,
 };
-
-use super::{PreparedQuery, QueryBorrow, QueryFetch, QueryItem, QueryPrepare};
 
 pub struct Query<'w, Q>
 where
     Q: QueryPrepare,
 {
     prepared: Cow<'w, PreparedQuery<Q>>,
-    world: &'w WorldSend,
+    world: Res<'w, WorldInner>,
     borrow: <Q::Borrow as QueryBorrow<'w>>::Borrowed,
 }
 
@@ -23,7 +23,7 @@ where
     Q: QueryBorrow<'w>,
 {
     prepared: &'a PreparedQuery<Q>,
-    world: &'w WorldSend,
+    world: &'a WorldInner,
     borrow: &'a mut Q::Borrowed,
     archetype_id: Option<ArchetypeId>,
     state: Option<Q::State>,
@@ -34,22 +34,25 @@ impl<'w, Q> Query<'w, Q>
 where
     Q: QueryPrepare,
 {
-    pub fn new(world: &'w mut WorldSend) -> Self {
-        // TODO: try to not require mut world
-        let prepared = PreparedQuery::new(world);
+    pub(crate) fn new(res: &'w mut Resources) -> Self {
+        let prepared = PreparedQuery::new(res);
+        let world = res.borrow_res_id(prepared.resource_id).unwrap();
         let tmp = prepared.prepared;
+        let borrow = <Q::Borrow as QueryBorrow<'w>>::borrow(res.as_send(), tmp);
         Self {
             prepared: Cow::Owned(prepared),
             world,
-            borrow: <Q::Borrow as QueryBorrow<'w>>::borrow(world, tmp),
+            borrow,
         }
     }
-
-    pub(crate) fn new_prepared(prepared: &'w PreparedQuery<Q>, world: &'w WorldSend) -> Self {
+    pub(crate) fn new_prepared(prepared: &'w PreparedQuery<Q>, res: &'w Resources) -> Self {
+        let tmp = prepared.prepared;
+        let world = res.borrow_res_id(prepared.resource_id).unwrap();
+        let borrow = <Q::Borrow as QueryBorrow<'w>>::borrow(res.as_send(), tmp);
         Self {
             prepared: Cow::Borrowed(prepared),
             world,
-            borrow: <Q::Borrow as QueryBorrow<'w>>::borrow(world, prepared.prepared),
+            borrow,
         }
     }
 
@@ -72,7 +75,7 @@ where
         };
         QueryIter {
             prepared: self.prepared.as_ref(),
-            world: self.world,
+            world: &self.world,
             borrow: &mut self.borrow,
             archetype_id,
             state: None,
@@ -94,7 +97,7 @@ where
     where
         Q: QueryFetch<'w, 'a>,
     {
-        let location = self.world.entities().get(entity)?;
+        let location = self.world.entities.get(entity)?;
         if !self
             .prepared
             .matching_archetypes
@@ -102,7 +105,7 @@ where
         {
             return None;
         }
-        let archetype = &self.world.archetypes()[location.archetype_id];
+        let archetype = &self.world.archetypes[location.archetype_id];
         let state = Q::state(self.prepared.prepared, archetype);
         Some(Q::get(&mut self.borrow, state, archetype, location.index))
     }
@@ -131,7 +134,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let borrow: *mut _ = &mut self.borrow;
         while let Some(archetype_id) = self.archetype_id {
-            let archetype = &self.world.archetypes()[archetype_id];
+            let archetype = &self.world.archetypes[archetype_id];
             if self.index < archetype.len() {
                 let index = self.index;
                 self.index += 1;
@@ -165,8 +168,8 @@ where
     const IS_SEND: bool = true;
     type Prepared = PreparedQuery<Q>;
     type Fetch = Self;
-    fn prepare(world: &mut World) -> Self::Prepared {
-        PreparedQuery::<Q>::new(world.as_send_mut())
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        PreparedQuery::<Q>::new(resources)
     }
 }
 
@@ -175,10 +178,10 @@ where
     Q: QueryPrepare + 'static,
 {
     type Output = Query<'a, Q>;
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output
     where
         Q: 'a,
     {
-        prepared.query(world.as_send())
+        prepared.query(resources)
     }
 }

@@ -3,139 +3,13 @@ use std::{
     cmp::Ordering,
 };
 
-use atomic_refcell::{AtomicRef as Ref, AtomicRefCell, AtomicRefMut as RefMut};
-
 use fnv::FnvHashMap;
 
 use crate::{
     archetype::ArchetypeId,
-    component::{ComponentId, ComponentMap, ComponentSet, Components},
+    resource::{Res, ResourceId, Resources},
     Entity,
 };
-
-pub struct ComponentStorageMap(ComponentMap<AtomicRefCell<Box<dyn AnyStorage>>>);
-
-impl ComponentStorageMap {
-    #[inline]
-    pub fn new() -> Self {
-        Self(ComponentMap::new())
-    }
-
-    #[inline]
-    pub fn contains_id<X>(&self, component_id: ComponentId<X>) -> bool {
-        self.0.contains(component_id)
-    }
-
-    #[inline]
-    pub fn component_ids(&self) -> impl Iterator<Item = ComponentId> + '_ {
-        self.0.keys()
-    }
-
-    #[inline]
-    pub fn component_id_set(&self) -> ComponentSet {
-        self.0.key_set()
-    }
-
-    #[inline]
-    pub fn entries_mut(&mut self) -> impl Iterator<Item = (ComponentId, &mut dyn AnyStorage)> + '_ {
-        self.0
-            .entries_mut()
-            .map(|(id, boxed)| (id, boxed.get_mut().as_mut()))
-    }
-
-    #[inline]
-    pub fn get_mut_dyn<X>(&mut self, component_id: ComponentId<X>) -> Option<&mut dyn AnyStorage> {
-        Some(self.0.get_mut(component_id)?.get_mut().as_mut())
-    }
-
-    #[inline]
-    pub fn get_mut<T>(&mut self, component_id: ComponentId<T>) -> Option<&mut Storage<T>>
-    where
-        T: 'static,
-    {
-        self.get_mut_dyn(component_id)
-            .and_then(|storage| Storage::from_mut_dyn(storage))
-    }
-
-    #[inline]
-    pub fn borrow_dyn<X>(&self, component_id: ComponentId<X>) -> Option<Ref<'_, dyn AnyStorage>> {
-        Some(Ref::map(self.0.get(component_id)?.borrow(), Box::as_ref))
-    }
-
-    #[inline]
-    pub fn borrow_mut_dyn<X>(
-        &self,
-        component_id: ComponentId<X>,
-    ) -> Option<RefMut<'_, dyn AnyStorage>> {
-        Some(RefMut::map(
-            self.0.get(component_id)?.borrow_mut(),
-            Box::as_mut,
-        ))
-    }
-
-    #[inline]
-    pub fn borrow<T>(&self, component_id: ComponentId<T>) -> Option<Ref<'_, Storage<T>>>
-    where
-        T: 'static,
-    {
-        let v = self.borrow_dyn(component_id)?;
-        if TypeId::of::<T>() != v.component_type_id() {
-            return None;
-        }
-        Some(Ref::map(v, |storage| {
-            // SAFETY: just checked whether we are pointing to the correct component type
-            unsafe {
-                let storage: *const dyn AnyStorage = storage;
-                &*(storage as *const Storage<T>)
-            }
-        }))
-    }
-
-    #[inline]
-    pub fn borrow_mut<T>(&self, component_id: ComponentId<T>) -> Option<RefMut<'_, Storage<T>>>
-    where
-        T: 'static,
-    {
-        let v = self.borrow_mut_dyn(component_id)?;
-        if TypeId::of::<T>() != v.component_type_id() {
-            return None;
-        }
-        Some(RefMut::map(v, |storage| {
-            // SAFETY: just checked whether we are pointing to the correct component type
-            unsafe {
-                let storage: *mut dyn AnyStorage = storage;
-                &mut *(storage as *mut Storage<T>)
-            }
-        }))
-    }
-
-    #[inline]
-    pub fn get_or_insert_with<X, F>(
-        &mut self,
-        component_id: ComponentId<X>,
-        create: F,
-    ) -> &mut dyn AnyStorage
-    where
-        F: FnOnce() -> Box<dyn AnyStorage>,
-    {
-        self.0
-            .get_or_insert_with(component_id, || AtomicRefCell::new(create()))
-            .get_mut()
-            .as_mut()
-    }
-
-    #[inline]
-    pub fn get_or_insert<X>(
-        &mut self,
-        with_components: &Components,
-        component_id: ComponentId<X>,
-    ) -> &mut dyn AnyStorage {
-        self.get_or_insert_with(component_id, || {
-            let component = &with_components.components[component_id.offset()];
-            (component.new_storage)()
-        })
-    }
-}
 
 pub enum Storage<T> {
     Dense(Vec<Vec<T>>),
@@ -178,36 +52,29 @@ fn vec_make_available<T: Default>(vec: &mut Vec<T>, index: usize) -> &mut T {
 
 impl<T> Storage<T>
 where
-    T: 'static,
+    T: Send + Sync + 'static,
 {
+    #[inline]
+    pub fn new_dense() -> Self {
+        Self::Dense(Vec::new())
+    }
+    #[inline]
+    pub fn new_sparse() -> Self {
+        Self::Sparse(FnvHashMap::default())
+    }
     fn take_t(value: &mut dyn Any) -> Option<T> {
         value.downcast_mut::<Option<T>>()?.take()
     }
 
-    #[inline]
-    fn from_dyn(storage: &mut dyn AnyStorage) -> Option<&Self> {
-        if TypeId::of::<T>() == storage.component_type_id() {
-            // SAFETY: just checked whether we are pointing to the correct type
-            unsafe {
-                let storage: *const dyn AnyStorage = storage;
-                Some(&*(storage as *const Self))
-            }
-        } else {
-            None
-        }
+    pub(crate) fn from_res(res: &Resources, id: ResourceId) -> Option<Res<'_, dyn AnyStorage>> {
+        Some(Res::map(res.borrow_res_id::<Self>(id.typed())?, |s| {
+            let d: &dyn AnyStorage = s;
+            d
+        }))
     }
 
-    #[inline]
-    fn from_mut_dyn(storage: &mut dyn AnyStorage) -> Option<&mut Self> {
-        if TypeId::of::<T>() == storage.component_type_id() {
-            // SAFETY: just checked whether we are pointing to the correct type
-            unsafe {
-                let storage: *mut dyn AnyStorage = storage;
-                Some(&mut *(storage as *mut Self))
-            }
-        } else {
-            None
-        }
+    pub(crate) fn from_res_mut(res: &mut Resources, id: ResourceId) -> Option<&mut dyn AnyStorage> {
+        Some(res.get_mut_id::<Self>(id.typed())?)
     }
 
     #[inline]

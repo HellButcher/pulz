@@ -1,11 +1,8 @@
 [package]
-name = "pulz-ecs"
-description = "An archetype based ECS"
+name = "pulz-schedule"
 version = "0.1.0"
 authors = ["Christoph Hommelsheim <main@chommel.eu>"]
 license = "MIT OR Apache-2.0"
-keywords = ["ecs", "game"]
-categories = ["data-structures", "game-engines", "game-development"]
 repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
 edition = "2018"
@@ -13,8 +10,9 @@ edition = "2018"
 
 [dependencies]
 pulz-arena = { path = "../arena" }
-pulz-schedule = { path = "../schedule" }
+pulz-executor = { path = "../executor" }
 fnv = "1.0"
+atomic_refcell = "0.1"
 
 [dev-dependencies]
 pulz-executor = { path = "../executor", features = ["async-std"] }

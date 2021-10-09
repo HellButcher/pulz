@@ -1,4 +1,4 @@
-use crate::World;
+use crate::resource::Resources;
 
 /// # Unsafe
 /// The value ov IS_SEND must be correct: when it says true, then the type must be Send!
@@ -7,12 +7,12 @@ pub unsafe trait SystemParam: Sized {
 
     type Prepared: Send + Sync;
     type Fetch: for<'a> SystemParamFetch<'a, Prepared = Self::Prepared>;
-    fn prepare(world: &mut World) -> Self::Prepared;
+    fn prepare(resources: &mut Resources) -> Self::Prepared;
 }
 
 pub trait SystemParamFetch<'a>: SystemParam<Fetch = Self> {
     type Output;
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output
     where
         Self: 'a;
 }
@@ -23,12 +23,12 @@ unsafe impl SystemParam for () {
     type Prepared = ();
     type Fetch = ();
     #[inline]
-    fn prepare(_world: &mut World) {}
+    fn prepare(_resources: &mut Resources) {}
 }
 
 impl SystemParamFetch<'_> for () {
     type Output = ();
-    fn get(_prepared: &mut Self::Prepared, _world: &World) -> Self::Output {}
+    fn get(_prepared: &mut Self::Prepared, _resources: &Resources) -> Self::Output {}
 }
 
 macro_rules! tuple {
@@ -44,8 +44,8 @@ macro_rules! tuple {
           type Prepared = ($($name::Prepared,)+) ;
           type Fetch = ($($name::Fetch,)+) ;
           #[inline]
-          fn prepare(world: &mut World) -> Self::Prepared {
-              ($($name::prepare(world),)+)
+          fn prepare(resources: &mut Resources) -> Self::Prepared {
+              ($($name::prepare(resources),)+)
           }
       }
 
@@ -55,8 +55,8 @@ macro_rules! tuple {
       {
           type Output =  ($($name::Output,)+);
           #[inline]
-          fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output where Self: 'a {
-              ($($name::get(&mut prepared.$index, world),)+)
+          fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output where Self: 'a {
+              ($($name::get(&mut prepared.$index, resources),)+)
           }
       }
 

@@ -1,4 +1,4 @@
-use crate::{world::WorldSend, World};
+use crate::resource::{Resources, ResourcesSend};
 
 pub mod param;
 pub mod system_fn;
@@ -6,12 +6,12 @@ pub mod system_fn;
 /// # Unsafe
 /// when is_send returns true, the implemention of run must ensure, that no unsend resources are accessed
 pub unsafe trait System: Send + Sync + 'static {
-    fn initialize(&mut self, _world: &mut World) {}
-    fn run(&mut self, arg: &World);
+    fn initialize(&mut self, _resources: &mut Resources) {}
+    fn run(&mut self, arg: &Resources);
 
     fn is_send(&self) -> bool;
 
-    fn run_send(&mut self, arg: &WorldSend) {
+    fn run_send(&mut self, arg: &ResourcesSend) {
         assert!(self.is_send(), "system is not send");
         // SAFETY: no unsend resources are accessed (defined by unsafe trait contract)
         unsafe { self.run(arg.as_unsend()) }
@@ -19,8 +19,8 @@ pub unsafe trait System: Send + Sync + 'static {
 }
 
 pub trait ExclusiveSystem: 'static {
-    fn initialize(&mut self, _world: &mut World) {}
-    fn run(&mut self, arg: &mut World);
+    fn initialize(&mut self, _resources: &mut Resources) {}
+    fn run(&mut self, arg: &mut Resources);
 }
 
 pub trait IntoSystem<Marker> {
@@ -47,12 +47,12 @@ impl SystemDescriptor {
         }
     }
 
-    pub fn initialize(&mut self, world: &mut World) {
+    pub fn initialize(&mut self, resources: &mut Resources) {
         if !self.initialized {
             self.initialized = true;
             match self.system_variant {
-                SystemVariant::Exclusive(ref mut system) => system.initialize(world),
-                SystemVariant::Concurrent(ref mut system) => system.initialize(world),
+                SystemVariant::Exclusive(ref mut system) => system.initialize(resources),
+                SystemVariant::Concurrent(ref mut system) => system.initialize(resources),
             }
         }
     }
@@ -68,7 +68,7 @@ where
     S: System,
 {
     #[inline]
-    fn run(&mut self, arg: &World) {
+    fn run(&mut self, arg: &Resources) {
         self.as_mut().run(arg)
     }
 
@@ -83,7 +83,7 @@ where
     S: ExclusiveSystem,
 {
     #[inline]
-    fn run(&mut self, arg: &mut World) {
+    fn run(&mut self, arg: &mut Resources) {
         self.as_mut().run(arg)
     }
 }
@@ -93,7 +93,7 @@ pub struct ConcurrentAsExclusiveSystem(Box<dyn System>);
 
 impl ExclusiveSystem for ConcurrentAsExclusiveSystem {
     #[inline]
-    fn run(&mut self, arg: &mut World) {
+    fn run(&mut self, arg: &mut Resources) {
         self.0.run(arg)
     }
 }

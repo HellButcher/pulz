@@ -1,11 +1,10 @@
 use crate::{
     archetype::{Archetype, ArchetypeId, ArchetypeSet},
-    component::{ComponentId, ComponentSet},
-    world::{BaseWorld, WorldSend},
-    World,
+    component::{ComponentId, ComponentSet, Components},
+    WorldInner,
 };
 
-use self::exec::Query;
+pub use self::exec::Query;
 
 // mostly based on `hecs` (https://github.com/Ralith/hecs/blob/9a2405c703ea0eb6481ad00d55e74ddd226c1494/src/query.rs)
 
@@ -20,7 +19,7 @@ pub trait QueryPrepare {
     type Borrow: for<'w> QueryBorrow<'w, Prepared = Self::Prepared>;
 
     /// Looks up data that can be re-used between multiple query invocations
-    fn prepare(world: &mut WorldSend) -> Self::Prepared;
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared;
 
     fn update_access(
         prepared: Self::Prepared,
@@ -41,7 +40,7 @@ pub trait QueryBorrow<'w>: QueryPrepare<Borrow = Self> {
     type Fetch: for<'a> QueryFetch<'w, 'a>;
 
     /// Acquire dynamic borrows from `archetype`
-    fn borrow(world: &'w WorldSend, prepared: Self::Prepared) -> Self::Borrowed;
+    fn borrow(res: &'w ResourcesSend, prepared: Self::Prepared) -> Self::Borrowed;
 }
 
 /// Type of values yielded by a query
@@ -67,11 +66,13 @@ mod fetch;
 mod filter;
 pub use fetch::*;
 pub use filter::*;
+use pulz_schedule::resource::{ResourceId, Resources, ResourcesSend};
 
 pub struct PreparedQuery<Q>
 where
     Q: QueryPrepare,
 {
+    resource_id: ResourceId<WorldInner>,
     prepared: Q::Prepared,
     shared_access: ComponentSet,
     exclusive_access: ComponentSet,
@@ -85,19 +86,31 @@ impl<Q> PreparedQuery<Q>
 where
     Q: QueryPrepare,
 {
-    pub fn new<Marker>(world: &mut BaseWorld<Marker>) -> Self {
-        let world = world.as_send_mut();
-        let prepared = Q::prepare(world);
+    pub fn new(resources: &mut Resources) -> Self {
+        let world_id = resources.init::<WorldInner>();
+        let mut world = resources.remove_id(world_id).unwrap();
+        let result = Self::from_world(resources, &mut world, world_id);
+        resources.insert_again(world);
+        result
+    }
+
+    fn from_world(
+        resources: &mut Resources,
+        world: &mut WorldInner,
+        resource_id: ResourceId<WorldInner>,
+    ) -> Self {
+        let prepared = Q::prepare(resources, &mut world.components);
         let mut shared_access = ComponentSet::new();
         let mut exclusive_access = ComponentSet::new();
         Q::update_access(prepared, &mut shared_access, &mut exclusive_access);
 
         let sparse_only = shared_access
-            .iter(world.components())
-            .chain(exclusive_access.iter(world.components()))
+            .iter(&world.components)
+            .chain(exclusive_access.iter(&world.components))
             .all(ComponentId::is_sparse);
 
         let mut query = Self {
+            resource_id,
             prepared,
             shared_access,
             exclusive_access,
@@ -109,8 +122,8 @@ where
         query
     }
 
-    pub fn update_archetypes(&mut self, world: &WorldSend) {
-        let archetypes = world.archetypes();
+    fn update_archetypes(&mut self, world: &WorldInner) {
+        let archetypes = &world.archetypes;
         let last_archetype_index = archetypes.len();
         let old_archetype_index =
             std::mem::replace(&mut self.last_archetype_index, last_archetype_index);
@@ -125,10 +138,10 @@ where
     }
 
     #[inline]
-    pub fn query<'w, Marker>(&'w mut self, world: &'w BaseWorld<Marker>) -> Query<'w, Q> {
-        let world = world.as_send();
-        self.update_archetypes(world);
-        Query::new_prepared(self, world)
+    pub fn query<'w>(&'w mut self, res: &'w Resources) -> Query<'w, Q> {
+        let world = res.borrow_res_id(self.resource_id).unwrap();
+        self.update_archetypes(&world);
+        Query::new_prepared(self, res)
     }
 }
 
@@ -139,6 +152,7 @@ where
     #[inline]
     fn clone(&self) -> Self {
         Self {
+            resource_id: self.resource_id,
             prepared: self.prepared.clone(),
             shared_access: self.shared_access.clone(),
             exclusive_access: self.exclusive_access.clone(),
@@ -151,7 +165,10 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::World;
+
+    use pulz_schedule::resource::Resources;
+
+    use crate::WorldExt;
 
     use super::PreparedQuery;
 
@@ -162,36 +179,39 @@ mod test {
 
     #[test]
     fn test_query() {
-        let mut world = World::new();
+        let mut resources = Resources::new();
         let mut entities = Vec::new();
-        for i in 0..1000 {
-            let entity = match i % 4 {
-                1 => world.spawn().insert(A(i)).id(),
-                2 => world.spawn().insert(B(i)).id(),
-                _ => world.spawn().insert(A(i)).insert(B(i)).id(),
-            };
-            entities.push(entity);
+        {
+            let mut world = resources.world_mut();
+            for i in 0..1000 {
+                let entity = match i % 4 {
+                    1 => world.spawn().insert(A(i)).id(),
+                    2 => world.spawn().insert(B(i)).id(),
+                    _ => world.spawn().insert(A(i)).insert(B(i)).id(),
+                };
+                entities.push(entity);
+            }
         }
 
-        let mut q1 = PreparedQuery::<&A>::new(&mut world);
+        let mut q1 = PreparedQuery::<&A>::new(&mut resources);
         //let r = q1.one(&world, entities[1]).map(|mut o| *o.get());
-        let r = q1.query(&world).get(entities[1]).copied();
+        let r = q1.query(&resources).get(entities[1]).copied();
         assert_eq!(Some(A(1)), r);
 
         let mut counter1 = 0;
         let mut sum1 = 0;
-        for a in q1.query(&world).iter() {
+        for a in q1.query(&resources).iter() {
             counter1 += 1;
             sum1 += a.0;
         }
         assert_eq!(750, counter1);
         assert_eq!(374500, sum1);
 
-        let mut q2 = PreparedQuery::<(&A, &B)>::new(&mut world);
+        let mut q2 = PreparedQuery::<(&A, &B)>::new(&mut resources);
         let mut counter2 = 0;
         let mut sum2a = 0;
         let mut sum2b = 0;
-        for (a, b) in q2.query(&world).iter() {
+        for (a, b) in q2.query(&resources).iter() {
             counter2 += 1;
             sum2a += a.0;
             sum2b += b.0;
@@ -200,10 +220,10 @@ mod test {
         assert_eq!(249750, sum2a);
         assert_eq!(249750, sum2b);
 
-        let mut q3 = PreparedQuery::<(&B,)>::new(&mut world);
+        let mut q3 = PreparedQuery::<(&B,)>::new(&mut resources);
         let mut counter3 = 0;
         let mut sum3 = 0;
-        for (b,) in q3.query(&world).iter() {
+        for (b,) in q3.query(&resources).iter() {
             counter3 += 1;
             sum3 += b.0;
         }
@@ -212,7 +232,7 @@ mod test {
 
         let mut counter4 = 0;
         let mut sum4 = 0;
-        for a in q1.query(&world).iter() {
+        for a in q1.query(&resources).iter() {
             counter4 += 1;
             sum4 += a.0;
         }

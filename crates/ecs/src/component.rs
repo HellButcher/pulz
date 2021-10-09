@@ -6,7 +6,13 @@ use std::{
     marker::PhantomData,
 };
 
-use crate::storage::{AnyStorage, Storage};
+use crate::{
+    resource::{Res, ResMut, ResourceId, Resources},
+    storage::{AnyStorage, Storage},
+};
+
+pub type Ref<'w, T> = Res<'w, T>;
+pub type RefMut<'w, T> = ResMut<'w, T>;
 
 #[repr(transparent)]
 pub struct ComponentId<T = crate::Void>(isize, PhantomData<fn() -> T>);
@@ -55,6 +61,11 @@ impl<T> ComponentId<T> {
     }
 
     #[inline]
+    pub fn untyped(self) -> ComponentId {
+        self.cast()
+    }
+
+    #[inline]
     pub fn is_sparse(self) -> bool {
         self.0 < 0
     }
@@ -70,11 +81,23 @@ impl<T> ComponentId<T> {
     }
 }
 
+impl ComponentId {
+    #[inline]
+    pub fn typed<T>(self) -> ComponentId<T>
+    where
+        T: Send + Sync + 'static,
+    {
+        self.cast()
+    }
+}
+
 pub struct Component {
     id: ComponentId,
     name: Cow<'static, str>,
     type_id: TypeId,
-    pub(crate) new_storage: fn() -> Box<dyn AnyStorage>,
+    pub(crate) storage_id: ResourceId,
+    pub(crate) any_getter: fn(&Resources, ResourceId) -> Option<Res<'_, dyn AnyStorage>>,
+    pub(crate) any_getter_mut: fn(&mut Resources, ResourceId) -> Option<&mut dyn AnyStorage>,
 }
 
 impl Component {
@@ -111,49 +134,27 @@ impl Components {
     #[inline]
     pub fn get_id<T>(&self) -> Option<ComponentId<T>>
     where
-        T: 'static,
+        T: Send + Sync + 'static,
     {
         let type_id = std::any::TypeId::of::<T>();
         self.by_type_id
             .get(&type_id)
             .copied()
-            .map(ComponentId::cast)
+            .map(ComponentId::typed)
     }
 
-    #[inline]
-    pub fn get_or_insert_id<T>(&mut self) -> ComponentId<T>
+    pub(crate) fn get<T>(&self, component_id: ComponentId<T>) -> Option<&Component>
     where
-        T: Send + Sync + 'static,
+        T: 'static,
     {
-        match self.insert::<T>() {
-            Ok(id) | Err(id) => id,
-        }
+        self.components.get(component_id.offset())
     }
 
-    pub fn insert<T>(&mut self) -> Result<ComponentId<T>, ComponentId<T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        let type_id = std::any::TypeId::of::<T>();
-        let components = &mut self.components;
-        match self.by_type_id.entry(type_id) {
-            Entry::Vacant(entry) => {
-                let index = components.len();
-                let id = ComponentId(index as isize, PhantomData); // keep positive => dense
-                components.push(Component {
-                    id,
-                    name: Cow::Borrowed(std::any::type_name::<T>()),
-                    type_id,
-                    new_storage: || Box::new(Storage::<T>::Dense(Default::default())),
-                });
-                entry.insert(id);
-                Ok(id.cast())
-            }
-            Entry::Occupied(entry) => Err((*entry.get()).cast()),
-        }
-    }
-
-    pub fn insert_sparse<T>(&mut self) -> Result<ComponentId<T>, ComponentId<T>>
+    pub(crate) fn insert<T>(
+        &mut self,
+        storage_id: ResourceId<Storage<T>>,
+        sparse: bool,
+    ) -> Result<ComponentId<T>, ComponentId<T>>
     where
         T: Send + Sync + 'static,
     {
@@ -162,18 +163,41 @@ impl Components {
         match self.by_type_id.entry(type_id) {
             Entry::Vacant(entry) => {
                 let index = components.len();
-                let id = ComponentId(!index as isize, PhantomData); // make inverse (negative) => sparse
+                let id = if sparse {
+                    ComponentId(!index as isize, PhantomData) // make inverse (negative) => sparse
+                } else {
+                    ComponentId(index as isize, PhantomData) // keep positive => dense
+                };
                 components.push(Component {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
-                    new_storage: || Box::new(Storage::<T>::Sparse(Default::default())),
+                    storage_id: storage_id.untyped(),
+                    any_getter: Storage::<T>::from_res,
+                    any_getter_mut: Storage::<T>::from_res_mut,
                 });
                 entry.insert(id);
-                Ok(id.cast())
+                Ok(id.typed())
             }
-            Entry::Occupied(entry) => Err((*entry.get()).cast()),
+            Entry::Occupied(entry) => Err((*entry.get()).typed()),
         }
+    }
+
+    pub fn to_set(&self) -> ComponentSet {
+        let words = self.components.len() / 64;
+        let mut words_rest = self.components.len() % 64;
+        let mut result = Vec::with_capacity(words + 1);
+        result.resize(words, u64::MAX);
+        if words_rest != 0 {
+            let mut last_value = 0;
+            while words_rest > 0 {
+                words_rest -= 1;
+                last_value <<= 1;
+                last_value |= 1;
+            }
+            result.push(last_value)
+        }
+        ComponentSet(result)
     }
 }
 
@@ -345,7 +369,7 @@ impl<T> ComponentMap<T> {
                 item
             }
             Err(index) => {
-                self.0.insert(index, (id.cast(), value));
+                self.0.insert(index, (id.untyped(), value));
                 // SAFETY: index was inserted
                 unsafe { &mut self.0.get_unchecked_mut(index).1 }
             }
@@ -363,7 +387,7 @@ impl<T> ComponentMap<T> {
                 unsafe { &mut self.0.get_unchecked_mut(index).1 }
             }
             Err(index) => {
-                self.0.insert(index, (id.cast(), create()));
+                self.0.insert(index, (id.untyped(), create()));
                 // SAFETY: index was inserted
                 unsafe { &mut self.0.get_unchecked_mut(index).1 }
             }

@@ -11,10 +11,7 @@ use std::{
 use atomic_refcell::AtomicRefCell;
 pub use atomic_refcell::{AtomicRef as Res, AtomicRefMut as ResMut};
 
-use crate::{
-    system::param::{SystemParam, SystemParamFetch},
-    World,
-};
+use crate::system::param::{SystemParam, SystemParamFetch};
 
 #[repr(transparent)]
 pub struct ResourceId<T = crate::Void>(usize, PhantomData<fn() -> T>);
@@ -61,6 +58,21 @@ impl<T> ResourceId<T> {
     #[inline(always)]
     fn cast<X>(self) -> ResourceId<X> {
         ResourceId(self.0, PhantomData)
+    }
+
+    #[inline]
+    pub fn untyped(self) -> ResourceId {
+        self.cast()
+    }
+}
+
+impl ResourceId {
+    #[inline]
+    pub fn typed<T>(self) -> ResourceId<T>
+    where
+        T: 'static,
+    {
+        self.cast()
     }
 }
 
@@ -127,14 +139,17 @@ impl<Marker> Resource<Marker> {
     }
 }
 
-pub struct Resources<Marker> {
+pub type ResourcesSend = BaseResources<SendMarker>;
+pub type Resources = BaseResources<UnsendMarker>;
+
+pub struct BaseResources<Marker> {
     pub(crate) resources: Vec<Resource<Marker>>,
     by_type_id: BTreeMap<TypeId, ResourceId>,
 }
 
-impl<Marker> Resources<Marker> {
+impl<Marker> BaseResources<Marker> {
     #[inline]
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             resources: Vec::new(),
             by_type_id: BTreeMap::new(),
@@ -196,9 +211,32 @@ impl<Marker> Resources<Marker> {
         res.value = Some(AtomicRefCell::new(Box::new(value)));
         id
     }
+
+    #[inline]
+    pub fn as_send(&self) -> &ResourcesSend {
+        // SAFETY: same type but different Phantom-Data.
+        // Unsend -> Send is allowed, because it will restrict access-methods even more (to only accept send+sync types)
+        unsafe { std::mem::transmute(self) }
+    }
+
+    #[inline]
+    pub fn as_send_mut(&mut self) -> &mut ResourcesSend {
+        // SAFETY: same type but different Phantom-Data.
+        // Unsend -> Send is allowed, because it will restrict access-methods even more (to only accept send+sync types)
+        unsafe { std::mem::transmute(self) }
+    }
+
+    /// # Unsafe
+    /// User must ensure, that no UnSend Resources are send to a other thread
+    #[inline]
+    pub unsafe fn as_unsend(&self) -> &Resources {
+        // SAFETY: same type but different Phantom-Data.
+        // Send -> Unsend is unsafe (see doc)
+        std::mem::transmute(self)
+    }
 }
 
-impl Resources<UnsendMarker> {
+impl Resources {
     pub fn insert_unsend<T>(&mut self, value: T) -> ResourceId<T>
     where
         T: 'static,
@@ -211,18 +249,48 @@ impl Resources<UnsendMarker> {
         id
     }
 
-    #[inline]
-    pub fn as_send(&self) -> &Resources<SendMarker> {
-        // SAFETY: same type but different Phantom-Data.
-        // Unsend -> Send is allowed, because it will restrict access-methods even more (to only accept send+sync types)
-        unsafe { std::mem::transmute(self) }
+    pub fn try_init<T>(&mut self) -> Result<ResourceId<T>, ResourceId<T>>
+    where
+        T: 'static + Send + Sync + FromResources,
+    {
+        if let Some(id) = self.get_id::<T>() {
+            Err(id)
+        } else {
+            let value = T::from_resources(self);
+            Ok(self.insert(value))
+        }
     }
 
     #[inline]
-    pub fn as_send_mut(&mut self) -> &mut Resources<SendMarker> {
-        // SAFETY: same type but different Phantom-Data.
-        // Unsend -> Send is allowed, because it will restrict access-methods even more (to only accept send+sync types)
-        unsafe { std::mem::transmute(self) }
+    pub fn init<T>(&mut self) -> ResourceId<T>
+    where
+        T: 'static + Send + Sync + FromResources,
+    {
+        match self.try_init() {
+            Ok(id) | Err(id) => id,
+        }
+    }
+
+    pub fn try_init_unsend<T>(&mut self) -> Result<ResourceId<T>, ResourceId<T>>
+    where
+        T: 'static + FromResources,
+    {
+        if let Some(id) = self.get_id::<T>() {
+            Err(id)
+        } else {
+            let value = T::from_resources(self);
+            Ok(self.insert_unsend(value))
+        }
+    }
+
+    #[inline]
+    pub fn init_unsend<T>(&mut self) -> ResourceId<T>
+    where
+        T: 'static + FromResources,
+    {
+        match self.try_init_unsend() {
+            Ok(id) | Err(id) => id,
+        }
     }
 }
 
@@ -283,24 +351,24 @@ impl Resource<$Marker> {
     }
 }
 
-impl Resources<$Marker> {
+impl BaseResources<$Marker> {
     #[inline]
-    pub fn borrow<T>(&self) -> Option<Res<'_, T>>
+    pub fn borrow_res<T>(&self) -> Option<Res<'_, T>>
     where
         T: $($bound)+,
     {
-        self.borrow_id(self.get_id::<T>()?)
+        self.borrow_res_id(self.get_id::<T>()?)
     }
 
     #[inline]
-    pub fn borrow_mut<T>(&self) -> Option<ResMut<'_, T>>
+    pub fn borrow_res_mut<T>(&self) -> Option<ResMut<'_, T>>
     where
         T: $($bound)+,
     {
-        self.borrow_mut_id(self.get_id::<T>()?)
+        self.borrow_res_mut_id(self.get_id::<T>()?)
     }
 
-    pub fn borrow_id<T>(&self, resource_id: ResourceId<T>) -> Option<Res<'_, T>>
+    pub fn borrow_res_id<T>(&self, resource_id: ResourceId<T>) -> Option<Res<'_, T>>
     where
         T: $($bound)+,
     {
@@ -309,7 +377,7 @@ impl Resources<$Marker> {
             .and_then(Resource::<$Marker>::borrow)
     }
 
-    pub fn borrow_mut_id<T>(&self, resource_id: ResourceId<T>) -> Option<ResMut<'_, T>>
+    pub fn borrow_res_mut_id<T>(&self, resource_id: ResourceId<T>) -> Option<ResMut<'_, T>>
     where
         T: $($bound)+,
     {
@@ -370,13 +438,20 @@ impl Resources<$Marker> {
 impl_send_unsend!(SendMarker : Send + Sync + 'static);
 impl_send_unsend!(UnsendMarker : 'static);
 
-pub trait FromWorld {
-    fn from_world(world: &mut World) -> Self;
+impl<Marker> Default for BaseResources<Marker> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-impl<T: Default> FromWorld for T {
+pub trait FromResources {
+    fn from_resources(resources: &mut Resources) -> Self;
+}
+
+impl<T: Default> FromResources for T {
     #[inline]
-    fn from_world(_world: &mut World) -> Self {
+    fn from_resources(_resources: &mut Resources) -> Self {
         T::default()
     }
 }
@@ -390,11 +465,8 @@ where
     type Fetch = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
-        world
-            .resources()
-            .get_id::<T>()
-            .expect("resource not registered")
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        resources.get_id::<T>().expect("resource not registered")
     }
 }
 
@@ -404,8 +476,8 @@ where
 {
     type Output = Res<'a, T>;
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
-        world.resources().borrow_id(*prepared).unwrap()
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
+        resources.borrow_res_id(*prepared).unwrap()
     }
 }
 
@@ -417,11 +489,8 @@ where
     type Prepared = ResourceId<T>;
     type Fetch = Self;
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
-        world
-            .resources()
-            .get_id::<T>()
-            .expect("resource not registered")
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        resources.get_id::<T>().expect("resource not registered")
     }
 }
 
@@ -431,8 +500,8 @@ where
 {
     type Output = ResMut<'a, T>;
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
-        world.resources().borrow_mut_id(*prepared).unwrap()
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
+        resources.borrow_res_mut_id(*prepared).unwrap()
     }
 }
 
@@ -445,8 +514,8 @@ where
     type Fetch = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
-        world.resources().get_id::<T>()
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        resources.get_id::<T>()
     }
 }
 
@@ -457,9 +526,9 @@ where
     type Output = Option<Res<'a, T>>;
 
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
         if let Some(prepared) = *prepared {
-            world.resources().borrow_id(prepared)
+            resources.borrow_res_id(prepared)
         } else {
             None
         }
@@ -475,8 +544,8 @@ where
     type Fetch = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
-        world.resources().get_id::<T>()
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        resources.get_id::<T>()
     }
 }
 
@@ -487,9 +556,9 @@ where
     type Output = Option<ResMut<'a, T>>;
 
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
         if let Some(prepared) = *prepared {
-            world.resources().borrow_mut_id(prepared)
+            resources.borrow_res_mut_id(prepared)
         } else {
             None
         }
@@ -522,11 +591,8 @@ where
     type Fetch = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
-        world
-            .resources()
-            .get_id::<T>()
-            .expect("resource not registered")
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        resources.get_id::<T>().expect("resource not registered")
     }
 }
 
@@ -536,8 +602,8 @@ where
 {
     type Output = Res<'a, T>;
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
-        world.resources().borrow_id(*prepared).unwrap()
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
+        resources.borrow_res_id(*prepared).unwrap()
     }
 }
 
@@ -549,11 +615,8 @@ where
     type Prepared = ResourceId<T>;
     type Fetch = Self;
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
-        world
-            .resources()
-            .get_id::<T>()
-            .expect("resource not registered")
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        resources.get_id::<T>().expect("resource not registered")
     }
 }
 
@@ -563,8 +626,8 @@ where
 {
     type Output = ResMut<'a, T>;
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
-        world.resources().borrow_mut_id(*prepared).unwrap()
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
+        resources.borrow_res_mut_id(*prepared).unwrap()
     }
 }
 
@@ -577,8 +640,8 @@ where
     type Fetch = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
-        world.resources().get_id::<T>()
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        resources.get_id::<T>()
     }
 }
 
@@ -589,9 +652,9 @@ where
     type Output = Option<NonSend<Res<'a, T>>>;
 
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
         if let Some(prepared) = *prepared {
-            world.resources().borrow_id(prepared).map(NonSend)
+            resources.borrow_res_id(prepared).map(NonSend)
         } else {
             None
         }
@@ -607,8 +670,8 @@ where
     type Fetch = Self;
 
     #[inline]
-    fn prepare(world: &mut World) -> Self::Prepared {
-        world.resources().get_id::<T>()
+    fn prepare(resources: &mut Resources) -> Self::Prepared {
+        resources.get_id::<T>()
     }
 }
 
@@ -619,9 +682,9 @@ where
     type Output = Option<NonSend<ResMut<'a, T>>>;
 
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, world: &'a World) -> Self::Output {
+    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
         if let Some(prepared) = *prepared {
-            world.resources().borrow_mut_id(prepared).map(NonSend)
+            resources.borrow_res_mut_id(prepared).map(NonSend)
         } else {
             None
         }

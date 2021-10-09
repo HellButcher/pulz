@@ -1,10 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::World;
-
-use super::{
-    param::{SystemParam, SystemParamFetch},
-    ExclusiveSystem, IntoSystem, System, SystemDescriptor, SystemVariant,
+use crate::{
+    resource::Resources,
+    system::{
+        param::{SystemParam, SystemParamFetch},
+        ExclusiveSystem, IntoSystem, System, SystemDescriptor, SystemVariant,
+    },
 };
 
 pub struct SystemFn<Param, F>
@@ -70,15 +71,15 @@ where
     F: SystemParamFn<Param, ()>,
 {
     #[inline]
-    fn initialize(&mut self, world: &mut World) {
-        self.prepared = Some(Param::prepare(world));
+    fn initialize(&mut self, resources: &mut Resources) {
+        self.prepared = Some(Param::prepare(resources));
     }
 
     #[inline]
-    fn run<'a>(&'a mut self, world: &'a World) {
+    fn run<'a>(&'a mut self, resources: &'a Resources) {
         let func = &mut self.func;
         let prepared = self.prepared.as_mut().expect("uninitialized");
-        SystemParamFn::call(func, prepared, world)
+        SystemParamFn::call(func, prepared, resources)
     }
 
     fn is_send(&self) -> bool {
@@ -106,17 +107,17 @@ where
     F: ExclusiveSystemParamFn<()>,
 {
     #[inline]
-    fn run<'l>(&'l mut self, world: &'l mut World) {
-        ExclusiveSystemParamFn::call(&mut self.func, world)
+    fn run<'l>(&'l mut self, resources: &'l mut Resources) {
+        ExclusiveSystemParamFn::call(&mut self.func, resources)
     }
 }
 
 pub trait SystemParamFn<Param: SystemParam, Out>: Send + Sync + 'static {
-    fn call(&mut self, prepared: &mut Param::Prepared, world: &World) -> Out;
+    fn call(&mut self, prepared: &mut Param::Prepared, resources: &Resources) -> Out;
 }
 
 pub trait ExclusiveSystemParamFn<Out>: 'static {
-    fn call(&mut self, world: &mut World) -> Out;
+    fn call(&mut self, resources: &mut Resources) -> Out;
 }
 
 impl<Out, F> SystemParamFn<(), Out> for F
@@ -124,18 +125,18 @@ where
     F: FnMut() -> Out + Send + Sync + 'static,
 {
     #[inline]
-    fn call(&mut self, _prepared: &mut (), _world: &World) -> Out {
+    fn call(&mut self, _prepared: &mut (), _resources: &Resources) -> Out {
         self()
     }
 }
 
 impl<Out, F> ExclusiveSystemParamFn<Out> for F
 where
-    F: FnMut(&mut World) -> Out + Send + Sync + 'static,
+    F: FnMut(&mut Resources) -> Out + Send + Sync + 'static,
 {
     #[inline]
-    fn call(&mut self, world: &mut World) -> Out {
-        self(world)
+    fn call(&mut self, resources: &mut Resources) -> Out {
+        self(resources)
     }
 }
 
@@ -151,7 +152,7 @@ macro_rules! tuple {
           + FnMut($(<$name::Fetch as SystemParamFetch<'a>>::Output),*) -> Out,
       {
           #[inline]
-          fn call(&mut self, prepared: &mut ($($name::Prepared,)*), world: &World) -> Out {
+          fn call(&mut self, prepared: &mut ($($name::Prepared,)*), resources: &Resources) -> Out {
             #[inline]
             fn call_inner<Out, $($name,)*>(
                 mut f: impl FnMut($($name,)*)->Out,
@@ -160,7 +161,7 @@ macro_rules! tuple {
                 f($(args.$index,)*)
             }
 
-            let fetched = <<($($name,)*) as SystemParam>::Fetch as SystemParamFetch<'_>>::get(prepared, world);
+            let fetched = <<($($name,)*) as SystemParam>::Fetch as SystemParamFetch<'_>>::get(prepared, resources);
             call_inner(self, fetched)
           }
       }
@@ -177,80 +178,81 @@ mod tests {
 
     use super::{ExclusiveSystemFn, ExclusiveSystemParamFn, SystemFn, SystemParamFn};
     use crate::{
-        query::exec::Query,
-        resource::ResMut,
-        system::{IntoSystem, SystemVariant},
-        world::World,
+        resource::{Res, ResMut, Resources},
+        system::{IntoSystem, SystemDescriptor, SystemVariant},
     };
 
     struct A(usize);
+    struct B(usize);
 
-    fn system_a() {}
+    fn system_0() {}
 
-    fn system_b(_a: ResMut<'_, A>) {}
-
-    fn system_qry_init(world: &mut World) {
-        world.spawn().insert(A(22));
-        world.spawn().insert(A(11));
+    fn system_1(mut a: ResMut<'_, A>) {
+        a.0 += 1;
     }
 
-    fn system_qry(mut q: Query<'_, &mut A>) {
-        for e in q.iter() {
-            e.0 *= 2;
-        }
+    fn system_2(a: Res<'_, A>, mut b: ResMut<'_, B>) {
+        b.0 += a.0;
+    }
+
+    fn system_qry_init(resources: &mut Resources) {
+        resources.insert(A(22));
+        resources.insert(B(11));
     }
 
     #[allow(unused)]
     fn trait_assertions() {
-        let _: Box<dyn SystemParamFn<_, _>> = Box::new(system_a);
-        let _ = SystemFn::new(system_a);
-        let _ = IntoSystem::into_system(system_a);
+        let _: Box<dyn SystemParamFn<_, _>> = Box::new(system_0);
+        let _ = SystemFn::new(system_0);
+        let _ = IntoSystem::into_system(system_0);
 
-        let _: Box<dyn SystemParamFn<_, _>> = Box::new(system_b);
-        let _ = SystemFn::new(system_b);
-        let _ = IntoSystem::into_system(system_b);
+        let _: Box<dyn SystemParamFn<_, _>> = Box::new(system_1);
+        let _ = SystemFn::new(system_1);
+        let _ = IntoSystem::into_system(system_1);
 
         let _: Box<dyn ExclusiveSystemParamFn<_>> = Box::new(system_qry_init);
         let _ = ExclusiveSystemFn::new(system_qry_init);
         let _ = IntoSystem::into_system(system_qry_init);
 
-        let _: Box<dyn SystemParamFn<_, _>> = Box::new(system_qry);
-        let _ = SystemFn::new(system_qry);
-        let _ = IntoSystem::into_system(system_qry);
+        let _: Box<dyn SystemParamFn<_, _>> = Box::new(system_2);
+        let _ = SystemFn::new(system_2);
+        let _ = IntoSystem::into_system(system_2);
+    }
+
+    fn run_system(sys: &mut SystemDescriptor, resources: &mut Resources) {
+        match sys.system_variant {
+            SystemVariant::Exclusive(ref mut system) => {
+                system.initialize(resources);
+                system.run(resources);
+            }
+            SystemVariant::Concurrent(ref mut system) => {
+                system.initialize(resources);
+                system.run(resources);
+            }
+        }
     }
 
     #[test]
     fn test_system_query() {
-        let mut world = World::new();
-
-        assert_eq!(0, world.entities().len());
+        let mut resources = Resources::new();
 
         let mut init_sys = IntoSystem::into_system(system_qry_init);
-        match init_sys.system_variant {
-            SystemVariant::Exclusive(ref mut system) => {
-                system.initialize(&mut world);
-                system.run(&mut world);
-            }
-            _ => unreachable!("unexpected value"),
-        }
+        run_system(&mut init_sys, &mut resources);
 
-        assert_eq!(2, world.entities().len());
+        assert_eq!(22, resources.get_mut::<A>().unwrap().0);
+        assert_eq!(11, resources.get_mut::<B>().unwrap().0);
 
-        let mut sys = IntoSystem::into_system(system_qry);
-        match sys.system_variant {
-            SystemVariant::Concurrent(ref mut system) => {
-                system.initialize(&mut world);
-                system.run(&world);
-            }
-            _ => unreachable!("unexpected value"),
-        }
+        let mut sys1 = IntoSystem::into_system(system_1);
+        run_system(&mut sys1, &mut resources);
 
-        let mut sum = 0;
-        for e in world.query::<&A>().iter() {
-            sum += e.0;
-        }
+        assert_eq!(23, resources.get_mut::<A>().unwrap().0);
+        assert_eq!(11, resources.get_mut::<B>().unwrap().0);
 
-        assert_eq!(66, sum);
+        let mut sys2 = IntoSystem::into_system(system_2);
+        run_system(&mut sys2, &mut resources);
+
+        assert_eq!(23, resources.get_mut::<A>().unwrap().0);
+        assert_eq!(34, resources.get_mut::<B>().unwrap().0);
     }
 
     #[test]
@@ -264,20 +266,20 @@ mod tests {
             }
         };
 
-        let mut world = World::new();
-        world.insert_resource(A(11));
+        let mut resources = Resources::new();
+        resources.insert(A(11));
 
         let mut sys = IntoSystem::into_system(sys_a);
         match sys.system_variant {
             SystemVariant::Concurrent(ref mut system) => {
-                system.initialize(&mut world);
-                system.run(&world);
+                system.initialize(&mut resources);
+                system.run(&resources);
             }
             _ => unreachable!("unexpected value"),
         }
 
         assert_eq!(11, value.clone().load(std::sync::atomic::Ordering::Acquire));
 
-        assert_eq!(21, world.resources().borrow::<A>().unwrap().0);
+        assert_eq!(21, resources.get_mut::<A>().unwrap().0);
     }
 }

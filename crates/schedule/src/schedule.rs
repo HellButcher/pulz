@@ -1,10 +1,9 @@
 use std::rc::Rc;
 
-use pulz_executor::{Executor, ExecutorScope};
-
 use crate::{
+    executor::{Executor, ExecutorScope},
+    resource::Resources,
     system::{ExclusiveSystem, IntoSystem, System, SystemDescriptor, SystemVariant},
-    world::World,
 };
 
 pub struct Schedule {
@@ -60,23 +59,20 @@ impl Schedule {
     }
 
     #[inline]
-    pub fn run(&mut self, world: &mut World) {
-        let old_active_exec = world
-            .resources_mut()
-            .get_mut::<Rc<dyn ScheduleExecutor>>()
-            .cloned();
+    pub fn run(&mut self, resources: &mut Resources) {
+        let old_active_exec = resources.get_mut::<Rc<dyn ScheduleExecutor>>().cloned();
         if let Some(exec) = self.executor.clone() {
-            let active_exec_id = world.resources_mut().insert_unsend(exec.clone());
+            let active_exec_id = resources.insert_unsend(exec.clone());
 
-            exec.execute_schedule(world, self);
+            exec.execute_schedule(resources, self);
 
             if let Some(old) = old_active_exec {
-                world.resources_mut().insert_unsend(old);
+                resources.insert_unsend(old);
             } else {
-                world.resources_mut().remove_id(active_exec_id);
+                resources.remove_id(active_exec_id);
             }
         } else if let Some(exec) = old_active_exec {
-            exec.execute_schedule(world, self);
+            exec.execute_schedule(resources, self);
         } else {
             panic!("no executor active");
         }
@@ -84,16 +80,16 @@ impl Schedule {
 }
 
 trait ScheduleExecutor: 'static {
-    fn execute_schedule(&self, world: &mut World, schedule: &mut Schedule);
+    fn execute_schedule(&self, resources: &mut Resources, schedule: &mut Schedule);
 }
 
 impl<E: Executor> ScheduleExecutor for E {
-    fn execute_schedule(&self, world: &mut World, schedule: &mut Schedule) {
+    fn execute_schedule(&self, resources: &mut Resources, schedule: &mut Schedule) {
         if schedule.dirty {
             schedule.rebuild();
             schedule.dirty = false;
             for sys in &mut schedule.systems {
-                sys.initialize(world)
+                sys.initialize(resources)
             }
         }
 
@@ -110,15 +106,15 @@ impl<E: Executor> ScheduleExecutor for E {
                     assert!(i < next_order_index && next_order_index <= schedule.order.len());
                     let system: &mut dyn System = system.as_mut();
                     if system.is_send() {
-                        let world = world.as_send(); // shared borrow
-                        tasks.spawn(next_order_index, move || system.run_send(world));
+                        let resources = resources.as_send(); // shared borrow
+                        tasks.spawn(next_order_index, move || system.run_send(resources));
                     } else {
-                        let world = &*world;
-                        tasks.spawn_local(next_order_index, move || system.run(world));
+                        let resources = &*resources;
+                        tasks.spawn_local(next_order_index, move || system.run(resources));
                     }
                 }
                 SystemVariant::Exclusive(ref mut system) => {
-                    system.run(world);
+                    system.run(resources);
                 }
             }
             i += 1;
@@ -135,8 +131,8 @@ impl Default for Schedule {
 
 impl ExclusiveSystem for Schedule {
     #[inline]
-    fn run(&mut self, world: &mut World) {
-        self.run(world)
+    fn run(&mut self, resources: &mut Resources) {
+        self.run(resources)
     }
 }
 
@@ -157,7 +153,7 @@ mod tests {
         struct Sys(Arc<std::sync::atomic::AtomicUsize>);
         let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         unsafe impl System for Sys {
-            fn run(&mut self, _arg: &World) {
+            fn run(&mut self, _arg: &Resources) {
                 self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
             }
             fn is_send(&self) -> bool {
@@ -166,20 +162,20 @@ mod tests {
         }
         struct ExSys;
         impl ExclusiveSystem for ExSys {
-            fn run(&mut self, arg: &mut World) {
-                arg.spawn().insert(A);
+            fn run(&mut self, arg: &mut Resources) {
+                arg.insert(A);
             }
         }
 
-        let mut world = World::new();
+        let mut resources = Resources::new();
         let mut schedule = Schedule::new().with(Sys(counter.clone())).with(ExSys);
 
         assert_eq!(0, counter.load(std::sync::atomic::Ordering::Acquire));
-        assert_eq!(0, world.entities().len());
+        assert_eq!(true, resources.get_mut::<A>().is_none());
 
-        AsyncStdExecutor.execute_schedule(&mut world, &mut schedule);
+        AsyncStdExecutor.execute_schedule(&mut resources, &mut schedule);
 
         assert_eq!(1, counter.load(std::sync::atomic::Ordering::Acquire));
-        assert_eq!(1, world.entities().len());
+        assert_eq!(false, resources.get_mut::<A>().is_none());
     }
 }
