@@ -1,6 +1,12 @@
 # `pulz-arena` Changelog
 All notable changes to this crate will be documented in this file.
 
+## Unreleased
+
+ * Const `fn`s
+ * `len()` as usize
+ * impl Default for Mirror
+
 ## v0.2.0 (2021-09-25)
 
  * Added `Mirror`

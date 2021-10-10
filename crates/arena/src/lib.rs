@@ -93,7 +93,7 @@ impl Index {
     /// assert_eq!(1, index1.offset());
     /// ```
     #[inline]
-    pub fn offset(self) -> u32 {
+    pub const fn offset(self) -> u32 {
         self.0
     }
 
@@ -114,7 +114,7 @@ impl Index {
     /// assert_eq!(2, index.generation().get());
     /// ```
     #[inline]
-    pub fn generation(self) -> Generation {
+    pub const fn generation(self) -> Generation {
         self.1
     }
 }
@@ -236,7 +236,7 @@ pub struct Arena<T> {
 #[derive(Clone)]
 struct Storage<T> {
     data: Vec<Entry<T>>,
-    len: u32,
+    len: usize,
 }
 
 struct Entry<T>(Generation, EntryData<T>);
@@ -289,19 +289,19 @@ impl<T> Storage<T> {
         self.data.capacity()
     }
     pub fn reserve(&mut self, additional_capacity: usize) {
-        let buffer_len = self.data.len() - self.len as usize;
+        let buffer_len = self.data.len() - self.len;
         if additional_capacity > buffer_len {
             self.data.reserve(additional_capacity - buffer_len);
         }
     }
     pub fn reserve_exact(&mut self, additional_capacity: usize) {
-        let buffer_len = self.data.len() - self.len as usize;
+        let buffer_len = self.data.len() - self.len;
         if additional_capacity > buffer_len {
             self.data.reserve_exact(additional_capacity - buffer_len);
         }
     }
     #[inline]
-    pub const fn len(&self) -> u32 {
+    pub const fn len(&self) -> usize {
         self.len
     }
     #[inline]
@@ -369,21 +369,21 @@ impl<T> Storage<T> {
     pub fn drain(&mut self) -> Drain<'_, T> {
         let len = replace(&mut self.len, 0);
         Drain {
-            len: len as usize,
+            len,
             inner: self.data.drain(..).enumerate(),
         }
     }
 
     pub fn iter(&self) -> Iter<'_, T> {
         Iter {
-            len: self.len as usize,
+            len: self.len,
             inner: self.data.iter().enumerate(),
         }
     }
 
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         IterMut {
-            len: self.len as usize,
+            len: self.len,
             inner: self.data.iter_mut().enumerate(),
         }
     }
@@ -537,7 +537,7 @@ impl<T> Arena<T> {
     /// assert_eq!(1, arena.len());
     /// ```
     #[inline]
-    pub const fn len(&self) -> u32 {
+    pub const fn len(&self) -> usize {
         self.storage.len()
     }
 
@@ -1314,7 +1314,7 @@ impl<T> Mirror<T> {
     /// assert_eq!(1, mirror.len());
     /// ```
     #[inline]
-    pub const fn len(&self) -> u32 {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
 
@@ -1604,6 +1604,13 @@ impl<T> Mirror<T> {
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.0.iter_mut()
+    }
+}
+
+impl<T> Default for Mirror<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 
