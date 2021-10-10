@@ -1,7 +1,7 @@
 # `pulz-arena` Changelog
 All notable changes to this crate will be documented in this file.
 
-## Unreleased
+## v0.3.0 (2021-10-10)
 
  * Const `fn`s
  * `len()` as usize
