@@ -51,7 +51,7 @@ impl Entities {
     }
 
     #[inline]
-    pub fn len(&self) -> u32 {
+    pub fn len(&self) -> usize {
         self.arena.len()
     }
 
