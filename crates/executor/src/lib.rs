@@ -121,20 +121,20 @@ impl<'a, E: Executor> Drop for ExecutorScope<'a, E> {
 
 mod single_threaded {
 
-    /// pseudo Join-Handle for SingleThreadedExecutor. Does nothing because the
+    /// pseudo Join-Handle for ImmediateExecutor. Does nothing because the
     /// task will already be completed, when `spawn` returns.
     pub struct JoinHandle;
 
-    /// simple executor that executes tasks in the same thread as the caller.
+    /// simple executor that executes tasks immediately within the same thread as the caller.
     #[derive(Copy, Clone, Debug)]
-    pub struct SingleThreadedExecutor;
+    pub struct ImmediateExecutor;
 
     impl super::JoinHandle for JoinHandle {
         #[inline]
         fn cancel_and_block(self) {}
     }
 
-    impl super::Executor for SingleThreadedExecutor {
+    impl super::Executor for ImmediateExecutor {
         type JoinHandle = JoinHandle;
         #[inline]
         fn spawn(&self, task: impl FnOnce() + Send + 'static) -> Self::JoinHandle {
@@ -145,7 +145,7 @@ mod single_threaded {
     }
 }
 
-pub use self::single_threaded::SingleThreadedExecutor;
+pub use self::single_threaded::ImmediateExecutor;
 
 #[cfg(feature = "tokio")]
 mod tokio {
@@ -208,10 +208,19 @@ mod async_std {
     }
     impl Executor for AsyncStdExecutor {
         type JoinHandle = async_std::task::JoinHandle<()>;
+
+        #[cfg(target_os = "unknown")]
+        #[inline]
+        fn spawn(&self, task: impl FnOnce() + Send + 'static) -> Self::JoinHandle {
+            async_std::task::spawn_local(async move { task() })
+        }
+
+        #[cfg(not(target_os = "unknown"))]
         #[inline]
         fn spawn(&self, task: impl FnOnce() + Send + 'static) -> Self::JoinHandle {
             async_std::task::spawn(async move { task() })
         }
+
         #[inline]
         fn wait_for(&self, handles: impl Iterator<Item = Self::JoinHandle>) {
             async_std::task::block_on(async move {

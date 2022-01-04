@@ -13,6 +13,6 @@ pulz-arena = { path = "../arena" }
 pulz-executor = { path = "../executor" }
 atomic_refcell = "0.1"
 
-[dev-dependencies]
+[target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
 pulz-executor = { path = "../executor", features = ["async-std"] }
 async-std = { version = "1.10", features = ["attributes"] }
