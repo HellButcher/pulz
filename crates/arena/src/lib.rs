@@ -366,6 +366,26 @@ impl<T> Storage<T> {
         }
     }
 
+    pub fn get_by_offset(&self, offset: u32) -> Option<&T> {
+        match self.data.get(offset as usize) {
+            Some(Entry(entry_gen, entry)) if !entry_gen.is_removed() => {
+                // SAFETY: index is not marked as removed: item was occupied
+                Some(unsafe { &entry.occupied })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn get_mut_by_offset(&mut self, offset: u32) -> Option<&mut T> {
+        match self.data.get_mut(offset as usize) {
+            Some(Entry(entry_gen, entry)) if !entry_gen.is_removed() => {
+                // SAFETY: index is not marked as removed: item was occupied
+                Some(unsafe { &mut entry.occupied })
+            }
+            _ => None,
+        }
+    }
+
     pub fn drain(&mut self) -> Drain<'_, T> {
         let len = replace(&mut self.len, 0);
         Drain {
@@ -838,6 +858,24 @@ impl<T> Arena<T> {
         self.storage.get_mut(index)
     }
 
+    /// Get a shared reference to the element at the given `offset` (the offset into the arena).
+    ///
+    /// If there is no element at the given `offset`, None is returned.
+    ///
+    #[inline]
+    pub fn get_by_offset(&self, offset: u32) -> Option<&T> {
+        self.storage.get_by_offset(offset)
+    }
+
+    /// Get a exclusive reference to the element at the given `offset` (the offset into the arena).
+    ///
+    /// If there is no element at the given `offset`, None is returned.
+    ///
+    #[inline]
+    pub fn get_mut_by_offset(&mut self, offset: u32) -> Option<&mut T> {
+        self.storage.get_mut_by_offset(offset)
+    }
+
     /// Creates a _draining_ iterator that removes all elements from this arena
     /// and yields the removed items.
     ///
@@ -931,6 +969,21 @@ impl<T> core::ops::IndexMut<Index> for Arena<T> {
     #[inline]
     fn index_mut(&mut self, index: Index) -> &mut T {
         self.get_mut(index).expect("invalid index")
+    }
+}
+
+impl<T> core::ops::Index<u32> for Arena<T> {
+    type Output = T;
+    #[inline]
+    fn index(&self, index: u32) -> &T {
+        self.get_by_offset(index).expect("invalid offset")
+    }
+}
+
+impl<T> core::ops::IndexMut<u32> for Arena<T> {
+    #[inline]
+    fn index_mut(&mut self, index: u32) -> &mut T {
+        self.get_mut_by_offset(index).expect("invalid offset")
     }
 }
 
@@ -1513,6 +1566,24 @@ impl<T> Mirror<T> {
         self.0.get_mut(index)
     }
 
+    /// Get a shared reference to the element at the given `offset` (the offset into the arena).
+    ///
+    /// If there is no element at the given `offset`, None is returned.
+    ///
+    #[inline]
+    pub fn get_by_offset(&self, offset: u32) -> Option<&T> {
+        self.0.get_by_offset(offset)
+    }
+
+    /// Get a exclusive reference to the element at the given `offset` (the offset into the arena).
+    ///
+    /// If there is no element at the given `offset`, None is returned.
+    ///
+    #[inline]
+    pub fn get_mut_by_offset(&mut self, offset: u32) -> Option<&mut T> {
+        self.0.get_mut_by_offset(offset)
+    }
+
     /// Creates a _draining_ iterator that removes all elements from this arena
     /// and yields the removed items.
     ///
@@ -1626,6 +1697,21 @@ impl<T> core::ops::IndexMut<Index> for Mirror<T> {
     #[inline]
     fn index_mut(&mut self, index: Index) -> &mut T {
         self.get_mut(index).expect("invalid index")
+    }
+}
+
+impl<T> core::ops::Index<u32> for Mirror<T> {
+    type Output = T;
+    #[inline]
+    fn index(&self, index: u32) -> &T {
+        self.get_by_offset(index).expect("invalid offset")
+    }
+}
+
+impl<T> core::ops::IndexMut<u32> for Mirror<T> {
+    #[inline]
+    fn index_mut(&mut self, index: u32) -> &mut T {
+        self.get_mut_by_offset(index).expect("invalid offset")
     }
 }
 

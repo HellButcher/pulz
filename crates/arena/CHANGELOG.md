@@ -3,6 +3,11 @@ All notable changes to this crate will be documented in this file.
 
 ## v0.3.0 (2021-10-10)
 
+ * Edition 2021
+ * new `get_by_offset` & `get_mut_by_offset` methods
+
+## v0.3.0 (2021-10-10)
+
  * Const `fn`s
  * `len()` as usize
  * impl Default for Mirror
