@@ -45,11 +45,13 @@ mod entity_ref;
 pub mod storage;
 pub mod world;
 
+pub use component::Component;
 pub use entity::{Entity, EntityMut, EntityRef};
 pub use world::WorldExt;
 
 pub mod prelude {
     pub use crate::{
+        component::Component,
         entity::{Entity, EntityMut, EntityRef},
         resource::{Res, ResMut, Resources},
         schedule::Schedule,
@@ -82,7 +84,7 @@ fn get_or_init_component<'a, T>(
     comps: &'a mut component::Components,
 ) -> (resource::ResourceId<T::Storage>, component::ComponentId<T>)
 where
-    T: component::Component,
+    T: Component,
 {
     use storage::Storage;
     if let Some(component_id) = comps.get_id::<T>() {

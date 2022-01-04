@@ -176,13 +176,18 @@ mod test {
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     struct A(usize);
+
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
-    #[component(storage=crate::storage::DenseStorage)]
+    #[component(storage="crate::storage::DenseStorage")]
     struct B(usize);
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     #[component(sparse)]
     struct C(usize);
+
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
+    #[component(storage="DenseStorage")] // shortcut for `pulz_ecs::storage::DenseStorage`
+    struct D(usize);
 
     #[test]
     fn test_c_is_sparse() {
