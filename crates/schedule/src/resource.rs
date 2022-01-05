@@ -315,6 +315,14 @@ impl Resource<$Marker> {
     }
 
     #[inline]
+    fn get<T>(&self) -> Option<T>
+    where
+        T: Copy + $($bound)+,
+    {
+        self.borrow::<T>().map(|v| *v)
+    }
+
+    #[inline]
     fn get_mut<T>(&mut self) -> Option<&mut T>
     where
         T: $($bound)+,
@@ -387,11 +395,28 @@ impl BaseResources<$Marker> {
     }
 
     #[inline]
+    pub fn get_copy<T>(&self) -> Option<T>
+    where
+        T: Copy + $($bound)+,
+    {
+        self.get_copy_id(self.get_id::<T>()?)
+    }
+
+    #[inline]
     pub fn get_mut<T>(&mut self) -> Option<&'_ mut T>
     where
         T: $($bound)+,
     {
         self.get_mut_id(self.get_id::<T>()?)
+    }
+
+    pub fn get_copy_id<T>(&self, resource_id: ResourceId<T>) -> Option<T>
+    where
+        T: Copy + $($bound)+,
+    {
+        self.resources
+            .get(resource_id.0)
+            .and_then(Resource::<$Marker>::get)
     }
 
     pub fn get_mut_id<T>(&mut self, resource_id: ResourceId<T>) -> Option<&'_ mut T>
