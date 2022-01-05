@@ -1,7 +1,7 @@
 # `pulz-arena` Changelog
 All notable changes to this crate will be documented in this file.
 
-## v0.3.0 (2021-10-10)
+## v0.4.0 (2022-01-05)
 
  * Edition 2021
  * new `get_by_offset` & `get_mut_by_offset` methods
