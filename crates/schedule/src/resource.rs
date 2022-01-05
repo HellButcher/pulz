@@ -588,7 +588,7 @@ unsafe impl<'a, T> SystemParam for NonSend<Res<'a, T>>
 where
     T: Send + Sync + 'static,
 {
-    const IS_SEND: bool = true;
+    const IS_SEND: bool = false;
     type Prepared = ResourceId<T>;
     type Fetch = Self;
 
