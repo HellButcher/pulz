@@ -4,6 +4,8 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+use pulz_bitset::BitSet;
+
 use crate::{
     component::{ComponentId, ComponentSet},
     entity::Entity,
@@ -23,11 +25,6 @@ impl ArchetypeId {
     #[inline]
     pub const fn index(self) -> usize {
         self.0
-    }
-
-    #[inline]
-    fn next(self) -> Self {
-        Self(self.0 + 1)
     }
 }
 
@@ -182,94 +179,47 @@ impl IndexMut<ArchetypeId> for Archetypes {
 
 /// Bit-Set like structure
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ArchetypeSet(Vec<u64>);
+pub struct ArchetypeSet(BitSet);
 
 impl ArchetypeSet {
     #[inline]
     pub const fn new() -> Self {
-        Self(Vec::new())
+        Self(BitSet::new())
     }
 
+    #[inline]
     pub fn clear(&mut self) {
         self.0.clear()
     }
 
     #[inline]
-    fn split(id: ArchetypeId) -> (usize, u64) {
-        let offset = id.index();
-        let index = offset / 64;
-        let bits = 1u64 << (offset % 64);
-        (index, bits)
+    pub fn contains(&self, id: ArchetypeId) -> bool {
+        self.0.contains(id.index())
     }
 
     #[inline]
-    pub fn contains(&self, id: ArchetypeId) -> bool {
-        let (index, bits) = Self::split(id);
-        if let Some(value) = self.0.get(index) {
-            *value & bits != 0
-        } else {
-            false
-        }
+    pub fn insert(&mut self, id: ArchetypeId) -> bool {
+        self.0.insert(id.index())
     }
 
-    pub fn insert(&mut self, id: ArchetypeId) {
-        let (index, bits) = Self::split(id);
-        if index >= self.0.len() {
-            self.0.resize(index + 1, 0);
-        }
-        // SAFETY: vec was extended to contain index
-        let value = unsafe { self.0.get_unchecked_mut(index) };
-        *value |= bits;
+    #[inline]
+    pub fn remove(&mut self, id: ArchetypeId) -> bool {
+        self.0.remove(id.index())
     }
 
-    pub fn remove(&mut self, id: ArchetypeId) {
-        let (index, bits) = Self::split(id);
-        if let Some(value) = self.0.get_mut(index) {
-            *value &= !bits;
-        }
+    #[inline]
+    pub fn first(&self) -> Option<ArchetypeId> {
+        self.0.first().map(|i| ArchetypeId(i))
     }
 
+    #[inline]
     pub fn find_next(&self, id: ArchetypeId) -> Option<ArchetypeId> {
-        let mut id = id.next();
-        let (mut index, mut bits) = Self::split(id);
-        while let Some(value) = self.0.get(index) {
-            if *value & bits != 0 {
-                return Some(id);
-            }
-            id = id.next();
-            if bits > (!0 >> 1) {
-                index += 1;
-                bits = 1;
-            } else {
-                bits <<= 1;
-            }
-        }
-        None
+        self.0.find_next(id.index()).map(|i| ArchetypeId(i))
     }
 
-    fn sub_iter(start: usize, mut value: u64) -> impl Iterator<Item = ArchetypeId> {
-        let mut i = start;
-        std::iter::from_fn(move || {
-            while value != 0 {
-                if value & 1 == 1 {
-                    let result = i;
-                    i += 1;
-                    value >>= 1;
-                    return Some(ArchetypeId(result));
-                }
-                i += 1;
-                value >>= 1;
-            }
-            None
-        })
-    }
-
+    #[inline]
     pub fn iter(&self) -> impl Iterator<Item = ArchetypeId> + '_ {
-        self.0
-            .iter()
-            .copied()
-            .enumerate()
-            .flat_map(|(i, value)| Self::sub_iter(i * 64, value))
+        self.0.iter().map(|i| ArchetypeId(i))
     }
 }
 
@@ -277,6 +227,25 @@ impl Default for ArchetypeSet {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Extend<ArchetypeId> for ArchetypeSet {
+    fn extend<I: IntoIterator<Item = ArchetypeId>>(&mut self, iter: I) {
+        for t in iter {
+            self.insert(t);
+        }
+    }
+}
+
+impl<T> FromIterator<T> for ArchetypeSet
+where
+    Self: Extend<T>,
+{
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut bitset = Self::new();
+        bitset.extend(iter);
+        bitset
     }
 }
 

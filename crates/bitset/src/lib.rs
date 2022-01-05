@@ -81,8 +81,8 @@ impl BitSet {
     #[inline]
     pub fn contains(&self, value: usize) -> bool {
         let (index, bits) = Self::split_value(value);
-        if let Some(value) = self.0.get(index) {
-            *value & bits != 0
+        if let Some(word) = self.0.get(index) {
+            *word & bits != 0
         } else {
             false
         }
@@ -94,17 +94,17 @@ impl BitSet {
             self.0.resize(index + 1, 0);
         }
         // SAFETY: vec was extended to contain index
-        let value = unsafe { self.0.get_unchecked_mut(index) };
-        let was_unset = (*value & bits) == 0;
-        *value |= bits;
+        let word = unsafe { self.0.get_unchecked_mut(index) };
+        let was_unset = (*word & bits) == 0;
+        *word |= bits;
         was_unset
     }
 
     pub fn remove(&mut self, value: usize) -> bool {
         let (index, bits) = Self::split_value(value);
-        let was_set = if let Some(value) = self.0.get_mut(index) {
-            let was_set = (*value & bits) != 0;
-            *value &= !bits;
+        let was_set = if let Some(word) = self.0.get_mut(index) {
+            let was_set = (*word & bits) != 0;
+            *word &= !bits;
             was_set
         } else {
             false
@@ -118,18 +118,53 @@ impl BitSet {
         was_set
     }
 
-    fn ones(start: usize, mut value: u64) -> impl Iterator<Item = usize> {
+    pub fn first(&self) -> Option<usize> {
+        for (i, word) in self.0.iter().copied().enumerate() {
+            if word != 0 {
+                let mut value = i * 64;
+                let mut bit = 1;
+                while bit != 0 {
+                    if word & bit != 0 {
+                        return Some(value);
+                    }
+                    value += 1;
+                    bit <<= 1;
+                }
+            }
+        }
+        None
+    }
+
+    pub fn find_next(&self, mut value: usize) -> Option<usize> {
+        value += 1;
+        let (mut index, mut bits) = Self::split_value(value);
+        while let Some(word) = self.0.get(index) {
+            if *word & bits != 0 {
+                return Some(value);
+            }
+            value += 1;
+            if bits > (!0 >> 1) {
+                index += 1;
+                bits = 1;
+            } else {
+                bits <<= 1;
+            }
+        }
+        None
+    }
+
+    fn ones_inside_word(start: usize, mut word: u64) -> impl Iterator<Item = usize> {
         let mut i = start;
         std::iter::from_fn(move || {
-            while value != 0 {
-                if value & 1 == 1 {
+            while word != 0 {
+                if word & 1 == 1 {
                     let result = i;
                     i += 1;
-                    value >>= 1;
+                    word >>= 1;
                     return Some(result);
                 }
                 i += 1;
-                value >>= 1;
+                word >>= 1;
             }
             None
         })
@@ -140,7 +175,7 @@ impl BitSet {
             .iter()
             .copied()
             .enumerate()
-            .flat_map(|(i, value)| Self::ones(i * 64, value))
+            .flat_map(|(i, word)| Self::ones_inside_word(i * 64, word))
     }
 }
 
