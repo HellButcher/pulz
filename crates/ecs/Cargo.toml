@@ -13,6 +13,7 @@ edition = "2021"
 
 [dependencies]
 pulz-arena = { path = "../arena" }
+pulz-bitset = { path = "../bitset" }
 pulz-schedule = { path = "../schedule" }
 pulz-ecs-macros = { path = "macros" }
 hashbrown = "0.11"

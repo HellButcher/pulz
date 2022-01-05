@@ -14,6 +14,7 @@ use crate::{
 pub type Ref<'w, T> = Res<'w, T>;
 pub type RefMut<'w, T> = ResMut<'w, T>;
 
+use pulz_bitset::BitSet;
 pub use pulz_ecs_macros::Component;
 
 pub trait Component: Send + Sync + 'static {
@@ -187,20 +188,7 @@ impl Components {
     }
 
     pub fn to_set(&self) -> ComponentSet {
-        let words = self.components.len() / 64;
-        let mut words_rest = self.components.len() % 64;
-        let mut result = Vec::with_capacity(words + 1);
-        result.resize(words, u64::MAX);
-        if words_rest != 0 {
-            let mut last_value = 0;
-            while words_rest > 0 {
-                words_rest -= 1;
-                last_value <<= 1;
-                last_value |= 1;
-            }
-            result.push(last_value)
-        }
-        ComponentSet(result)
+        ComponentSet(BitSet::from_range(0..self.components.len()))
     }
 }
 
@@ -226,12 +214,12 @@ fn storage_access_mut<T: Component>(
 
 /// Bit-Set like structure
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ComponentSet(Vec<u64>);
+pub struct ComponentSet(BitSet);
 
 impl ComponentSet {
     #[inline]
     pub const fn new() -> Self {
-        Self(Vec::new())
+        Self(BitSet::new())
     }
 
     pub fn clear(&mut self) {
@@ -239,76 +227,20 @@ impl ComponentSet {
     }
 
     #[inline]
-    fn split<X>(id: ComponentId<X>) -> (usize, u64) {
-        let offset = id.offset();
-        let index = offset / 64;
-        let bits = 1u64 << (offset % 64);
-        (index, bits)
-    }
-
-    #[inline]
     pub fn contains<X>(&self, id: ComponentId<X>) -> bool {
-        let (index, bits) = Self::split(id);
-        if let Some(value) = self.0.get(index) {
-            *value & bits != 0
-        } else {
-            false
-        }
+        self.0.contains(id.offset())
     }
 
-    pub fn insert<X>(&mut self, id: ComponentId<X>) {
-        let (index, bits) = Self::split(id);
-        if index >= self.0.len() {
-            self.0.resize(index + 1, 0);
-        }
-        // SAFETY: vec was extended to contain index
-        let value = unsafe { self.0.get_unchecked_mut(index) };
-        *value |= bits;
+    pub fn insert<X>(&mut self, id: ComponentId<X>) -> bool {
+        self.0.insert(id.offset())
     }
 
-    pub fn remove<X>(&mut self, id: ComponentId<X>) {
-        let (index, bits) = Self::split(id);
-        if let Some(value) = self.0.get_mut(index) {
-            *value &= !bits;
-        }
-        // shrink (for Eq)
-        if index + 1 == self.0.len() {
-            while let Some(0) = self.0.last() {
-                self.0.pop();
-            }
-        }
-    }
-
-    fn ones(start: usize, mut value: u64) -> impl Iterator<Item = usize> {
-        let mut i = start;
-        std::iter::from_fn(move || {
-            while value != 0 {
-                if value & 1 == 1 {
-                    let result = i;
-                    i += 1;
-                    value >>= 1;
-                    return Some(result);
-                }
-                i += 1;
-                value >>= 1;
-            }
-            None
-        })
+    pub fn remove<X>(&mut self, id: ComponentId<X>) -> bool {
+        self.0.remove(id.offset())
     }
 
     pub fn offsets(&self) -> impl Iterator<Item = usize> + '_ {
-        self.0
-            .iter()
-            .copied()
-            .enumerate()
-            .flat_map(|(i, value)| Self::ones(i * 64, value))
-    }
-
-    pub fn into_offsets(self) -> impl Iterator<Item = usize> {
-        self.0
-            .into_iter()
-            .enumerate()
-            .flat_map(|(i, value)| Self::ones(i * 64, value))
+        self.0.iter()
     }
 
     pub fn iter<'l>(
