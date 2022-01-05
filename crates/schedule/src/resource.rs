@@ -11,7 +11,11 @@ use std::{
 use atomic_refcell::AtomicRefCell;
 pub use atomic_refcell::{AtomicRef as Res, AtomicRefMut as ResMut};
 
-use crate::system::param::{SystemParam, SystemParamFetch};
+use crate::{
+    module::Module,
+    schedule::Schedule,
+    system::param::{SystemParam, SystemParamFetch},
+};
 
 #[repr(transparent)]
 pub struct ResourceId<T = crate::Void>(usize, PhantomData<fn() -> T>);
@@ -291,6 +295,18 @@ impl Resources {
         match self.try_init_unsend() {
             Ok(id) | Err(id) => id,
         }
+    }
+
+    #[inline]
+    pub fn install<M>(&mut self, module: M) -> M::Output
+    where
+        M: Module,
+    {
+        let schedule_id = self.init_unsend::<Schedule>();
+        let mut schedule = self.remove_id(schedule_id).unwrap();
+        let result = module.install(self, &mut schedule);
+        self.insert_again(schedule);
+        result
     }
 }
 
