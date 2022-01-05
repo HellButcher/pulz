@@ -12,9 +12,10 @@ edition = "2021"
 
 
 [dependencies]
-pulz-arena = { path = "../arena" }
 pulz-bitset = { path = "../bitset" }
 pulz-schedule = { path = "../schedule" }
 pulz-ecs-macros = { path = "macros" }
+
+slotmap = "1.0"
 hashbrown = "0.11"
 fnv = "1.0"

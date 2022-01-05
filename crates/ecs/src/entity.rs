@@ -1,18 +1,12 @@
-use pulz_arena::{Arena, Index};
-
+use slotmap::{new_key_type, SlotMap};
 use crate::archetype::ArchetypeId;
 pub use crate::entity_ref::{EntityMut, EntityRef};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct Entity(Index);
-
-impl Entity {
-    #[inline]
-    pub fn offset(self) -> u32 {
-        self.0.offset()
-    }
+new_key_type! {
+    pub struct Entity;
 }
+
+pub type Iter<'a> = slotmap::basic::Keys<'a, Entity, EntityLocation>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EntityLocation {
@@ -28,70 +22,61 @@ impl EntityLocation {
 }
 
 #[derive(Clone)]
-pub struct Entities {
-    arena: Arena<EntityLocation>,
-}
+pub struct Entities(SlotMap<Entity, EntityLocation>);
 
 impl Entities {
     #[inline]
     pub(crate) fn new() -> Self {
-        Self {
-            arena: Arena::new(),
-        }
+        Self(SlotMap::with_key())
     }
 
     #[inline]
     pub fn create(&mut self) -> Entity {
-        Entity(self.arena.insert(EntityLocation::EMPTY))
+        self.0.insert(EntityLocation::EMPTY)
     }
 
     #[inline]
     pub fn remove(&mut self, entity: Entity) -> Option<EntityLocation> {
-        self.arena.remove(entity.0)
+        self.0.remove(entity)
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.arena.len()
+        self.0.len()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.arena.is_empty()
+        self.0.is_empty()
     }
 
     #[inline]
     pub fn reserve(&mut self, additional_capacity: usize) {
-        self.arena.reserve(additional_capacity)
-    }
-
-    #[inline]
-    pub fn reserve_exact(&mut self, additional_capacity: usize) {
-        self.arena.reserve_exact(additional_capacity)
+        self.0.reserve(additional_capacity)
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        self.arena.clear()
+        self.0.clear()
     }
 
     #[inline]
     pub fn contains(&self, entity: Entity) -> bool {
-        self.arena.contains(entity.0)
+        self.0.contains_key(entity)
     }
 
     #[inline]
     pub fn get(&self, entity: Entity) -> Option<EntityLocation> {
-        self.arena.get(entity.0).copied()
+        self.0.get(entity).copied()
     }
 
     #[inline]
     pub fn get_mut(&mut self, entity: Entity) -> Option<&mut EntityLocation> {
-        self.arena.get_mut(entity.0)
+        self.0.get_mut(entity)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.arena.iter().map(|(i, _)| Entity(i))
+    pub fn iter(&self) -> Iter<'_> {
+        self.0.keys()
     }
 }
 
@@ -99,13 +84,13 @@ impl std::ops::Index<Entity> for Entities {
     type Output = EntityLocation;
     #[inline]
     fn index(&self, entity: Entity) -> &EntityLocation {
-        &self.arena[entity.0]
+        &self.0[entity]
     }
 }
 
 impl std::ops::IndexMut<Entity> for Entities {
     #[inline]
     fn index_mut(&mut self, entity: Entity) -> &mut EntityLocation {
-        &mut self.arena[entity.0]
+        &mut self.0[entity]
     }
 }

@@ -21,6 +21,8 @@ pub trait Component: Send + Sync + 'static {
     type Storage: Storage<Component = Self>;
 }
 
+pub trait Bundle {}
+
 #[repr(transparent)]
 pub struct ComponentId<T = crate::Void>(isize, PhantomData<fn() -> T>);
 
