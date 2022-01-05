@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 
-use fnv::FnvHashMap;
+type HashMap<K, V> = hashbrown::HashMap<K, V, fnv::FnvBuildHasher>;
 
 use crate::{archetype::ArchetypeId, resource::FromResources, Entity};
 
@@ -68,7 +68,7 @@ pub trait AnyStorage: Send + Sync + Any {
 }
 
 pub struct DenseStorage<T>(Vec<Vec<T>>);
-pub struct HashMapStorage<T>(FnvHashMap<Entity, T>);
+pub struct HashMapStorage<T>(HashMap<Entity, T>);
 
 impl<T> Default for DenseStorage<T> {
     fn default() -> Self {
@@ -78,7 +78,7 @@ impl<T> Default for DenseStorage<T> {
 
 impl<T> Default for HashMapStorage<T> {
     fn default() -> Self {
-        Self(FnvHashMap::default())
+        Self(HashMap::default())
     }
 }
 

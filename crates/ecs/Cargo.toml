@@ -15,4 +15,5 @@ edition = "2021"
 pulz-arena = { path = "../arena" }
 pulz-schedule = { path = "../schedule" }
 pulz-ecs-macros = { path = "macros" }
+hashbrown = "0.11"
 fnv = "1.0"
