@@ -57,6 +57,14 @@ impl SystemDescriptor {
             }
         }
     }
+
+    pub fn run(&mut self, resources: &mut Resources) {
+        self.initialize(resources);
+        match self.system_variant {
+            SystemVariant::Exclusive(ref mut system) => system.run(resources),
+            SystemVariant::Concurrent(ref mut system) => system.run(resources),
+        }
+    }
 }
 
 pub(crate) enum SystemVariant {

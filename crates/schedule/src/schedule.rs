@@ -136,6 +136,13 @@ impl ExclusiveSystem for Schedule {
     }
 }
 
+impl Resources {
+    #[inline]
+    pub fn run<S: IntoSystem<Marker>, Marker>(&mut self, sys: S) {
+        sys.into_system().run(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
