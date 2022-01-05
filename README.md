@@ -12,6 +12,7 @@ A collection of rust crates for game-development.
 
 * **[`pulz-arena`](crates/arena)** -
   A _generational arena_ allocator with compact generational indices
+  <mark>DISCONTINUED</mark>
 
   [![Crates.io](https://img.shields.io/crates/v/pulz-arena.svg?label=pulz-arena)](https://crates.io/crates/pulz-arena)
   [![docs.rs](https://docs.rs/pulz-arena/badge.svg)](https://docs.rs/pulz-arena/)
@@ -21,6 +22,12 @@ A collection of rust crates for game-development.
 
   [![Crates.io](https://img.shields.io/crates/v/pulz-executor.svg?label=pulz-executor)](https://crates.io/crates/pulz-executor)
   [![docs.rs](https://docs.rs/pulz-executor/badge.svg)](https://docs.rs/pulz-executor/)
+
+* **[`pulz-schedule`](crates/schedule)** -
+  For scheduling systems and managing their resources
+
+  [![Crates.io](https://img.shields.io/crates/v/pulz-schedule.svg?label=pulz-schedule)](https://crates.io/crates/pulz-schedule)
+  [![docs.rs](https://docs.rs/pulz-schedule/badge.svg)](https://docs.rs/pulz-schedule/)
 
 * **[`pulz-ecs`](crates/ecs)** -
   An _archetype_ based ECS (Entity Component System)
