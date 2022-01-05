@@ -1,6 +1,6 @@
 use crate::resource::Resources;
 
-/// # Unsafe
+/// # Safety
 /// The value ov IS_SEND must be correct: when it says true, then the type must be Send!
 pub unsafe trait SystemParam: Sized {
     const IS_SEND: bool;

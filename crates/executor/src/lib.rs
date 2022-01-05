@@ -1,6 +1,6 @@
 #![warn(
-    missing_docs,
-    rustdoc::missing_doc_code_examples,
+    // missing_docs,
+    // rustdoc::missing_doc_code_examples,
     future_incompatible,
     rust_2018_idioms,
     unused,
@@ -17,8 +17,8 @@
     clippy::use_self,
     clippy::suspicious_operation_groupings,
     clippy::useless_let_if_seq,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
+    // clippy::missing_errors_doc,
+    // clippy::missing_panics_doc,
     clippy::wildcard_imports
 )]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo.png")]

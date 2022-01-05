@@ -3,8 +3,9 @@ use crate::resource::{Resources, ResourcesSend};
 pub mod param;
 pub mod system_fn;
 
-/// # Unsafe
-/// when is_send returns true, the implemention of run must ensure, that no unsend resources are accessed
+/// # Safety
+/// when is_send returns true, the implemention of run must ensure, that no unsend resources are accessed.
+/// The `is_send` method must not return `true`, when unsend resources are accessed!
 pub unsafe trait System: Send + Sync + 'static {
     fn initialize(&mut self, _resources: &mut Resources) {}
     fn run(&mut self, arg: &Resources);
@@ -37,7 +38,7 @@ impl SystemDescriptor {
     pub fn exclusive(self) -> Self {
         match self.system_variant {
             SystemVariant::Exclusive(_) => self,
-            SystemVariant::Concurrent(system) => SystemDescriptor {
+            SystemVariant::Concurrent(system) => Self {
                 system_variant: SystemVariant::Exclusive(Box::new(ConcurrentAsExclusiveSystem(
                     system,
                 ))),

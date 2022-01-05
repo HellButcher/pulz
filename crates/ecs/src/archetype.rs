@@ -107,6 +107,11 @@ impl Archetypes {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.archetypes.is_empty()
+    }
+
+    #[inline]
     pub fn iter(&self) -> impl Iterator<Item = &Archetype> {
         self.archetypes.iter()
     }
@@ -263,13 +268,6 @@ impl ArchetypeSet {
         self.0
             .iter()
             .copied()
-            .enumerate()
-            .flat_map(|(i, value)| Self::sub_iter(i * 64, value))
-    }
-
-    pub fn into_iter(self) -> impl Iterator<Item = ArchetypeId> {
-        self.0
-            .into_iter()
             .enumerate()
             .flat_map(|(i, value)| Self::sub_iter(i * 64, value))
     }

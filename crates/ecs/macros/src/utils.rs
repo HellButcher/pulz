@@ -1,8 +1,6 @@
 use proc_macro2::{Ident, Span};
 use proc_macro_crate::FoundCrate;
-use syn::{
-    Error, Path, Result, Token,
-};
+use syn::{Error, Path, Result, Token};
 
 pub fn resolve_crate(name: &str) -> Result<Path> {
     match proc_macro_crate::crate_name(name).map_err(|e| Error::new(Span::call_site(), e))? {

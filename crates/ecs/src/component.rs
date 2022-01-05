@@ -97,7 +97,7 @@ impl ComponentId {
     }
 }
 
-pub(crate) struct ComponentInfo {
+pub struct ComponentDetails {
     id: ComponentId,
     name: Cow<'static, str>,
     type_id: TypeId,
@@ -106,7 +106,7 @@ pub(crate) struct ComponentInfo {
     pub(crate) any_getter_mut: fn(&mut Resources, ResourceId) -> Option<&mut dyn AnyStorage>,
 }
 
-impl ComponentInfo {
+impl ComponentDetails {
     #[inline]
     pub fn id(&self) -> ComponentId {
         self.id
@@ -124,7 +124,7 @@ impl ComponentInfo {
 }
 
 pub struct Components {
-    pub(crate) components: Vec<ComponentInfo>,
+    pub(crate) components: Vec<ComponentDetails>,
     by_type_id: BTreeMap<TypeId, ComponentId>,
 }
 
@@ -149,7 +149,7 @@ impl Components {
             .map(ComponentId::typed)
     }
 
-    pub(crate) fn get<T>(&self, component_id: ComponentId<T>) -> Option<&ComponentInfo> {
+    pub fn get<T>(&self, component_id: ComponentId<T>) -> Option<&ComponentDetails> {
         self.components.get(component_id.offset())
     }
 
@@ -171,7 +171,7 @@ impl Components {
                 } else {
                     ComponentId(index as isize, PhantomData) // keep positive => dense
                 };
-                components.push(ComponentInfo {
+                components.push(ComponentDetails {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
@@ -316,11 +316,6 @@ impl ComponentSet {
         components: &'l Components,
     ) -> impl Iterator<Item = ComponentId> + 'l {
         self.offsets()
-            .map(move |offset| components.components[offset].id)
-    }
-
-    pub fn into_iter(self, components: &Components) -> impl Iterator<Item = ComponentId> + '_ {
-        self.into_offsets()
             .map(move |offset| components.components[offset].id)
     }
 }

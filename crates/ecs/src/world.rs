@@ -65,14 +65,6 @@ impl Drop for WorldMut<'_> {
 
 impl World<'_> {
     #[inline]
-    pub fn clone(&self) -> Self {
-        Self {
-            res: self.res,
-            world: Res::clone(&self.world),
-        }
-    }
-
-    #[inline]
     pub fn archetypes(&self) -> &Archetypes {
         &self.world.archetypes
     }
@@ -85,6 +77,16 @@ impl World<'_> {
     #[inline]
     pub fn entities(&self) -> &Entities {
         &self.world.entities
+    }
+}
+
+impl Clone for World<'_> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            res: self.res,
+            world: Res::clone(&self.world),
+        }
     }
 }
 

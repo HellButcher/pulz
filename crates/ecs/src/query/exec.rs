@@ -150,7 +150,7 @@ where
                 // TODO: filter
 
                 // TODO: SAFETY 🤷‍♂️ ???
-                let item = F::get(unsafe { &mut *borrow }, state, archetype, index);
+                let item = F::get(unsafe { *borrow }, state, archetype, index);
                 return Some(item);
             }
             self.state = None;

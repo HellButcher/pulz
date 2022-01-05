@@ -178,7 +178,7 @@ mod test {
     struct A(usize);
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
-    #[component(storage="crate::storage::DenseStorage")]
+    #[component(storage = "crate::storage::DenseStorage")]
     struct B(usize);
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
@@ -186,7 +186,7 @@ mod test {
     struct C(usize);
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
-    #[component(storage="DenseStorage")] // shortcut for `pulz_ecs::storage::DenseStorage`
+    #[component(storage = "DenseStorage")] // shortcut for `pulz_ecs::storage::DenseStorage`
     struct D(usize);
 
     #[test]

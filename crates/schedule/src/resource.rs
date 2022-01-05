@@ -226,7 +226,7 @@ impl<Marker> BaseResources<Marker> {
         unsafe { std::mem::transmute(self) }
     }
 
-    /// # Unsafe
+    /// # Safety
     /// User must ensure, that no UnSend Resources are send to a other thread
     #[inline]
     pub unsafe fn as_unsend(&self) -> &Resources {
@@ -523,6 +523,7 @@ impl<'a, T> SystemParamFetch<'a> for Option<Res<'_, T>>
 where
     T: Send + Sync + 'static,
 {
+    #[allow(clippy::use_self)] // because different lifetime
     type Output = Option<Res<'a, T>>;
 
     #[inline]
@@ -553,6 +554,7 @@ impl<'a, T> SystemParamFetch<'a> for Option<ResMut<'_, T>>
 where
     T: Send + Sync + 'static,
 {
+    #[allow(clippy::use_self)] // because different lifetime
     type Output = Option<ResMut<'a, T>>;
 
     #[inline]
@@ -600,10 +602,11 @@ impl<'a, T> SystemParamFetch<'a> for NonSend<Res<'_, T>>
 where
     T: Send + Sync + 'static,
 {
-    type Output = Res<'a, T>;
+    #[allow(clippy::use_self)] // because different lifetime
+    type Output = NonSend<Res<'a, T>>;
     #[inline]
     fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
-        resources.borrow_res_id(*prepared).unwrap()
+        NonSend(resources.borrow_res_id(*prepared).unwrap())
     }
 }
 
@@ -611,7 +614,7 @@ unsafe impl<T> SystemParam for NonSend<ResMut<'_, T>>
 where
     T: Send + Sync + 'static,
 {
-    const IS_SEND: bool = true;
+    const IS_SEND: bool = false;
     type Prepared = ResourceId<T>;
     type Fetch = Self;
     #[inline]
@@ -624,10 +627,11 @@ impl<'a, T> SystemParamFetch<'a> for NonSend<ResMut<'_, T>>
 where
     T: Send + Sync + 'static,
 {
-    type Output = ResMut<'a, T>;
+    #[allow(clippy::use_self)] // because different lifetime
+    type Output = NonSend<ResMut<'a, T>>;
     #[inline]
     fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
-        resources.borrow_res_mut_id(*prepared).unwrap()
+        NonSend(resources.borrow_res_mut_id(*prepared).unwrap())
     }
 }
 
@@ -649,6 +653,7 @@ impl<'a, T> SystemParamFetch<'a> for Option<NonSend<Res<'_, T>>>
 where
     T: 'static,
 {
+    #[allow(clippy::use_self)] // because different lifetime
     type Output = Option<NonSend<Res<'a, T>>>;
 
     #[inline]
@@ -679,6 +684,7 @@ impl<'a, T> SystemParamFetch<'a> for Option<NonSend<ResMut<'_, T>>>
 where
     T: 'static,
 {
+    #[allow(clippy::use_self)] // because different lifetime
     type Output = Option<NonSend<ResMut<'a, T>>>;
 
     #[inline]
