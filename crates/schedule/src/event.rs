@@ -54,6 +54,8 @@ impl<T> Events<T> {
             self.first_id += 1;
             self.events.pop_front();
         }
+
+        self.frame_start_id = self.first_id + self.events.len();
     }
 
     pub fn update_system(mut events: ResMut<'_, Self>) {
