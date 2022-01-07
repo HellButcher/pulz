@@ -14,6 +14,7 @@ edition = "2021"
 [dependencies]
 pulz-executor = { path = "../executor" }
 atomic_refcell = "0.1"
+downcast-rs = "1.2"
 
 [target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
 pulz-executor = { path = "../executor", features = ["async-std"] }

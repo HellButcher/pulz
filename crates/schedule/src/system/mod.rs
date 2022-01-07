@@ -1,4 +1,7 @@
-use crate::resource::{Resources, ResourcesSend};
+use crate::{
+    label::{AnyLabel, SystemLabel},
+    resource::{Resources, ResourcesSend},
+};
 
 pub mod param;
 pub mod system_fn;
@@ -24,14 +27,38 @@ pub trait ExclusiveSystem: 'static {
     fn run(&mut self, arg: &mut Resources);
 }
 
-pub trait IntoSystem<Marker> {
+pub trait IntoSystem<Marker>: Sized {
     fn into_system(self) -> SystemDescriptor;
+
+    #[inline]
+    fn with_label(self, label: impl AnyLabel) -> SystemDescriptor {
+        let mut descriptor = self.into_system();
+        descriptor.label = Some(label.into());
+        descriptor
+    }
+
+    #[inline]
+    fn before(self, label: impl AnyLabel) -> SystemDescriptor {
+        let mut descriptor = self.into_system();
+        descriptor.before.push(label.into());
+        descriptor
+    }
+
+    #[inline]
+    fn after(self, label: impl AnyLabel) -> SystemDescriptor {
+        let mut descriptor = self.into_system();
+        descriptor.after.push(label.into());
+        descriptor
+    }
 }
 
 pub struct SystemDescriptor {
     pub(crate) system_variant: SystemVariant,
     pub(crate) dependencies: Vec<usize>,
     pub(crate) initialized: bool,
+    pub(crate) label: Option<Box<SystemLabel>>,
+    pub(crate) before: Vec<Box<SystemLabel>>,
+    pub(crate) after: Vec<Box<SystemLabel>>,
 }
 
 impl SystemDescriptor {
@@ -44,6 +71,9 @@ impl SystemDescriptor {
                 ))),
                 dependencies: self.dependencies,
                 initialized: self.initialized,
+                label: self.label,
+                before: self.before,
+                after: self.after,
             },
         }
     }
@@ -127,6 +157,9 @@ where
             system_variant: SystemVariant::Concurrent(Box::new(self)),
             dependencies: Vec::new(),
             initialized: false,
+            label: None,
+            before: Vec::new(),
+            after: Vec::new(),
         }
     }
 }
@@ -142,6 +175,9 @@ where
             system_variant: SystemVariant::Exclusive(Box::new(self)),
             dependencies: Vec::new(),
             initialized: false,
+            label: None,
+            before: Vec::new(),
+            after: Vec::new(),
         }
     }
 }
