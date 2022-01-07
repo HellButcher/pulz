@@ -1,6 +1,6 @@
-use slotmap::{new_key_type, SlotMap};
 use crate::archetype::ArchetypeId;
 pub use crate::entity_ref::{EntityMut, EntityRef};
+use slotmap::{new_key_type, SlotMap};
 
 new_key_type! {
     pub struct Entity;
