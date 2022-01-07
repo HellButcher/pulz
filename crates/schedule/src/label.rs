@@ -1,5 +1,5 @@
 use std::{
-    any::{Any, TypeId},
+    any::Any,
     cmp::Ordering,
     collections::hash_map::DefaultHasher,
     fmt::Debug,
@@ -7,9 +7,10 @@ use std::{
 };
 
 use downcast_rs::DowncastSync;
+use tinybox::{TinyBox, tinybox};
 
 pub trait AnyLabel: DowncastSync + Send + Sync + Debug {
-    fn any_clone(&self) -> Box<dyn AnyLabel>;
+    fn any_clone_systemlabel(&self) -> SystemLabel;
     fn any_eq(&self, other: &dyn AnyLabel) -> bool;
     fn any_cmp(&self, other: &dyn AnyLabel) -> Ordering;
     fn any_hash(&self) -> u64;
@@ -32,8 +33,8 @@ where
         + PartialOrd
         + 'static,
 {
-    fn any_clone(&self) -> Box<dyn AnyLabel> {
-        Box::new(self.clone())
+    fn any_clone_systemlabel(&self) -> SystemLabel {
+        self.clone().into()
     }
 
     fn any_eq(&self, other: &dyn AnyLabel) -> bool {
@@ -59,42 +60,46 @@ where
 }
 
 #[derive(Debug)]
-pub struct SystemLabel<T: ?Sized = dyn AnyLabel>(T);
+struct SystemLabelInner<T: ?Sized = dyn AnyLabel>(T);
 
-impl<T: AnyLabel> From<T> for Box<SystemLabel> {
+#[derive(Debug,PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SystemLabel(TinyBox<SystemLabelInner>);
+
+impl<T: AnyLabel> From<T> for SystemLabel {
     #[inline]
     fn from(any_label: T) -> Self {
-        Box::new(SystemLabel(any_label))
+        let system_label = SystemLabelInner(any_label);
+        SystemLabel(tinybox!(SystemLabelInner => system_label))
     }
 }
 
-// impl Clone for SystemLabel {
-//   #[inline]
-//   fn clone(&self) -> Self {
-//       SystemLabel(self.0.any_clone())
-//   }
-// }
+impl Clone for SystemLabel {
+  #[inline]
+  fn clone(&self) -> Self {
+      self.0.0.any_clone_systemlabel()
+  }
+}
 
-impl PartialEq for SystemLabel {
+impl PartialEq for SystemLabelInner {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.0.any_eq(&other.0)
     }
 }
-impl Eq for SystemLabel {}
-impl PartialOrd for SystemLabel {
+impl Eq for SystemLabelInner {}
+impl PartialOrd for SystemLabelInner {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.0.any_cmp(&other.0))
     }
 }
-impl Ord for SystemLabel {
+impl Ord for SystemLabelInner {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.any_cmp(&other.0)
     }
 }
-impl Hash for SystemLabel {
+impl Hash for SystemLabelInner {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write_u64(self.0.any_hash())

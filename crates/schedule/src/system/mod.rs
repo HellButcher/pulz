@@ -56,9 +56,9 @@ pub struct SystemDescriptor {
     pub(crate) system_variant: SystemVariant,
     pub(crate) dependencies: Vec<usize>,
     pub(crate) initialized: bool,
-    pub(crate) label: Option<Box<SystemLabel>>,
-    pub(crate) before: Vec<Box<SystemLabel>>,
-    pub(crate) after: Vec<Box<SystemLabel>>,
+    pub(crate) label: Option<SystemLabel>,
+    pub(crate) before: Vec<SystemLabel>,
+    pub(crate) after: Vec<SystemLabel>,
 }
 
 impl SystemDescriptor {
