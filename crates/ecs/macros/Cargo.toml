@@ -1,7 +1,7 @@
 [package]
 name = "pulz-ecs-macros"
 description = "Proc-Macros for pulz-ecs"
-version = "0.1.0"
+version = "0.1.0-alpha"
 authors = ["Christoph Hommelsheim <main@chommel.en>"]
 license = "MIT OR Apache-2.0"
 keywords = ["ecs", "game"]
