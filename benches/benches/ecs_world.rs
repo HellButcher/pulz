@@ -3,7 +3,7 @@ use criterion_cpu_time::PosixTime;
 
 const NUM_ENTITIES: &[usize] = &[5_000, 10_000, 50_000, 100_000 /* 500_000, 1_000_000 */];
 
-criterion_group!(name = world_benches; config = configure_criterion(); targets = world_spawn, world_spawn_sparse, world_many_components);
+criterion_group!(name = world_benches; config = configure_criterion(); targets = world_spawn, world_spawn2, world_many_components);
 criterion_main!(world_benches);
 
 type Criterion = criterion::Criterion<PosixTime>;
@@ -16,39 +16,39 @@ fn configure_criterion() -> Criterion {
 
 use pulz_ecs::{component::Component, resource::Resources, world::WorldExt};
 
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct A(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct B(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct C(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct D(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct E(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct F(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct G(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct H(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct I(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct J(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct K(usize);
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct L(usize);
 
-#[derive(Copy, Clone, Component)]
+#[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct X<A: Send + Sync + 'static, B: Send + Sync + 'static>(A, B);
 
 // TODO: big number of components / different bigger numbers of components
 
 /// Span a number of entities and change their component configuration
 pub fn world_spawn(c: &mut Criterion) {
-    let mut group = c.benchmark_group("spawn_and_alter_dense");
+    let mut group = c.benchmark_group("spawn_and_alter1");
     for &entity_count in NUM_ENTITIES {
         group.throughput(Throughput::Elements(entity_count as u64));
         group.bench_function(BenchmarkId::new("pulz", entity_count), |bencher| {
@@ -114,9 +114,9 @@ pub fn world_spawn(c: &mut Criterion) {
     group.finish()
 }
 
-/// Span a number of entities and change their sparse-component configuration
-pub fn world_spawn_sparse(c: &mut Criterion) {
-    let mut group = c.benchmark_group("spawn_and_alter_sparse");
+/// Span a number of entities and change their component configuration
+pub fn world_spawn2(c: &mut Criterion) {
+    let mut group = c.benchmark_group("spawn_and_alter2");
     for &entity_count in NUM_ENTITIES {
         group.throughput(Throughput::Elements(entity_count as u64));
         group.bench_function(BenchmarkId::new("pulz", entity_count), |bencher| {
@@ -171,24 +171,9 @@ pub fn world_spawn_sparse(c: &mut Criterion) {
             });
         });
         group.bench_function(BenchmarkId::new("bevy", entity_count), |bencher| {
-            use bevy_ecs::{
-                component::{ComponentDescriptor, StorageType},
-                world::World,
-            };
+            use bevy_ecs::world::World;
             bencher.iter(|| {
                 let mut world = World::new();
-                world
-                    .register_component(ComponentDescriptor::new::<D>(StorageType::SparseSet))
-                    .unwrap();
-                world
-                    .register_component(ComponentDescriptor::new::<E>(StorageType::SparseSet))
-                    .unwrap();
-                world
-                    .register_component(ComponentDescriptor::new::<F>(StorageType::SparseSet))
-                    .unwrap();
-                world
-                    .register_component(ComponentDescriptor::new::<G>(StorageType::SparseSet))
-                    .unwrap();
                 let mut entities = Vec::new();
                 for i in 0..entity_count {
                     entities.push(world.spawn().insert(A(i)).insert(B(i)).insert(C(i)).id());
@@ -272,32 +257,32 @@ fn bevy_insert_many_components2<T>(e: &mut bevy_ecs::world::EntityMut, value: T)
 where
     T: bevy_ecs::component::Component + Copy,
 {
-    e.insert((value, A(1)));
-    e.insert((value, B(1)));
-    e.insert((value, C(1)));
-    e.insert((value, D(1)));
-    e.insert((value, E(1)));
-    e.insert((value, F(1)));
-    e.insert((value, G(1)));
-    e.insert((value, H(1)));
-    e.insert((value, I(1)));
-    e.insert((value, J(1)));
+    e.insert(X(value, A(1)));
+    e.insert(X(value, B(1)));
+    e.insert(X(value, C(1)));
+    e.insert(X(value, D(1)));
+    e.insert(X(value, E(1)));
+    e.insert(X(value, F(1)));
+    e.insert(X(value, G(1)));
+    e.insert(X(value, H(1)));
+    e.insert(X(value, I(1)));
+    e.insert(X(value, J(1)));
 }
 
 fn bevy_insert_many_components<T>(e: &mut bevy_ecs::world::EntityMut, value: T)
 where
     T: bevy_ecs::component::Component + Copy,
 {
-    bevy_insert_many_components2(e, (value, A(2)));
-    bevy_insert_many_components2(e, (value, B(2)));
-    bevy_insert_many_components2(e, (value, C(2)));
-    bevy_insert_many_components2(e, (value, D(2)));
-    bevy_insert_many_components2(e, (value, E(2)));
-    bevy_insert_many_components2(e, (value, F(2)));
-    bevy_insert_many_components2(e, (value, G(2)));
-    bevy_insert_many_components2(e, (value, H(2)));
-    bevy_insert_many_components2(e, (value, I(2)));
-    bevy_insert_many_components2(e, (value, J(2)));
+    bevy_insert_many_components2(e, X(value, A(2)));
+    bevy_insert_many_components2(e, X(value, B(2)));
+    bevy_insert_many_components2(e, X(value, C(2)));
+    bevy_insert_many_components2(e, X(value, D(2)));
+    bevy_insert_many_components2(e, X(value, E(2)));
+    bevy_insert_many_components2(e, X(value, F(2)));
+    bevy_insert_many_components2(e, X(value, G(2)));
+    bevy_insert_many_components2(e, X(value, H(2)));
+    bevy_insert_many_components2(e, X(value, I(2)));
+    bevy_insert_many_components2(e, X(value, J(2)));
 }
 
 /// Span a number of entities and change their sparse-component configuration
