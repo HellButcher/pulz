@@ -1,0 +1,27 @@
+[package]
+name = "pulz-render"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+keywords = ["game", "game-engine"]
+categories = ["game-engines", "game-development"]
+readme = "README.md"
+
+[dependencies]
+pulz-ecs = { path = "../ecs" }
+pulz-assets = { path = "../assets" }
+pulz-transform = { path = "../transform" }
+pulz-window = { path = "../window" }
+pulz-render-macros = { path = "macros" }
+
+palette = { workspace = true, features = ["std"], default-features = false }
+image = { workspace = true, default-features = false }
+slotmap = { workspace = true }
+bytemuck = { workspace = true }
+fnv = { workspace = true }
+bitflags = { workspace = true }
+thiserror = { workspace = true }
+encase = { workspace = true }
+

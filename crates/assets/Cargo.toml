@@ -1,0 +1,13 @@
+[package]
+name = "pulz-assets"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+pulz-schedule = { path = "../schedule" }
+
+slotmap = { workspace = true }

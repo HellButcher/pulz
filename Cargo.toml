@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/*",
   "crates/*/macros",
+  "run-wasm",
   "benches"
 ]
 default-members = [
@@ -18,11 +19,28 @@ edition = "2024"
 rust-version = "1.86"
 
 [workspace.dependencies]
+glam = "0.22"
+serde = "1.0"
+raw-window-handle = "0.5"
 slotmap = "1.0"
+typemap = "0.3"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+bitflags = "1.3"
 fnv = "1.0"
+radsort = "0.1"
+bytemuck = "1.12"
+downcast-rs = "1.2"
+ambassador = "0.3"
+blocking = "1.3"
 threadpool = "1.8"
 backtrace = "0.3"
 atomic_refcell = "0.1"
+palette = { version = "0.6", default-features = false }
+image = { version = "0.24", default-features = false }
+encase = { version = "0.4", features = ["glam"], default-features = false }
+encase_derive_impl = { version = "0.4" }
 crossbeam-utils = "0.8"
 darling = "0.20"
 proc-macro2 = "1.0"

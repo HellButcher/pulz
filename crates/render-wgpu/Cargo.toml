@@ -1,0 +1,36 @@
+[package]
+name = "pulz-render-wgpu"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+pulz-ecs = { path = "../ecs" }
+pulz-window = { path = "../window" }
+pulz-render = { path = "../render" }
+
+thiserror = { workspace = true}
+tracing = { workspace = true}
+wgpu = "0.14"
+raw-window-handle = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+anyhow = { workspace = true}
+naga = "0.10"
+pulz-window-winit = { path = "../window-winit" }
+
+[target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
+tracing-subscriber = { workspace = true }
+async-std = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wgpu = { version = "0.13" , features = ["webgl"] }
+tracing-wasm = { workspace = true }
+tracing-log = { workspace = true }
+console_error_panic_hook = { workspace = true }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["HtmlCanvasElement"] }
+wasm-bindgen-futures = { workspace = true }

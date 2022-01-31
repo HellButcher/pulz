@@ -1,0 +1,32 @@
+[package]
+name = "pulz-window-winit"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[features]
+default = ["winit/x11", "winit/wayland"]
+x11 = ["winit/x11"]
+wayland = ["winit/wayland"]
+
+[dependencies]
+pulz-ecs = { path = "../ecs" }
+pulz-window = { path = "../window" }
+pulz-input = { path = "../input" }
+
+fnv = { workspace = true }
+tracing = { workspace = true }
+winit = { version = "0.27", default-features = false }
+
+[target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
+tracing-subscriber = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tracing-wasm = { workspace = true }
+tracing-log = { workspace = true }
+console_error_panic_hook = { workspace = true }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["HtmlCanvasElement"] }
