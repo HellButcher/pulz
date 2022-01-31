@@ -100,6 +100,16 @@ impl Windows {
     }
 
     #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[inline]
     pub fn get(&self, id: WindowId) -> Option<&Window> {
         self.0.get(id)
     }

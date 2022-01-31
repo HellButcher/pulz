@@ -24,7 +24,7 @@ async fn run<E: Executor>(executor: E) -> anyhow::Result<()> {
 
     #[cfg(target_arch = "wasm32")]
     {
-        wasm::show_window(&resources, window_id);
+        attach_window(&resources, window_id);
     }
 
     {
@@ -77,26 +77,16 @@ fn main() {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub mod wasm {
-    use ecs::resource::Resources;
-    use wasm_bindgen::prelude::*;
-    use window::{WindowId, Windows};
+pub fn attach_window(resources: &Resources, window_id: window::WindowId) -> Option<web_sys::Node> {
     use window_winit::WinitWindows;
     use winit::platform::web::WindowExtWebSys;
 
-    pub fn show_window(resources: &Resources, window_id: WindowId) {
-        let windows = resources.borrow_res::<Windows>().unwrap();
-        let window = windows.get(window_id).unwrap();
+    let winit_windows = resources.borrow_res::<WinitWindows>().unwrap();
+    let winit_window = winit_windows.get(window_id).unwrap();
 
-        let winit_windows = resources.borrow_res::<WinitWindows>().unwrap();
-        let winit_window = winit_windows.get(window_id).unwrap();
-
-        attach_canvas(winit_window.canvas(), &window.title)
-    }
-
-    #[wasm_bindgen]
-    extern "C" {
-        #[wasm_bindgen(js_namespace = ["window", "demo"])]
-        fn attach_canvas(canvas: web_sys::HtmlCanvasElement, title: &str);
-    }
+    web_sys::window()?
+        .document()?
+        .body()?
+        .append_child(&web_sys::Element::from(winit_window.canvas()))
+        .ok()
 }

@@ -94,6 +94,21 @@ impl WinitWindows {
         winit_window
     }
 
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.windows.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.windows.is_empty()
+    }
+
+    #[inline]
+    pub fn get(&self, id: WindowId) -> Option<&WinitWindow> {
+        self.windows.get(id).map(Deref::deref)
+    }
+
     fn update_window_descriptor(
         window_descriptor: &mut WindowDescriptor,
         winit_window: &winit::window::Window,
@@ -119,6 +134,14 @@ impl WinitWindows {
         } else {
             false
         }
+    }
+}
+
+impl std::ops::Index<WindowId> for WinitWindows {
+    type Output = WinitWindow;
+    #[inline]
+    fn index(&self, id: WindowId) -> &Self::Output {
+        &self.windows[id]
     }
 }
 
