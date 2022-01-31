@@ -1,4 +1,10 @@
 [workspace]
+resolver = "2"
 members = [
+  "crates/*",
+  "crates/*/macros",
+  "benches"
+]
+default-members = [
   "crates/*"
 ]

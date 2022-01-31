@@ -1,0 +1,21 @@
+[package]
+name = "pulz-ecs"
+description = "An archetype based ECS"
+version = "0.1.0"
+authors = ["Christoph Hommelsheim <main@chommel.eu>"]
+license = "MIT OR Apache-2.0"
+keywords = ["ecs", "game"]
+categories = ["data-structures", "game-engines", "game-development"]
+repository = "https://github.com/HellButcher/pulz.git"
+readme = "README.md"
+edition = "2021"
+
+
+[dependencies]
+pulz-bitset = { path = "../bitset" }
+pulz-schedule = { path = "../schedule" }
+pulz-ecs-macros = { path = "macros" }
+
+slotmap = "1.0"
+hashbrown = "0.12"
+fnv = "1.0"

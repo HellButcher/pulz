@@ -13,6 +13,15 @@ compact generational indices.
 When you insert a value into the arena, you get an index-pointer in
 return. You can then use this index-pointer to access the provided value.
 
+<hr/>
+
+### <mark>Discontinued 🚨</mark>
+
+Use `slotmap` as an alternative:<br/>
+[![Crates.io](https://img.shields.io/crates/v/slotmap.svg?label=slotmap)](https://crates.io/crates/slotmap)
+
+<hr/>
+
 [generational-arena]: https://github.com/fitzgen/generational-arena
 
 ## Example
