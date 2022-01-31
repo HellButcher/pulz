@@ -1,0 +1,39 @@
+[package]
+name = "pulz-render-wgpu"
+version = "0.1.0"
+authors = ["Christoph Hommelsheim <main@chommel.eu>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HellButcher/pulz.git"
+readme = "README.md"
+edition = "2021"
+
+
+[dependencies]
+ecs = { package = "pulz-ecs", path = "../ecs" }
+window = { package = "pulz-window", path = "../window" }
+render = { package = "pulz-render", path = "../render" }
+
+thiserror = "1.0"
+tracing = "0.1"
+wgpu = "0.12"
+raw-window-handle = { version = "0.4", features = ["alloc"] }
+
+[dev-dependencies]
+anyhow = "1.0"
+winit = "0.26"
+naga = "0.8"
+window-winit = { package = "pulz-window-winit", path = "../window-winit" }
+
+[target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
+pulz-executor = { path = "../executor", features = ["async-std"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-std = { version = "1.10", features = ["attributes"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wgpu = { version = "0.12" , features = ["webgl"] }
+tracing-wasm = "0.2"
+tracing-log = "0.1"
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+wasm-bindgen-futures = "0.4"

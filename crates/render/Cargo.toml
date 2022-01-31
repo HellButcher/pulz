@@ -1,0 +1,30 @@
+[package]
+name = "pulz-render"
+version = "0.1.0"
+authors = ["Christoph Hommelsheim <main@chommel.en>"]
+license = "MIT OR Apache-2.0"
+keywords = ["game", "game-engine"]
+categories = ["game-engines", "game-development"]
+repository = "https://github.com/HellButcher/pulz.git"
+readme = "README.md"
+edition = "2021"
+
+[dependencies]
+bitset = { package = "pulz-bitset", path = "../bitset" }
+ecs = { package = "pulz-ecs", path = "../ecs" }
+assets = { package = "pulz-assets", path = "../assets" }
+transform = { package = "pulz-transform", path = "../transform" }
+window = { package = "pulz-window", path = "../window" }
+
+palette = { version = "0.6", features = ["std"], default-features = false }
+image = { version = "0.23", default-features = false }
+slotmap = "1.0"
+crevice = "0.8.0"
+bytemuck = "1.7"
+hashbrown = "0.12"
+fnv = "1.0"
+mint = "0.5"
+bitflags = "1.3"
+thiserror = "1.0"
+tracing = "0.1"
+downcast-rs = "1.2"
