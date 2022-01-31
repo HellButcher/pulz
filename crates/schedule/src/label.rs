@@ -7,7 +7,7 @@ use std::{
 };
 
 use downcast_rs::DowncastSync;
-use tinybox::{TinyBox, tinybox};
+use tinybox::{tinybox, TinyBox};
 
 pub trait AnyLabel: DowncastSync + Send + Sync + Debug {
     fn any_clone_systemlabel(&self) -> SystemLabel;
@@ -62,7 +62,7 @@ where
 #[derive(Debug)]
 struct SystemLabelInner<T: ?Sized = dyn AnyLabel>(T);
 
-#[derive(Debug,PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SystemLabel(TinyBox<SystemLabelInner>);
 
 impl<T: AnyLabel> From<T> for SystemLabel {
@@ -74,10 +74,10 @@ impl<T: AnyLabel> From<T> for SystemLabel {
 }
 
 impl Clone for SystemLabel {
-  #[inline]
-  fn clone(&self) -> Self {
-      self.0.0.any_clone_systemlabel()
-  }
+    #[inline]
+    fn clone(&self) -> Self {
+        self.0 .0.any_clone_systemlabel()
+    }
 }
 
 impl PartialEq for SystemLabelInner {
