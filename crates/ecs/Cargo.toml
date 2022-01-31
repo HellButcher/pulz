@@ -1,7 +1,7 @@
 [package]
 name = "pulz-ecs"
 description = "An archetype based ECS"
-version = "0.1.0"
+version = "0.1.0-alpha"
 authors = ["Christoph Hommelsheim <main@chommel.eu>"]
 license = "MIT OR Apache-2.0"
 keywords = ["ecs", "game"]
@@ -12,9 +12,9 @@ edition = "2021"
 
 
 [dependencies]
-pulz-bitset = { path = "../bitset" }
-pulz-schedule = { path = "../schedule" }
-pulz-ecs-macros = { path = "macros" }
+pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
+pulz-schedule = { version = "0.1.0-alpha", path = "../schedule" }
+pulz-ecs-macros = { version = "0.1.0-alpha", path = "macros" }
 
 slotmap = "1.0"
 hashbrown = "0.12"

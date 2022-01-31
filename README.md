@@ -8,6 +8,10 @@
 
 A collection of rust crates for game-development.
 
+## WARNING
+
+This project is in a _very early_ development stage.
+
 ## Crates
 
 * **[`pulz-arena`](crates/arena)** -
