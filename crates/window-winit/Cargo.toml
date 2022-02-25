@@ -1,0 +1,33 @@
+[package]
+name = "pulz-window-winit"
+version = "0.1.0"
+authors = ["Christoph Hommelsheim <main@chommel.eu>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HellButcher/pulz.git"
+readme = "README.md"
+edition = "2021"
+
+[features]
+default = ["winit/x11", "winit/wayland"]
+x11 = ["winit/x11"]
+wayland = ["winit/wayland"]
+
+[dependencies]
+ecs = { package = "pulz-ecs", path = "../ecs" }
+window = { package = "pulz-window", path = "../window" }
+input = { package = "pulz-input", path = "../input" }
+
+fnv = "1.0"
+tracing = "0.1"
+winit = { version = "0.26", default-features = false }
+
+[target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
+tracing-subscriber = "0.3"
+async-std = "1.10"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tracing-wasm = "0.2"
+tracing-log = "0.1"
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
