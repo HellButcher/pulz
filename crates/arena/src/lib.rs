@@ -26,6 +26,7 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 
+use alloc::vec::Vec;
 use core::{
     cmp::max,
     iter::{FromIterator, FusedIterator},
@@ -33,8 +34,6 @@ use core::{
     num::NonZeroU32,
     ops::DerefMut,
 };
-
-use alloc::vec::Vec;
 
 extern crate alloc;
 
@@ -1738,8 +1737,9 @@ impl<T> FromIterator<(Index, T)> for Mirror<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloc::{format, sync::Arc, vec};
+
+    use super::*;
 
     #[test]
     fn test_index_accessors() {

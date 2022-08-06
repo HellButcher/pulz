@@ -2,11 +2,11 @@ use std::{collections::VecDeque, marker::PhantomData};
 
 use crate::{
     label::CoreSystemLabel,
-    resource::{Res, ResMut, Resources},
+    resource::{Res, ResMut, ResourceId, Resources},
     schedule::Schedule,
     system::{
-        param::{SystemParam, SystemParamFetch},
-        IntoSystem,
+        param::{SystemParam, SystemParamFetch, SystemParamState},
+        IntoSystemDescriptor,
     },
 };
 
@@ -177,57 +177,67 @@ impl<'w, T> Extend<T> for EventWriter<'w, T> {
     }
 }
 
-unsafe impl<'a, T> SystemParam for EventSubscriber<'a, T>
+#[doc(hidden)]
+pub struct FetchEventSubscriber<T>(ResourceId<Events<T>>);
+
+unsafe impl<T> SystemParam for EventSubscriber<'_, T>
 where
     T: Send + Sync + 'static,
 {
-    const IS_SEND: bool = true;
-    type Prepared = <Res<'a, Events<T>> as SystemParam>::Prepared;
-    type Fetch = Self;
+    type Fetch = FetchEventSubscriber<T>;
+}
 
+unsafe impl<T> SystemParamState for FetchEventSubscriber<T>
+where
+    T: Send + Sync + 'static,
+{
     #[inline]
-    fn prepare(resources: &mut Resources) -> Self::Prepared {
-        <Res<'a, Events<T>> as SystemParam>::prepare(resources)
+    fn init(resources: &mut Resources) -> Self {
+        Self(resources.init::<Events<T>>())
     }
 }
 
-impl<'a, T> SystemParamFetch<'a> for EventSubscriber<'_, T>
+unsafe impl<'r, T> SystemParamFetch<'r> for FetchEventSubscriber<T>
 where
     T: Send + Sync + 'static,
 {
-    type Output = EventSubscriber<'a, T>;
+    type Item = EventSubscriber<'r, T>;
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
+    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
         EventSubscriber {
             next_id: 0, // TODO: keep state
-            events: <Res<'a, Events<T>> as SystemParamFetch<'a>>::get(prepared, resources),
+            events: resources.borrow_res_id(self.0).expect("borrow"),
         }
     }
 }
 
-unsafe impl<'a, T> SystemParam for EventWriter<'a, T>
+#[doc(hidden)]
+pub struct FetchEventWriter<T>(ResourceId<Events<T>>);
+
+unsafe impl<T> SystemParam for EventWriter<'_, T>
 where
     T: Send + Sync + 'static,
 {
-    const IS_SEND: bool = true;
-    type Prepared = <ResMut<'a, Events<T>> as SystemParam>::Prepared;
-    type Fetch = Self;
+    type Fetch = FetchEventWriter<T>;
+}
 
+unsafe impl<T> SystemParamState for FetchEventWriter<T>
+where
+    T: Send + Sync + 'static,
+{
     #[inline]
-    fn prepare(resources: &mut Resources) -> Self::Prepared {
-        <ResMut<'a, Events<T>> as SystemParam>::prepare(resources)
+    fn init(resources: &mut Resources) -> Self {
+        Self(resources.init::<Events<T>>())
     }
 }
 
-impl<'a, T> SystemParamFetch<'a> for EventWriter<'_, T>
+unsafe impl<'r, T> SystemParamFetch<'r> for FetchEventWriter<T>
 where
     T: Send + Sync + 'static,
 {
-    type Output = EventWriter<'a, T>;
+    type Item = EventWriter<'r, T>;
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
-        EventWriter(<ResMut<'a, Events<T>> as SystemParamFetch<'a>>::get(
-            prepared, resources,
-        ))
+    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
+        EventWriter(resources.borrow_res_mut_id(self.0).expect("borrow"))
     }
 }

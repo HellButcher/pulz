@@ -149,23 +149,22 @@ pub use self::single_threaded::ImmediateExecutor;
 
 #[cfg(feature = "tokio")]
 mod tokio {
-    use std::future::Future;
-
-    use tokio::task::JoinError;
 
     use super::{Executor, JoinHandle};
 
     impl JoinHandle for tokio::task::JoinHandle<()> {
         #[inline]
         fn cancel_and_block(self) {
-            Self::abort(self)
+            Self::abort(&self)
         }
     }
     impl Executor for tokio::runtime::Handle {
         type JoinHandle = tokio::task::JoinHandle<()>;
         #[inline]
-        fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) -> Self::JoinHandle {
-            Self::spawn(self, fut)
+        fn spawn(&self, task: impl FnOnce() + Send + 'static) -> Self::JoinHandle {
+            Self::spawn(self, async move {
+                task();
+            })
         }
         #[inline]
         fn wait_for(&self, handles: impl Iterator<Item = Self::JoinHandle>) {
@@ -179,8 +178,10 @@ mod tokio {
     impl Executor for tokio::runtime::Runtime {
         type JoinHandle = tokio::task::JoinHandle<()>;
         #[inline]
-        fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) -> Self::JoinHandle {
-            Self::spawn(self, fut)
+        fn spawn(&self, task: impl FnOnce() + Send + 'static) -> Self::JoinHandle {
+            Self::spawn(self, async move {
+                task();
+            })
         }
         #[inline]
         fn wait_for(&self, handles: impl Iterator<Item = Self::JoinHandle>) {

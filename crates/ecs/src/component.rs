@@ -141,7 +141,7 @@ impl Components {
     }
 
     #[inline]
-    pub fn get_id<T>(&self) -> Option<ComponentId<T>>
+    pub fn id<T>(&self) -> Option<ComponentId<T>>
     where
         T: Component,
     {

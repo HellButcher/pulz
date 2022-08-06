@@ -289,7 +289,7 @@ where
 pub fn world_many_components(c: &mut Criterion) {
     let mut group = c.benchmark_group("many_components");
     for component_count in [100, 200, 300] {
-        group.throughput(Throughput::Elements(component_count * 1000 as u64));
+        group.throughput(Throughput::Elements(component_count * 1000_u64));
         group.bench_function(BenchmarkId::new("pulz", component_count), |bencher| {
             bencher.iter(|| {
                 let mut world = Resources::new();

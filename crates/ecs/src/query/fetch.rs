@@ -3,12 +3,12 @@ use crate::{
     component::{Component, ComponentId, ComponentSet, Components},
     entity::Entity,
     get_or_init_component,
-    query::{QueryBorrow, QueryFetch, QueryPrepare},
+    query::{QueryBorrow, QueryFetch, QueryParam},
     resource::{Res, ResMut, ResourceId, Resources, ResourcesSend},
     storage::Storage,
 };
 
-impl<T: Component> QueryPrepare for &'_ T {
+impl<T: Component> QueryParam for &'_ T {
     type Prepared = (ResourceId<T::Storage>, ComponentId<T>);
     type State = ();
     type Borrow = Self;
@@ -68,7 +68,7 @@ impl<'w, 'a, T: Component> QueryFetch<'w, 'a> for &'_ T {
     }
 }
 
-impl<T: Component> QueryPrepare for &'_ mut T {
+impl<T: Component> QueryParam for &'_ mut T {
     type Prepared = (ResourceId<T::Storage>, ComponentId<T>);
     type State = ();
     type Borrow = Self;
@@ -128,7 +128,7 @@ impl<'w, 'a, T: Component> QueryFetch<'w, 'a> for &'_ mut T {
     }
 }
 
-impl QueryPrepare for Entity {
+impl QueryParam for Entity {
     type Prepared = ();
     type State = ();
     type Borrow = Self;
@@ -165,9 +165,9 @@ impl QueryFetch<'_, '_> for Entity {
     }
 }
 
-impl<Q> QueryPrepare for Option<Q>
+impl<Q> QueryParam for Option<Q>
 where
-    Q: QueryPrepare,
+    Q: QueryParam,
 {
     type Prepared = Q::Prepared;
     type State = (bool, Q::State);
@@ -239,7 +239,7 @@ where
     }
 }
 
-impl QueryPrepare for () {
+impl QueryParam for () {
     type Prepared = ();
     type State = ();
     type Borrow = Self;
@@ -283,9 +283,9 @@ macro_rules! tuple {
     () => ();
     ( $($name:ident.$index:tt,)+ ) => (
 
-impl<$($name),+> QueryPrepare for ($($name,)+)
+impl<$($name),+> QueryParam for ($($name,)+)
 where
-    $($name: QueryPrepare,)+
+    $($name: QueryParam,)+
 {
     type Prepared = ($($name::Prepared,)+);
     type State = ($($name::State,)+);

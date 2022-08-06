@@ -10,7 +10,7 @@ pub mod system_fn;
 /// when is_send returns true, the implemention of run must ensure, that no unsend resources are accessed.
 /// The `is_send` method must not return `true`, when unsend resources are accessed!
 pub unsafe trait System: Send + Sync + 'static {
-    fn initialize(&mut self, _resources: &mut Resources) {}
+    fn init(&mut self, _resources: &mut Resources) {}
     fn run(&mut self, arg: &Resources);
 
     fn is_send(&self) -> bool;
@@ -23,30 +23,30 @@ pub unsafe trait System: Send + Sync + 'static {
 }
 
 pub trait ExclusiveSystem: 'static {
-    fn initialize(&mut self, _resources: &mut Resources) {}
+    fn init(&mut self, _resources: &mut Resources) {}
     fn run(&mut self, arg: &mut Resources);
 }
 
-pub trait IntoSystem<Marker>: Sized {
-    fn into_system(self) -> SystemDescriptor;
+pub trait IntoSystemDescriptor<Marker>: Sized {
+    fn into_system_descriptor(self) -> SystemDescriptor;
 
     #[inline]
     fn with_label(self, label: impl AnyLabel) -> SystemDescriptor {
-        let mut descriptor = self.into_system();
+        let mut descriptor = self.into_system_descriptor();
         descriptor.label = Some(label.into());
         descriptor
     }
 
     #[inline]
     fn before(self, label: impl AnyLabel) -> SystemDescriptor {
-        let mut descriptor = self.into_system();
+        let mut descriptor = self.into_system_descriptor();
         descriptor.before.push(label.into());
         descriptor
     }
 
     #[inline]
     fn after(self, label: impl AnyLabel) -> SystemDescriptor {
-        let mut descriptor = self.into_system();
+        let mut descriptor = self.into_system_descriptor();
         descriptor.after.push(label.into());
         descriptor
     }
@@ -82,8 +82,8 @@ impl SystemDescriptor {
         if !self.initialized {
             self.initialized = true;
             match self.system_variant {
-                SystemVariant::Exclusive(ref mut system) => system.initialize(resources),
-                SystemVariant::Concurrent(ref mut system) => system.initialize(resources),
+                SystemVariant::Exclusive(ref mut system) => system.init(resources),
+                SystemVariant::Concurrent(ref mut system) => system.init(resources),
             }
         }
     }
@@ -137,22 +137,20 @@ impl ExclusiveSystem for ConcurrentAsExclusiveSystem {
     }
 }
 
-#[doc(hidden)]
-pub struct SystemDescriptorMarker;
-impl IntoSystem<SystemDescriptorMarker> for SystemDescriptor {
+impl IntoSystemDescriptor<()> for SystemDescriptor {
     #[inline]
-    fn into_system(self) -> SystemDescriptor {
+    fn into_system_descriptor(self) -> SystemDescriptor {
         self
     }
 }
 
 #[doc(hidden)]
 pub struct ConcurrentSystemMarker;
-impl<S> IntoSystem<ConcurrentSystemMarker> for S
+impl<S> IntoSystemDescriptor<ConcurrentSystemMarker> for S
 where
     S: System,
 {
-    fn into_system(self) -> SystemDescriptor {
+    fn into_system_descriptor(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Concurrent(Box::new(self)),
             dependencies: Vec::new(),
@@ -166,11 +164,11 @@ where
 
 #[doc(hidden)]
 pub struct ExclusiveSystemMarker;
-impl<S> IntoSystem<ExclusiveSystemMarker> for S
+impl<S> IntoSystemDescriptor<ExclusiveSystemMarker> for S
 where
     S: ExclusiveSystem,
 {
-    fn into_system(self) -> SystemDescriptor {
+    fn into_system_descriptor(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(self)),
             dependencies: Vec::new(),

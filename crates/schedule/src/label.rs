@@ -10,7 +10,7 @@ use downcast_rs::DowncastSync;
 use tinybox::{tinybox, TinyBox};
 
 pub trait AnyLabel: DowncastSync + Send + Sync + Debug {
-    fn any_clone_systemlabel(&self) -> SystemLabel;
+    fn as_systemlabel(&self) -> SystemLabel;
     fn any_eq(&self, other: &dyn AnyLabel) -> bool;
     fn any_cmp(&self, other: &dyn AnyLabel) -> Ordering;
     fn any_hash(&self) -> u64;
@@ -33,8 +33,8 @@ where
         + PartialOrd
         + 'static,
 {
-    fn any_clone_systemlabel(&self) -> SystemLabel {
-        self.clone().into()
+    fn as_systemlabel(&self) -> SystemLabel {
+        (*self).into()
     }
 
     fn any_eq(&self, other: &dyn AnyLabel) -> bool {
@@ -69,14 +69,14 @@ impl<T: AnyLabel> From<T> for SystemLabel {
     #[inline]
     fn from(any_label: T) -> Self {
         let system_label = SystemLabelInner(any_label);
-        SystemLabel(tinybox!(SystemLabelInner => system_label))
+        Self(tinybox!(SystemLabelInner => system_label))
     }
 }
 
 impl Clone for SystemLabel {
     #[inline]
     fn clone(&self) -> Self {
-        self.0 .0.any_clone_systemlabel()
+        self.0 .0.as_systemlabel()
     }
 }
 

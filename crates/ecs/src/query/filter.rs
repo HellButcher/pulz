@@ -4,7 +4,7 @@ use crate::{
     archetype::Archetype,
     component::{Component, ComponentId, ComponentSet, Components},
     get_or_init_component,
-    query::{QueryBorrow, QueryFetch, QueryPrepare},
+    query::{QueryBorrow, QueryFetch, QueryParam},
     resource::{Resources, ResourcesSend},
 };
 
@@ -109,10 +109,10 @@ tuple! { T0.0, T1.1, T2.2, T3.3, T4.4, T5.5, T6.6, T7.7, T8.8, T9.9, T10.10, T11
 
 pub struct Without<F, Q>(PhantomData<(Q, fn(F))>);
 
-impl<F, Q> QueryPrepare for Without<F, Q>
+impl<F, Q> QueryParam for Without<F, Q>
 where
     F: Filter,
-    Q: QueryPrepare,
+    Q: QueryParam,
 {
     type Prepared = (F::Prepared, Q::Prepared);
     type State = Q::State;
@@ -180,10 +180,10 @@ where
 
 pub struct With<F, Q>(PhantomData<(Q, fn(F))>);
 
-impl<F, Q> QueryPrepare for With<F, Q>
+impl<F, Q> QueryParam for With<F, Q>
 where
     F: Filter,
-    Q: QueryPrepare,
+    Q: QueryParam,
 {
     type Prepared = (F::Prepared, Q::Prepared);
     type State = Q::State;

@@ -1,9 +1,9 @@
-use std::borrow::Cow;
+use pulz_schedule::{resource::ResourceId, system::param::SystemParamState};
 
 use crate::{
-    archetype::ArchetypeId,
+    archetype::{ArchetypeId, ArchetypeSetIter},
     entity::Entity,
-    query::{PreparedQuery, QueryBorrow, QueryFetch, QueryItem, QueryPrepare},
+    query::{QueryBorrow, QueryFetch, QueryItem, QueryParam, QueryState},
     resource::{Res, Resources},
     system::param::{SystemParam, SystemParamFetch},
     WorldInner,
@@ -11,9 +11,9 @@ use crate::{
 
 pub struct Query<'w, Q>
 where
-    Q: QueryPrepare,
+    Q: QueryParam,
 {
-    prepared: Cow<'w, PreparedQuery<Q>>,
+    prepared: Res<'w, QueryState<Q>>,
     world: Res<'w, WorldInner>,
     borrow: <Q::Borrow as QueryBorrow<'w>>::Borrowed,
 }
@@ -22,35 +22,32 @@ pub struct QueryIter<'w, 'a, Q>
 where
     Q: QueryBorrow<'w>,
 {
-    prepared: &'a PreparedQuery<Q>,
+    prepared: &'a QueryState<Q>,
     world: &'a WorldInner,
     borrow: &'a mut Q::Borrowed,
-    archetype_id: Option<ArchetypeId>,
     state: Option<Q::State>,
-    index: usize,
+    matching_archetypes: ArchetypeSetIter<'a>,
+    current_archetype_id: ArchetypeId,
+    current_archetype_len: usize,
+    current_archetype_index: usize,
 }
 
 impl<'w, Q> Query<'w, Q>
 where
-    Q: QueryPrepare,
+    Q: QueryParam + 'static,
 {
     pub(crate) fn new(res: &'w mut Resources) -> Self {
-        let prepared = PreparedQuery::new(res);
-        let world = res.borrow_res_id(prepared.resource_id).unwrap();
-        let tmp = prepared.prepared;
-        let borrow = <Q::Borrow as QueryBorrow<'w>>::borrow(res.as_send(), tmp);
-        Self {
-            prepared: Cow::Owned(prepared),
-            world,
-            borrow,
-        }
+        let state_resource_id = res.init::<QueryState<Q>>();
+        Self::new_id(res, state_resource_id)
     }
-    pub(crate) fn new_prepared(prepared: &'w PreparedQuery<Q>, res: &'w Resources) -> Self {
-        let tmp = prepared.prepared;
+
+    fn new_id(res: &'w Resources, resource_id: ResourceId<QueryState<Q>>) -> Self {
+        let prepared = res.borrow_res_id(resource_id).expect("query-state");
         let world = res.borrow_res_id(prepared.resource_id).unwrap();
-        let borrow = <Q::Borrow as QueryBorrow<'w>>::borrow(res.as_send(), tmp);
+        prepared.update_archetypes(&world);
+        let borrow = <Q::Borrow as QueryBorrow<'w>>::borrow(res.as_send(), prepared.prepared);
         Self {
-            prepared: Cow::Borrowed(prepared),
+            prepared,
             world,
             borrow,
         }
@@ -62,24 +59,19 @@ where
         Q: QueryFetch<'w, 'a>,
         'w: 'a,
     {
-        let archetype_id = if self
-            .prepared
-            .matching_archetypes
-            .contains(ArchetypeId::EMPTY)
-        {
-            Some(ArchetypeId::EMPTY)
-        } else {
-            self.prepared
-                .matching_archetypes
-                .find_next(ArchetypeId::EMPTY)
-        };
+        let prepared: &'a QueryState<Q> = &self.prepared;
+        let matching_archetypes = self.prepared.matching_archetypes().iter();
+        let world = &self.world;
+        let borrow = &mut self.borrow;
         QueryIter {
-            prepared: self.prepared.as_ref(),
-            world: &self.world,
-            borrow: &mut self.borrow,
-            archetype_id,
+            prepared,
+            world,
+            borrow,
             state: None,
-            index: 0,
+            matching_archetypes,
+            current_archetype_id: ArchetypeId::EMPTY,
+            current_archetype_len: 0,
+            current_archetype_index: 0,
         }
     }
 
@@ -100,7 +92,7 @@ where
         let location = self.world.entities.get(entity)?;
         if !self
             .prepared
-            .matching_archetypes
+            .matching_archetypes()
             .contains(location.archetype_id)
         {
             return None;
@@ -113,7 +105,7 @@ where
 
 impl<'w: 'a, 'a, Q> IntoIterator for &'a mut Query<'w, Q>
 where
-    Q: QueryFetch<'w, 'a>,
+    Q: QueryFetch<'w, 'a> + 'static,
 {
     type Item = QueryItem<'w, 'a, Q>;
     type IntoIter = QueryIter<'w, 'a, Q::Fetch>;
@@ -133,55 +125,57 @@ where
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let borrow: *mut _ = &mut self.borrow;
-        while let Some(archetype_id) = self.archetype_id {
-            let archetype = &self.world.archetypes[archetype_id];
-            if self.index < archetype.len() {
-                let index = self.index;
-                self.index += 1;
-
-                let state;
-                if let Some(s) = self.state {
-                    state = s;
-                } else {
-                    state = F::state(self.prepared.prepared, archetype);
-                    self.state = Some(state);
-                }
-
-                // TODO: filter
-
-                // TODO: SAFETY 🤷‍♂️ ???
-                let item = F::get(unsafe { *borrow }, state, archetype, index);
+        loop {
+            if self.current_archetype_index < self.current_archetype_len {
+                let state = self.state.unwrap();
+                let archetype = &self.world.archetypes[self.current_archetype_id];
+                let item = F::get(
+                    unsafe { *borrow },
+                    state,
+                    archetype,
+                    self.current_archetype_index,
+                );
+                self.current_archetype_index += 1;
                 return Some(item);
+            } else {
+                // reached end, or initial state
+                self.current_archetype_id = self.matching_archetypes.next()?;
+                let archetype = &self.world.archetypes[self.current_archetype_id];
+                self.current_archetype_index = 0;
+                self.current_archetype_len = archetype.len();
+                self.state = Some(F::state(self.prepared.prepared, archetype));
             }
-            self.state = None;
-            self.index = 0;
-            self.archetype_id = self.prepared.matching_archetypes.find_next(archetype_id);
         }
-        None
     }
 }
+
+#[doc(hidden)]
+pub struct FetchQuery<Q: QueryParam>(ResourceId<QueryState<Q>>);
 
 unsafe impl<Q> SystemParam for Query<'_, Q>
 where
-    Q: QueryPrepare + 'static,
+    Q: QueryParam + 'static,
 {
-    const IS_SEND: bool = true;
-    type Prepared = PreparedQuery<Q>;
-    type Fetch = Self;
-    fn prepare(resources: &mut Resources) -> Self::Prepared {
-        PreparedQuery::<Q>::new(resources)
+    type Fetch = FetchQuery<Q>;
+}
+
+unsafe impl<Q> SystemParamState for FetchQuery<Q>
+where
+    Q: QueryParam + 'static,
+{
+    #[inline]
+    fn init(resources: &mut Resources) -> Self {
+        Self(resources.init::<QueryState<Q>>())
     }
 }
 
-impl<'w, 'a, Q> SystemParamFetch<'a> for Query<'w, Q>
+unsafe impl<'r, Q> SystemParamFetch<'r> for FetchQuery<Q>
 where
-    Q: QueryPrepare + 'static,
+    Q: QueryParam + 'static,
 {
-    type Output = Query<'a, Q>;
-    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output
-    where
-        Q: 'a,
-    {
-        prepared.query(resources)
+    type Item = Query<'r, Q>;
+    #[inline]
+    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
+        Query::new_id(resources, self.0)
     }
 }

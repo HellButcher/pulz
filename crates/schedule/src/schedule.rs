@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     executor::{Executor, ExecutorScope},
     resource::Resources,
-    system::{ExclusiveSystem, IntoSystem, System, SystemDescriptor, SystemVariant},
+    system::{ExclusiveSystem, IntoSystemDescriptor, System, SystemDescriptor, SystemVariant},
 };
 
 pub struct Schedule {
@@ -25,14 +25,14 @@ impl Schedule {
     }
 
     #[inline]
-    pub fn with<Marker>(mut self, system: impl IntoSystem<Marker>) -> Self {
+    pub fn with<Marker>(mut self, system: impl IntoSystemDescriptor<Marker>) -> Self {
         self.add_system(system);
         self
     }
 
     #[inline]
-    pub fn add_system<Marker>(&mut self, system: impl IntoSystem<Marker>) -> &mut Self {
-        self.add_system_inner(system.into_system());
+    pub fn add_system<Marker>(&mut self, system: impl IntoSystemDescriptor<Marker>) -> &mut Self {
+        self.add_system_inner(system.into_system_descriptor());
         self
     }
 
@@ -138,8 +138,8 @@ impl ExclusiveSystem for Schedule {
 
 impl Resources {
     #[inline]
-    pub fn run<S: IntoSystem<Marker>, Marker>(&mut self, sys: S) {
-        sys.into_system().run(self)
+    pub fn run<Marker>(&mut self, sys: impl IntoSystemDescriptor<Marker>) {
+        sys.into_system_descriptor().run(self)
     }
 }
 
@@ -147,12 +147,11 @@ impl Resources {
 mod tests {
     use std::sync::Arc;
 
+    use super::*;
     use crate::{
         executor::AsyncStdExecutor,
         system::{ExclusiveSystem, System},
     };
-
-    use super::*;
 
     #[async_std::test]
     async fn test_schedule() {
