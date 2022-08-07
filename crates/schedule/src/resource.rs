@@ -216,11 +216,22 @@ impl Resources {
         self.by_type_id.get(&type_id).copied().map(ResourceId::cast)
     }
 
+    #[inline]
+    pub fn name<T>(&self, id: ResourceId<T>) -> Option<&str> {
+        self.resources.get(id.0).map(|r| r.name.as_ref())
+    }
+
+    #[inline]
+    pub fn type_id<T>(&self, id: ResourceId<T>) -> Option<TypeId> {
+        self.resources.get(id.0).map(|r| r.type_id)
+    }
+
     #[inline(always)]
     pub fn as_send(&self) -> &ResourcesSend {
-        // SAFETY: transmute is allowed because it is a newtype-struct with #[repr(transparent)].
+        let self_ptr: *const Self = self;
+        // SAFETY: cast is allowed because it is a newtype-struct with #[repr(transparent)].
         // Unsend -> Send is allowed, because it will restrict access to send-types
-        unsafe { std::mem::transmute(self) }
+        unsafe { &*(self_ptr as *const ResourcesSend) }
     }
 
     fn get_resource<T>(&mut self) -> (ResourceId<T>, &mut Resource)

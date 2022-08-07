@@ -68,10 +68,11 @@ where
         SystemDescriptor {
             system_variant: SystemVariant::Concurrent(Box::new(SystemFn::<P, F>::new(self))),
             dependencies: Vec::new(),
-            initialized: false,
             label: None,
             before: Vec::new(),
             after: Vec::new(),
+            is_initialized: false,
+            is_send: false,
         }
     }
 }
@@ -84,10 +85,10 @@ where
 {
     #[inline]
     fn init(&mut self, resources: &mut Resources) {
-        // TODO, check if resources object did change (id compare?)
         let id = *self
             .state_resource_id
             .get_or_insert_with(|| resources.init::<SystemFnState<P>>());
+        // TODO: check this:
         self.is_send = resources.borrow_res_id(id).unwrap().is_send;
     }
 
@@ -116,10 +117,11 @@ where
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(ExclusiveSystemFn { func: self })),
             dependencies: Vec::new(),
-            initialized: false,
             label: None,
             before: Vec::new(),
             after: Vec::new(),
+            is_initialized: false,
+            is_send: false,
         }
     }
 }
@@ -128,6 +130,7 @@ impl<F> ExclusiveSystem for ExclusiveSystemFn<F>
 where
     F: ExclusiveSystemParamFn<()>,
 {
+    fn init(&mut self, _resources: &mut Resources) {}
     #[inline]
     fn run<'l>(&'l mut self, resources: &'l mut Resources) {
         ExclusiveSystemParamFn::call(&mut self.func, resources)

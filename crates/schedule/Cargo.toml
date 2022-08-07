@@ -10,13 +10,12 @@ repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
 edition = "2021"
 
-
 [dependencies]
-pulz-executor = { version = "0.1.0-alpha", path = "../executor" }
 atomic_refcell = "0.1"
+once_cell = "1.13"
 downcast-rs = "1.2"
 tinybox = "0.2"
+crossbeam-utils = "0.8"
 
-[target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
-pulz-executor = { version = "0.1.0-alpha", path = "../executor", features = ["async-std"] }
-async-std = { version = "1.12", features = ["attributes"] }
+[target.'cfg(not(target_os = "unknown"))'.dependencies]
+threadpool = "1.8"

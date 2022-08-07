@@ -30,8 +30,6 @@ macro_rules! peel {
     ($macro:tt [$($args:tt)*] $name:ident.$index:tt, $($other:tt)+) => (peel!{ $macro [$($args)* $name.$index, ] $($other)+ } );
 }
 
-pub use pulz_executor as executor;
-
 #[doc(hidden)]
 pub enum Void {}
 

@@ -261,11 +261,9 @@ fn slice_get_disjoint_array_mut<const N: usize, T>(
             // out of range
             return None;
         }
-        for j in 0..i {
-            if index == indices[j] {
-                // found duplicate index
-                return None;
-            }
+        if indices[0..i].contains(&index) {
+            // found duplicate index
+            return None;
         }
     }
 

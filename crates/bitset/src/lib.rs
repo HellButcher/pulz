@@ -50,23 +50,27 @@ impl BitSet {
         let words_to_rest = range.end & MASK_MOD64;
         let mut result = Vec::with_capacity(words_to + 1);
         result.resize(words_from, 0); // fill with zeros
-        if words_from == words_to {
-            let mut value = !0u64;
-            value <<= words_from_rest;
-            value &= !((!0u64) << words_to_rest);
-            if value != 0 {
-                result.push(value);
+        match words_from.cmp(&words_to) {
+            std::cmp::Ordering::Equal => {
+                let mut value = !0u64;
+                value <<= words_from_rest;
+                value &= !((!0u64) << words_to_rest);
+                if value != 0 {
+                    result.push(value);
+                }
             }
-        } else if words_from < words_to {
-            if words_from_rest != 0 {
-                let value = (!0u64) << words_from_rest;
-                result.push(value);
+            std::cmp::Ordering::Less => {
+                if words_from_rest != 0 {
+                    let value = (!0u64) << words_from_rest;
+                    result.push(value);
+                }
+                result.resize(words_to, !0u64); // fill with ones
+                if words_to_rest != 0 {
+                    let value = !((!0u64) << words_to_rest);
+                    result.push(value);
+                }
             }
-            result.resize(words_to, !0u64); // fill with ones
-            if words_to_rest != 0 {
-                let value = !((!0u64) << words_to_rest);
-                result.push(value);
-            }
+            std::cmp::Ordering::Greater => (),
         }
         Self(result)
     }
@@ -242,76 +246,76 @@ mod tests {
         let mut subject = BitSet::new();
 
         // everything unset
-        assert_eq!(false, subject.contains(0));
-        assert_eq!(false, subject.contains(1));
-        assert_eq!(false, subject.contains(2));
-        assert_eq!(false, subject.contains(62));
-        assert_eq!(false, subject.contains(63));
-        assert_eq!(false, subject.contains(64));
-        assert_eq!(false, subject.contains(128));
-        assert_eq!(false, subject.contains(1337));
+        assert!(!subject.contains(0));
+        assert!(!subject.contains(1));
+        assert!(!subject.contains(2));
+        assert!(!subject.contains(62));
+        assert!(!subject.contains(63));
+        assert!(!subject.contains(64));
+        assert!(!subject.contains(128));
+        assert!(!subject.contains(1337));
 
         // insert
-        assert_eq!(true, subject.insert(1));
-        assert_eq!(true, subject.insert(63));
-        assert_eq!(true, subject.insert(1337));
+        assert!(subject.insert(1));
+        assert!(subject.insert(63));
+        assert!(subject.insert(1337));
 
         // check setted values
-        assert_eq!(false, subject.contains(0));
-        assert_eq!(true, subject.contains(1));
-        assert_eq!(false, subject.contains(2));
-        assert_eq!(false, subject.contains(62));
-        assert_eq!(true, subject.contains(63));
-        assert_eq!(false, subject.contains(64));
-        assert_eq!(false, subject.contains(128));
-        assert_eq!(true, subject.contains(1337));
+        assert!(!subject.contains(0));
+        assert!(subject.contains(1));
+        assert!(!subject.contains(2));
+        assert!(!subject.contains(62));
+        assert!(subject.contains(63));
+        assert!(!subject.contains(64));
+        assert!(!subject.contains(128));
+        assert!(subject.contains(1337));
 
         // insert again
-        assert_eq!(false, subject.insert(1));
+        assert!(!subject.insert(1));
 
         // insert new
-        assert_eq!(true, subject.insert(128));
+        assert!(subject.insert(128));
 
         // check setted values
-        assert_eq!(false, subject.contains(0));
-        assert_eq!(true, subject.contains(1));
-        assert_eq!(false, subject.contains(2));
-        assert_eq!(false, subject.contains(62));
-        assert_eq!(true, subject.contains(63));
-        assert_eq!(false, subject.contains(64));
-        assert_eq!(true, subject.contains(128));
-        assert_eq!(true, subject.contains(1337));
+        assert!(!subject.contains(0));
+        assert!(subject.contains(1));
+        assert!(!subject.contains(2));
+        assert!(!subject.contains(62));
+        assert!(subject.contains(63));
+        assert!(!subject.contains(64));
+        assert!(subject.contains(128));
+        assert!(subject.contains(1337));
 
         // remove
-        assert_eq!(true, subject.remove(63));
-        assert_eq!(true, subject.remove(1337));
+        assert!(subject.remove(63));
+        assert!(subject.remove(1337));
 
         // check setted values
-        assert_eq!(false, subject.contains(0));
-        assert_eq!(true, subject.contains(1));
-        assert_eq!(false, subject.contains(2));
-        assert_eq!(false, subject.contains(62));
-        assert_eq!(false, subject.contains(63));
-        assert_eq!(false, subject.contains(64));
-        assert_eq!(true, subject.contains(128));
-        assert_eq!(false, subject.contains(1337));
+        assert!(!subject.contains(0));
+        assert!(subject.contains(1));
+        assert!(!subject.contains(2));
+        assert!(!subject.contains(62));
+        assert!(!subject.contains(63));
+        assert!(!subject.contains(64));
+        assert!(subject.contains(128));
+        assert!(!subject.contains(1337));
 
         // remove again
-        assert_eq!(false, subject.remove(63));
+        assert!(!subject.remove(63));
 
         // remove more
-        assert_eq!(true, subject.remove(128));
-        assert_eq!(true, subject.remove(1));
+        assert!(subject.remove(128));
+        assert!(subject.remove(1));
 
         // check setted values
-        assert_eq!(false, subject.contains(0));
-        assert_eq!(false, subject.contains(1));
-        assert_eq!(false, subject.contains(2));
-        assert_eq!(false, subject.contains(62));
-        assert_eq!(false, subject.contains(63));
-        assert_eq!(false, subject.contains(64));
-        assert_eq!(false, subject.contains(128));
-        assert_eq!(false, subject.contains(1337));
+        assert!(!subject.contains(0));
+        assert!(!subject.contains(1));
+        assert!(!subject.contains(2));
+        assert!(!subject.contains(62));
+        assert!(!subject.contains(63));
+        assert!(!subject.contains(64));
+        assert!(!subject.contains(128));
+        assert!(!subject.contains(1337));
     }
 
     #[test]
@@ -319,41 +323,41 @@ mod tests {
         let mut subject = BitSet::new();
 
         // everything unset
-        assert_eq!(false, subject.contains(0));
-        assert_eq!(false, subject.contains(1));
-        assert_eq!(false, subject.contains(2));
-        assert_eq!(false, subject.contains(62));
-        assert_eq!(false, subject.contains(63));
-        assert_eq!(false, subject.contains(64));
-        assert_eq!(false, subject.contains(128));
-        assert_eq!(false, subject.contains(1337));
+        assert!(!subject.contains(0));
+        assert!(!subject.contains(1));
+        assert!(!subject.contains(2));
+        assert!(!subject.contains(62));
+        assert!(!subject.contains(63));
+        assert!(!subject.contains(64));
+        assert!(!subject.contains(128));
+        assert!(!subject.contains(1337));
 
         // insert
-        assert_eq!(true, subject.insert(1));
-        assert_eq!(true, subject.insert(63));
-        assert_eq!(true, subject.insert(1337));
+        assert!(subject.insert(1));
+        assert!(subject.insert(63));
+        assert!(subject.insert(1337));
 
         // check setted values
-        assert_eq!(false, subject.contains(0));
-        assert_eq!(true, subject.contains(1));
-        assert_eq!(false, subject.contains(2));
-        assert_eq!(false, subject.contains(62));
-        assert_eq!(true, subject.contains(63));
-        assert_eq!(false, subject.contains(64));
-        assert_eq!(false, subject.contains(128));
-        assert_eq!(true, subject.contains(1337));
+        assert!(!subject.contains(0));
+        assert!(subject.contains(1));
+        assert!(!subject.contains(2));
+        assert!(!subject.contains(62));
+        assert!(subject.contains(63));
+        assert!(!subject.contains(64));
+        assert!(!subject.contains(128));
+        assert!(subject.contains(1337));
 
         subject.clear();
 
         // everything unset
-        assert_eq!(false, subject.contains(0));
-        assert_eq!(false, subject.contains(1));
-        assert_eq!(false, subject.contains(2));
-        assert_eq!(false, subject.contains(62));
-        assert_eq!(false, subject.contains(63));
-        assert_eq!(false, subject.contains(64));
-        assert_eq!(false, subject.contains(128));
-        assert_eq!(false, subject.contains(1337));
+        assert!(!subject.contains(0));
+        assert!(!subject.contains(1));
+        assert!(!subject.contains(2));
+        assert!(!subject.contains(62));
+        assert!(!subject.contains(63));
+        assert!(!subject.contains(64));
+        assert!(!subject.contains(128));
+        assert!(!subject.contains(1337));
     }
 
     #[test]
@@ -361,16 +365,16 @@ mod tests {
         let subject = BitSet::from_range(126..1337);
 
         // everything unset
-        assert_eq!(false, subject.contains(124));
-        assert_eq!(false, subject.contains(125));
-        assert_eq!(true, subject.contains(126));
-        assert_eq!(true, subject.contains(127));
-        assert_eq!(true, subject.contains(128));
-        assert_eq!(true, subject.contains(129));
-        assert_eq!(true, subject.contains(1335));
-        assert_eq!(true, subject.contains(1336));
-        assert_eq!(false, subject.contains(1337));
-        assert_eq!(false, subject.contains(1338));
+        assert!(!subject.contains(124));
+        assert!(!subject.contains(125));
+        assert!(subject.contains(126));
+        assert!(subject.contains(127));
+        assert!(subject.contains(128));
+        assert!(subject.contains(129));
+        assert!(subject.contains(1335));
+        assert!(subject.contains(1336));
+        assert!(!subject.contains(1337));
+        assert!(!subject.contains(1338));
     }
 
     #[test]
@@ -378,16 +382,16 @@ mod tests {
         let subject = BitSet::from_range(100..110);
 
         // everything unset
-        assert_eq!(false, subject.contains(98));
-        assert_eq!(false, subject.contains(99));
-        assert_eq!(true, subject.contains(100));
-        assert_eq!(true, subject.contains(101));
-        assert_eq!(true, subject.contains(102));
-        assert_eq!(true, subject.contains(108));
-        assert_eq!(true, subject.contains(109));
-        assert_eq!(false, subject.contains(110));
-        assert_eq!(false, subject.contains(111));
-        assert_eq!(false, subject.contains(112));
+        assert!(!subject.contains(98));
+        assert!(!subject.contains(99));
+        assert!(subject.contains(100));
+        assert!(subject.contains(101));
+        assert!(subject.contains(102));
+        assert!(subject.contains(108));
+        assert!(subject.contains(109));
+        assert!(!subject.contains(110));
+        assert!(!subject.contains(111));
+        assert!(!subject.contains(112));
     }
 
     #[test]
@@ -395,10 +399,10 @@ mod tests {
         let mut subject = BitSet::new();
 
         // insert
-        assert_eq!(true, subject.insert(1));
-        assert_eq!(true, subject.insert(2));
-        assert_eq!(true, subject.insert(63));
-        assert_eq!(true, subject.insert(1337));
+        assert!(subject.insert(1));
+        assert!(subject.insert(2));
+        assert!(subject.insert(63));
+        assert!(subject.insert(1337));
 
         let mut iter = subject.into_iter();
         assert_eq!(Some(1), iter.next());

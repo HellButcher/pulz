@@ -196,7 +196,7 @@ mod test {
 
     use pulz_schedule::resource::Resources;
 
-    use crate::{component::Component, prelude::Query, storage::Storage, WorldExt};
+    use crate::{component::Component, prelude::Query, WorldExt};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     struct A(usize);
@@ -212,11 +212,6 @@ mod test {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     #[component(storage = "DenseStorage")] // shortcut for `pulz_ecs::storage::DenseStorage`
     struct D(usize);
-
-    #[test]
-    fn test_c_is_sparse() {
-        assert_eq!(true, <C as Component>::Storage::SPARSE);
-    }
 
     #[test]
     fn test_query() {

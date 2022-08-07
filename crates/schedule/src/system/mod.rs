@@ -10,7 +10,7 @@ pub mod system_fn;
 /// when is_send returns true, the implemention of run must ensure, that no unsend resources are accessed.
 /// The `is_send` method must not return `true`, when unsend resources are accessed!
 pub unsafe trait System: Send + Sync + 'static {
-    fn init(&mut self, _resources: &mut Resources) {}
+    fn init(&mut self, _resources: &mut Resources);
     fn run(&mut self, arg: &Resources);
 
     fn is_send(&self) -> bool;
@@ -23,7 +23,7 @@ pub unsafe trait System: Send + Sync + 'static {
 }
 
 pub trait ExclusiveSystem: 'static {
-    fn init(&mut self, _resources: &mut Resources) {}
+    fn init(&mut self, _resources: &mut Resources);
     fn run(&mut self, arg: &mut Resources);
 }
 
@@ -55,13 +55,22 @@ pub trait IntoSystemDescriptor<Marker>: Sized {
 pub struct SystemDescriptor {
     pub(crate) system_variant: SystemVariant,
     pub(crate) dependencies: Vec<usize>,
-    pub(crate) initialized: bool,
     pub(crate) label: Option<SystemLabel>,
     pub(crate) before: Vec<SystemLabel>,
     pub(crate) after: Vec<SystemLabel>,
+    // TODO: replace with a mechanism, that tracks identity of resource-set
+    is_initialized: bool,
+    is_send: bool,
 }
 
 impl SystemDescriptor {
+    pub fn is_concurrent(&self) -> bool {
+        match self.system_variant {
+            SystemVariant::Exclusive(_) => false,
+            SystemVariant::Concurrent(_) => true,
+        }
+    }
+
     pub fn exclusive(self) -> Self {
         match self.system_variant {
             SystemVariant::Exclusive(_) => self,
@@ -70,29 +79,49 @@ impl SystemDescriptor {
                     system,
                 ))),
                 dependencies: self.dependencies,
-                initialized: self.initialized,
                 label: self.label,
                 before: self.before,
                 after: self.after,
+                is_initialized: self.is_initialized,
+                is_send: false,
             },
         }
     }
 
-    pub fn initialize(&mut self, resources: &mut Resources) {
-        if !self.initialized {
-            self.initialized = true;
-            match self.system_variant {
-                SystemVariant::Exclusive(ref mut system) => system.init(resources),
-                SystemVariant::Concurrent(ref mut system) => system.init(resources),
+    pub fn init(&mut self, resources: &mut Resources) {
+        if self.is_initialized {
+            return;
+        }
+        match self.system_variant {
+            SystemVariant::Exclusive(ref mut system) => {
+                system.init(resources);
+                self.is_send = false;
+            }
+            SystemVariant::Concurrent(ref mut system) => {
+                system.init(resources);
+                self.is_send = system.is_send();
             }
         }
+        self.is_initialized = true;
+    }
+
+    pub fn is_send(&self) -> bool {
+        self.is_send
     }
 
     pub fn run(&mut self, resources: &mut Resources) {
-        self.initialize(resources);
+        assert!(self.is_initialized);
         match self.system_variant {
             SystemVariant::Exclusive(ref mut system) => system.run(resources),
             SystemVariant::Concurrent(ref mut system) => system.run(resources),
+        }
+    }
+
+    pub fn run_send(&mut self, resources: &ResourcesSend) {
+        assert!(self.is_initialized && self.is_send);
+        match self.system_variant {
+            SystemVariant::Concurrent(ref mut system) => system.run_send(resources),
+            _ => panic!("exclusive systems are not `send`!"),
         }
     }
 }
@@ -106,6 +135,10 @@ unsafe impl<S> System for Box<S>
 where
     S: System,
 {
+    fn init(&mut self, resources: &mut Resources) {
+        self.as_mut().init(resources)
+    }
+
     #[inline]
     fn run(&mut self, arg: &Resources) {
         self.as_mut().run(arg)
@@ -121,6 +154,10 @@ impl<S> ExclusiveSystem for Box<S>
 where
     S: ExclusiveSystem,
 {
+    fn init(&mut self, resources: &mut Resources) {
+        self.as_mut().init(resources)
+    }
+
     #[inline]
     fn run(&mut self, arg: &mut Resources) {
         self.as_mut().run(arg)
@@ -131,6 +168,9 @@ where
 pub struct ConcurrentAsExclusiveSystem(Box<dyn System>);
 
 impl ExclusiveSystem for ConcurrentAsExclusiveSystem {
+    fn init(&mut self, resources: &mut Resources) {
+        self.0.init(resources)
+    }
     #[inline]
     fn run(&mut self, arg: &mut Resources) {
         self.0.run(arg)
@@ -154,10 +194,11 @@ where
         SystemDescriptor {
             system_variant: SystemVariant::Concurrent(Box::new(self)),
             dependencies: Vec::new(),
-            initialized: false,
             label: None,
             before: Vec::new(),
             after: Vec::new(),
+            is_initialized: false,
+            is_send: false,
         }
     }
 }
@@ -172,10 +213,11 @@ where
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(self)),
             dependencies: Vec::new(),
-            initialized: false,
             label: None,
             before: Vec::new(),
             after: Vec::new(),
+            is_initialized: false,
+            is_send: false,
         }
     }
 }
