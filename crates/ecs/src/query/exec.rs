@@ -1,9 +1,10 @@
 use pulz_schedule::{resource::ResourceId, system::param::SystemParamState};
 
+use super::QueryParamWithFetch;
 use crate::{
     archetype::{ArchetypeId, ArchetypeSetIter},
     entity::Entity,
-    query::{QueryFetch, QueryItem, QueryParam, QueryParamFetch, QueryState},
+    query::{QueryItem, QueryParam, QueryParamFetch, QueryParamFetchGet, QueryState},
     resource::{Res, Resources},
     system::param::{SystemParam, SystemParamFetch},
     WorldInner,
@@ -13,19 +14,18 @@ pub struct Query<'w, Q>
 where
     Q: QueryParam,
 {
-    state: Res<'w, QueryState<Q>>,
     world: Res<'w, WorldInner>,
-    borrow: <Q::Borrow as QueryParamFetch<'w>>::Borrowed,
+    state: Res<'w, QueryState<Q>>,
+    fetch: <Q as QueryParamWithFetch<'w>>::Fetch,
 }
 
 pub struct QueryIter<'w, 'a, Q>
 where
-    Q: QueryParamFetch<'w>,
+    Q: QueryParam,
 {
     state: &'a QueryState<Q>,
     world: &'a WorldInner,
-    borrow: &'a mut Q::Borrowed,
-    fetch: Option<Q::Fetch>,
+    fetch: &'a mut <Q as QueryParamWithFetch<'w>>::Fetch,
     matching_archetypes: ArchetypeSetIter<'a>,
     current_archetype_id: ArchetypeId,
     current_archetype_len: usize,
@@ -35,6 +35,7 @@ where
 impl<'w, Q> Query<'w, Q>
 where
     Q: QueryParam + 'static,
+    <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetch<'w, State = Q::State>,
 {
     pub(crate) fn new(res: &'w mut Resources) -> Self {
         let state_resource_id = res.init::<QueryState<Q>>();
@@ -45,29 +46,27 @@ where
         let state = res.borrow_res_id(resource_id).expect("query-state");
         let world = res.borrow_res_id(state.world_resource_id).unwrap();
         state.update_archetypes(&world);
-        let borrow = <Q::Borrow as QueryParamFetch<'w>>::borrow(res.as_send(), &state.param_state);
+        let fetch = <Q::Fetch as QueryParamFetch<'w>>::fetch(res.as_send(), &state.param_state);
         Self {
             state,
             world,
-            borrow,
+            fetch,
         }
     }
 
     #[inline]
-    pub fn iter<'a>(&'a mut self) -> QueryIter<'w, 'a, Q::FetchGet>
+    pub fn iter<'a>(&'a mut self) -> QueryIter<'w, 'a, Q>
     where
-        Q: QueryFetch<'w, 'a>,
         'w: 'a,
     {
         let state: &'a QueryState<Q> = &self.state;
         let matching_archetypes = self.state.matching_archetypes().iter();
         let world = &self.world;
-        let borrow = &mut self.borrow;
+        let fetch = &mut self.fetch;
         QueryIter {
             state,
             world,
-            borrow,
-            fetch: None,
+            fetch,
             matching_archetypes,
             current_archetype_id: ArchetypeId::EMPTY,
             current_archetype_len: 0,
@@ -77,7 +76,7 @@ where
 
     pub fn for_each<F>(&'w mut self, mut f: F)
     where
-        for<'a> Q: QueryFetch<'w, 'a>,
+        for<'a> <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetchGet<'w, 'a, State = Q::State>,
         for<'a> F: FnMut(QueryItem<'w, 'a, Q>),
     {
         for item in self.iter() {
@@ -87,7 +86,7 @@ where
 
     pub fn get<'a>(&'a mut self, entity: Entity) -> Option<QueryItem<'w, 'a, Q>>
     where
-        Q: QueryFetch<'w, 'a>,
+        <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetchGet<'w, 'a, State = Q::State>,
     {
         let location = self.world.entities.get(entity)?;
         if !self
@@ -98,17 +97,19 @@ where
             return None;
         }
         let archetype = &self.world.archetypes[location.archetype_id];
-        let fetch = Q::fetch(&self.state.param_state, archetype);
-        Some(Q::get(&mut self.borrow, fetch, archetype, location.index))
+        self.fetch.set_archetype(&self.state.param_state, archetype);
+        Some(self.fetch.get(archetype, location.index))
     }
 }
 
 impl<'w: 'a, 'a, Q> IntoIterator for &'a mut Query<'w, Q>
 where
-    Q: QueryFetch<'w, 'a> + 'static,
+    // TODO: check statc required?
+    Q: QueryParam + 'static,
+    <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetchGet<'w, 'a, State = Q::State> + 'static,
 {
     type Item = QueryItem<'w, 'a, Q>;
-    type IntoIter = QueryIter<'w, 'a, Q::FetchGet>;
+    type IntoIter = QueryIter<'w, 'a, Q>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -116,25 +117,22 @@ where
     }
 }
 
-impl<'w: 'a, 'a, F> Iterator for QueryIter<'w, 'a, F>
+impl<'w: 'a, 'a, Q> Iterator for QueryIter<'w, 'a, Q>
 where
-    F: QueryFetch<'w, 'a>,
+    Q: QueryParam,
+    <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetchGet<'w, 'a, State = Q::State>,
 {
-    type Item = QueryItem<'w, 'a, F>;
+    type Item = QueryItem<'w, 'a, Q>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let borrow: *mut _ = &mut self.borrow;
+        let fetch: *mut _ = &mut self.fetch;
         loop {
             if self.current_archetype_index < self.current_archetype_len {
-                let fetch = self.fetch.unwrap();
                 let archetype = &self.world.archetypes[self.current_archetype_id];
-                let item = F::get(
-                    unsafe { *borrow },
-                    fetch,
-                    archetype,
-                    self.current_archetype_index,
-                );
+                // SAFETY???: lifetime 'a  outlives the function scope
+                let fetch = unsafe { &mut *fetch };
+                let item = fetch.get(archetype, self.current_archetype_index);
                 self.current_archetype_index += 1;
                 return Some(item);
             } else {
@@ -143,7 +141,7 @@ where
                 let archetype = &self.world.archetypes[self.current_archetype_id];
                 self.current_archetype_index = 0;
                 self.current_archetype_len = archetype.len();
-                self.fetch = Some(F::fetch(&self.state.param_state, archetype));
+                self.fetch.set_archetype(&self.state.param_state, archetype);
             }
         }
     }
@@ -155,6 +153,7 @@ pub struct FetchQuery<Q: QueryParam>(ResourceId<QueryState<Q>>);
 unsafe impl<Q> SystemParam for Query<'_, Q>
 where
     Q: QueryParam + 'static,
+    for<'w> <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetch<'w, State = Q::State>,
 {
     type Fetch = FetchQuery<Q>;
 }
@@ -172,6 +171,7 @@ where
 unsafe impl<'r, Q> SystemParamFetch<'r> for FetchQuery<Q>
 where
     Q: QueryParam + 'static,
+    for<'w> <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetch<'w, State = Q::State>,
 {
     type Item = Query<'r, Q>;
     #[inline]

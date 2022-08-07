@@ -13,18 +13,16 @@ use crate::{
 // mostly based on `hecs` (https://github.com/Ralith/hecs/blob/9a2405c703ea0eb6481ad00d55e74ddd226c1494/src/query.rs)
 
 /// A collection of component types to fetch from a [`World`](crate::World)
-pub trait QueryParam {
+pub trait QueryParam: for<'w> QueryParamWithFetch<'w> {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
     type State: QueryParamState;
 
-    type Fetch: Sized + Copy + 'static;
-
-    type Borrow: for<'w> QueryParamFetch<'w, State = Self::State>;
-
     fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet);
+}
 
-    fn fetch(state: &Self::State, archetype: &Archetype) -> Self::Fetch;
+pub trait QueryParamWithFetch<'w> {
+    type Fetch: QueryParamFetch<'w>;
 }
 
 pub trait QueryParamState: Send + Sync + Sized + 'static {
@@ -35,30 +33,25 @@ pub trait QueryParamState: Send + Sync + Sized + 'static {
     fn matches_archetype(&self, archetype: &Archetype) -> bool;
 }
 
-pub trait QueryParamFetch<'w>: QueryParam<Borrow = Self> {
-    type Borrowed: Send;
-
-    #[doc(hidden)]
-    type FetchGet: for<'a> QueryFetch<'w, 'a>;
+pub trait QueryParamFetch<'w>: Send {
+    type State: QueryParamState;
 
     /// Acquire dynamic borrows from `archetype`
-    fn borrow(res: &'w ResourcesSend, state: &Self::State) -> Self::Borrowed;
+    fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self;
+
+    fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype);
 }
 
 /// Type of values yielded by a query
-pub type QueryItem<'w, 'a, Q> = <<Q as QueryParamFetch<'w>>::FetchGet as QueryFetch<'w, 'a>>::Item;
+pub type QueryItem<'w, 'a, Q> =
+    <<Q as QueryParamWithFetch<'w>>::Fetch as QueryParamFetchGet<'w, 'a>>::Item;
 
-pub trait QueryFetch<'w, 'a>: QueryParamFetch<'w, FetchGet = Self> {
+pub trait QueryParamFetchGet<'w, 'a>: QueryParamFetch<'w> {
     /// Type of value to be fetched
     type Item;
 
     /// Access the given item in this archetype
-    fn get(
-        this: &'a mut Self::Borrowed,
-        fetch: Self::Fetch,
-        archetype: &Archetype,
-        index: usize,
-    ) -> Self::Item
+    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item
     where
         'w: 'a;
 }

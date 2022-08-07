@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use super::{QryRefState, QueryParamState};
+use super::{QryRefState, QueryParamState, QueryParamWithFetch};
 use crate::{
     archetype::Archetype,
     component::{Component, ComponentSet, Components},
-    query::{QueryFetch, QueryParam, QueryParamFetch},
+    query::{QueryParam, QueryParamFetch, QueryParamFetchGet},
     resource::{Resources, ResourcesSend},
 };
 
@@ -66,33 +66,34 @@ where
     Q: QueryParam,
 {
     type State = QryWithoutFilterState<F::State, Q::State>;
-    type Fetch = Q::Fetch;
-    type Borrow = Without<F, Q::Borrow>;
 
     #[inline]
     fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
         // TODO: special handling for sparse filter components
         Q::update_access(&state.query, shared, exclusive);
     }
+}
 
-    #[inline(always)]
-    fn fetch(state: &Self::State, archetype: &Archetype) -> Q::Fetch {
-        Q::fetch(&state.query, archetype)
-    }
+impl<'w, F, Q> QueryParamWithFetch<'w> for Without<F, Q>
+where
+    F: Filter,
+    Q: QueryParamWithFetch<'w>,
+{
+    type Fetch = QryWithoutFilterFetch<F, Q::Fetch>;
 }
 
 #[doc(hidden)]
-pub struct QryWithoutFilterState<F, S> {
+pub struct QryWithoutFilterState<F, Q> {
     filter: F,
-    query: S,
+    query: Q,
 }
 
-impl<F: QueryParamState, S: QueryParamState> QueryParamState for QryWithoutFilterState<F, S> {
+impl<F: QueryParamState, Q: QueryParamState> QueryParamState for QryWithoutFilterState<F, Q> {
     #[inline]
     fn init(resources: &Resources, components: &Components) -> Self {
         Self {
             filter: F::init(resources, components),
-            query: S::init(resources, components),
+            query: Q::init(resources, components),
         }
     }
 
@@ -103,38 +104,46 @@ impl<F: QueryParamState, S: QueryParamState> QueryParamState for QryWithoutFilte
     }
 }
 
-impl<'w, F, Q> QueryParamFetch<'w> for Without<F, Q>
+#[doc(hidden)]
+pub struct QryWithoutFilterFetch<F, Q> {
+    filter: PhantomData<fn(F)>,
+    query: Q,
+}
+
+impl<'w, F, Q> QueryParamFetch<'w> for QryWithoutFilterFetch<F, Q>
 where
     F: Filter,
     Q: QueryParamFetch<'w>,
 {
-    type Borrowed = Q::Borrowed;
-    type FetchGet = Without<F, Q::FetchGet>;
+    type State = QryWithoutFilterState<F::State, Q::State>;
+
+    #[inline]
+    fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
+        Self {
+            filter: PhantomData,
+            query: Q::fetch(res, &state.query),
+        }
+    }
 
     #[inline(always)]
-    fn borrow(res: &'w ResourcesSend, state: &Self::State) -> Self::Borrowed {
-        Q::borrow(res, &state.query)
+    fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype) {
+        self.query.set_archetype(&state.query, archetype);
     }
 }
 
-impl<'w, 'a, F, Q> QueryFetch<'w, 'a> for Without<F, Q>
+impl<'w, 'a, F, Q> QueryParamFetchGet<'w, 'a> for QryWithoutFilterFetch<F, Q>
 where
     F: Filter,
-    Q: QueryFetch<'w, 'a>,
+    Q: QueryParamFetchGet<'w, 'a>,
 {
     type Item = Q::Item;
 
     #[inline(always)]
-    fn get(
-        this: &'a mut Self::Borrowed,
-        fetch: Q::Fetch,
-        archetype: &Archetype,
-        index: usize,
-    ) -> Self::Item
+    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item
     where
         'w: 'a,
     {
-        Q::get(this, fetch, archetype, index)
+        self.query.get(archetype, index)
     }
 }
 
@@ -146,19 +155,20 @@ where
     Q: QueryParam,
 {
     type State = QryWithFilterState<F::State, Q::State>;
-    type Fetch = Q::Fetch;
-    type Borrow = With<F, Q::Borrow>;
 
     #[inline]
     fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
         // TODO: special handling for sparce filter components
         Q::update_access(&state.query, shared, exclusive);
     }
+}
 
-    #[inline(always)]
-    fn fetch(state: &Self::State, archetype: &Archetype) -> Q::Fetch {
-        Q::fetch(&state.query, archetype)
-    }
+impl<'w, F, Q> QueryParamWithFetch<'w> for With<F, Q>
+where
+    F: Filter,
+    Q: QueryParamWithFetch<'w>,
+{
+    type Fetch = QryWithFilterFetch<F, Q::Fetch>;
 }
 
 #[doc(hidden)]
@@ -182,37 +192,45 @@ impl<F: QueryParamState, S: QueryParamState> QueryParamState for QryWithFilterSt
     }
 }
 
-impl<'w, F, Q> QueryParamFetch<'w> for With<F, Q>
+#[doc(hidden)]
+pub struct QryWithFilterFetch<F, Q> {
+    filter: PhantomData<fn(F)>,
+    query: Q,
+}
+
+impl<'w, F, Q> QueryParamFetch<'w> for QryWithFilterFetch<F, Q>
 where
     F: Filter,
     Q: QueryParamFetch<'w>,
 {
-    type Borrowed = Q::Borrowed;
-    type FetchGet = With<F, Q::FetchGet>;
+    type State = QryWithFilterState<F::State, Q::State>;
 
     #[inline(always)]
-    fn borrow(res: &'w ResourcesSend, state: &Self::State) -> Self::Borrowed {
-        Q::borrow(res, &state.query)
+    fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
+        Self {
+            filter: PhantomData,
+            query: Q::fetch(res, &state.query),
+        }
+    }
+
+    #[inline(always)]
+    fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype) {
+        self.query.set_archetype(&state.query, archetype);
     }
 }
 
-impl<'w, 'a, F, Q> QueryFetch<'w, 'a> for With<F, Q>
+impl<'w, 'a, F, Q> QueryParamFetchGet<'w, 'a> for QryWithFilterFetch<F, Q>
 where
     F: Filter,
-    Q: QueryFetch<'w, 'a>,
+    Q: QueryParamFetchGet<'w, 'a>,
 {
     type Item = Q::Item;
 
     #[inline(always)]
-    fn get(
-        this: &'a mut Self::Borrowed,
-        fetch: Q::Fetch,
-        archetype: &Archetype,
-        index: usize,
-    ) -> Self::Item
+    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item
     where
         'w: 'a,
     {
-        Q::get(this, fetch, archetype, index)
+        self.query.get(archetype, index)
     }
 }
