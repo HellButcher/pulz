@@ -301,7 +301,7 @@ impl<'s> ScheduleExecution<'s> {
                     let resources: *const _ = self.resources;
                     let resources = &*resources;
 
-                    if let SystemVariant::Concurrent(system) = system {
+                    if let SystemVariant::Concurrent(system, _) = system {
                         if system.is_send() {
                             let resources = resources.as_send(); // shared borrow
                             self::threadpool::spawn(move || {
@@ -357,6 +357,12 @@ mod tests {
             }
             fn is_send(&self) -> bool {
                 true
+            }
+            fn update_access(
+                &self,
+                _resources: &Resources,
+                _access: &mut crate::resource::ResourceAccess,
+            ) {
             }
         }
         struct ExSys;

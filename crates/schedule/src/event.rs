@@ -2,7 +2,7 @@ use std::{collections::VecDeque, marker::PhantomData};
 
 use crate::{
     label::CoreSystemLabel,
-    resource::{Res, ResMut, ResourceId, Resources},
+    resource::{Res, ResMut, ResourceAccess, ResourceId, Resources},
     schedule::Schedule,
     system::{
         param::{SystemParam, SystemParamFetch, SystemParamState},
@@ -195,6 +195,11 @@ where
     fn init(resources: &mut Resources) -> Self {
         Self(resources.init::<Events<T>>())
     }
+
+    #[inline]
+    fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
+        access.add_shared_checked(self.0);
+    }
 }
 
 unsafe impl<'r, T> SystemParamFetch<'r> for FetchEventSubscriber<T>
@@ -228,6 +233,11 @@ where
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.init::<Events<T>>())
+    }
+
+    #[inline]
+    fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
+        access.add_exclusive_checked(self.0);
     }
 }
 

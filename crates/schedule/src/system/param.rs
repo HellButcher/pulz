@@ -1,4 +1,4 @@
-use crate::resource::Resources;
+use crate::resource::{ResourceAccess, Resources};
 
 /// # Safety
 /// The value ov IS_SEND must be correct: when it says true, then the type must be Send!
@@ -8,6 +8,8 @@ pub unsafe trait SystemParam: Sized {
 
 pub unsafe trait SystemParamState: Send + Sync {
     fn init(resources: &mut Resources) -> Self;
+
+    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess);
 }
 
 pub unsafe trait SystemParamFetch<'r>: SystemParamState {
@@ -22,6 +24,9 @@ unsafe impl SystemParam for () {
 unsafe impl SystemParamState for () {
     #[inline]
     fn init(_resources: &mut Resources) {}
+
+    #[inline]
+    fn update_access(&self, _resources: &Resources, _access: &mut ResourceAccess) {}
 }
 
 unsafe impl SystemParamFetch<'_> for () {
@@ -50,6 +55,11 @@ macro_rules! tuple {
             #[inline]
             fn init(resources: &mut Resources) -> Self {
                 ($($name::init(resources),)+)
+            }
+
+            #[inline]
+            fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
+                $(self.$index.update_access(resources, access);)+
             }
         }
 

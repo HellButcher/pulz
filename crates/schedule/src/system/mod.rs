@@ -1,6 +1,6 @@
 use crate::{
     label::{AnyLabel, SystemLabel},
-    resource::{Resources, ResourcesSend},
+    resource::{ResourceAccess, Resources, ResourcesSend},
 };
 
 pub mod param;
@@ -20,6 +20,8 @@ pub unsafe trait System: Send + Sync + 'static {
         // SAFETY: no unsend resources are accessed (defined by unsafe trait contract)
         unsafe { self.run(arg.as_unsend()) }
     }
+
+    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess);
 }
 
 pub trait ExclusiveSystem: 'static {
@@ -67,14 +69,14 @@ impl SystemDescriptor {
     pub fn is_concurrent(&self) -> bool {
         match self.system_variant {
             SystemVariant::Exclusive(_) => false,
-            SystemVariant::Concurrent(_) => true,
+            SystemVariant::Concurrent(_, _) => true,
         }
     }
 
     pub fn exclusive(self) -> Self {
         match self.system_variant {
             SystemVariant::Exclusive(_) => self,
-            SystemVariant::Concurrent(system) => Self {
+            SystemVariant::Concurrent(system, _) => Self {
                 system_variant: SystemVariant::Exclusive(Box::new(ConcurrentAsExclusiveSystem(
                     system,
                 ))),
@@ -97,8 +99,9 @@ impl SystemDescriptor {
                 system.init(resources);
                 self.is_send = false;
             }
-            SystemVariant::Concurrent(ref mut system) => {
+            SystemVariant::Concurrent(ref mut system, ref mut access) => {
                 system.init(resources);
+                system.update_access(resources, access);
                 self.is_send = system.is_send();
             }
         }
@@ -113,14 +116,14 @@ impl SystemDescriptor {
         assert!(self.is_initialized);
         match self.system_variant {
             SystemVariant::Exclusive(ref mut system) => system.run(resources),
-            SystemVariant::Concurrent(ref mut system) => system.run(resources),
+            SystemVariant::Concurrent(ref mut system, _) => system.run(resources),
         }
     }
 
     pub fn run_send(&mut self, resources: &ResourcesSend) {
         assert!(self.is_initialized && self.is_send);
         match self.system_variant {
-            SystemVariant::Concurrent(ref mut system) => system.run_send(resources),
+            SystemVariant::Concurrent(ref mut system, _) => system.run_send(resources),
             _ => panic!("exclusive systems are not `send`!"),
         }
     }
@@ -128,7 +131,7 @@ impl SystemDescriptor {
 
 pub(crate) enum SystemVariant {
     Exclusive(Box<dyn ExclusiveSystem>),
-    Concurrent(Box<dyn System>),
+    Concurrent(Box<dyn System>, ResourceAccess),
 }
 
 unsafe impl<S> System for Box<S>
@@ -147,6 +150,11 @@ where
     #[inline]
     fn is_send(&self) -> bool {
         self.as_ref().is_send()
+    }
+
+    #[inline]
+    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
+        self.as_ref().update_access(resources, access)
     }
 }
 
@@ -192,7 +200,7 @@ where
 {
     fn into_system_descriptor(self) -> SystemDescriptor {
         SystemDescriptor {
-            system_variant: SystemVariant::Concurrent(Box::new(self)),
+            system_variant: SystemVariant::Concurrent(Box::new(self), ResourceAccess::new()),
             dependencies: Vec::new(),
             label: None,
             before: Vec::new(),

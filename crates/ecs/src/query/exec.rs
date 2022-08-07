@@ -1,4 +1,7 @@
-use pulz_schedule::{resource::ResourceId, system::param::SystemParamState};
+use pulz_schedule::{
+    resource::{ResourceAccess, ResourceId},
+    system::param::SystemParamState,
+};
 
 use super::QueryParamWithFetch;
 use crate::{
@@ -165,6 +168,12 @@ where
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.init::<QueryState<Q>>())
+    }
+
+    #[inline]
+    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
+        let state = resources.borrow_res_id(self.0).unwrap();
+        Q::update_access(&state.param_state, access)
     }
 }
 

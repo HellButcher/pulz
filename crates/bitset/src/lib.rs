@@ -114,13 +114,17 @@ impl BitSet {
         } else {
             false
         };
-        // shrink (for Eq)
         if index + 1 == self.0.len() {
-            while let Some(0) = self.0.last() {
-                self.0.pop();
-            }
+            self.normalize_after_remove();
         }
         was_set
+    }
+
+    fn normalize_after_remove(&mut self) {
+        // shrink (for Eq)
+        while let Some(0) = self.0.last() {
+            self.0.pop();
+        }
     }
 
     pub fn first(&self) -> Option<usize> {
@@ -160,6 +164,61 @@ impl BitSet {
 
     pub fn iter(&self) -> BitSetIter<'_> {
         BitSetIter::new(&self.0)
+    }
+
+    /// Add items to this bitset. (union)
+    /// This is an ptimized version of `extend`.
+    pub fn extend_bitset(&mut self, other: &Self) {
+        let len = other.0.len();
+        if self.0.len() < len {
+            self.0.resize(len, 0u64);
+        }
+        for i in 0..len {
+            // SAFETY: we have resized the vector, to be at least `len`
+            unsafe {
+                *self.0.get_unchecked_mut(i) |= *other.0.get_unchecked(i);
+            }
+        }
+    }
+
+    /// remove items from this bitset (difference)
+    pub fn remove_bitset(&mut self, other: &Self) {
+        let len = usize::min(self.0.len(), other.0.len());
+        for i in 0..len {
+            // SAFETY: we have checked the vector, to be at least `len`
+            unsafe {
+                *self.0.get_unchecked_mut(i) &= !*other.0.get_unchecked(i);
+            }
+        }
+        if len == self.0.len() {
+            self.normalize_after_remove();
+        }
+    }
+
+    /// only retain the elements from other (intersection)
+    pub fn retain_bitset(&mut self, other: &Self) {
+        let len = usize::min(self.0.len(), other.0.len());
+        self.0.resize(len, 0u64);
+        for i in 0..len {
+            // SAFETY: we have resized the vector, to be at least `len`
+            unsafe {
+                *self.0.get_unchecked_mut(i) &= *other.0.get_unchecked(i);
+            }
+        }
+        self.normalize_after_remove();
+    }
+
+    pub fn is_disjoint(&self, other: &Self) -> bool {
+        let len = usize::min(self.0.len(), other.0.len());
+        for i in 0..len {
+            // SAFETY: we have checked the size
+            unsafe {
+                if *self.0.get_unchecked(i) & *other.0.get_unchecked(i) != 0 {
+                    return false;
+                }
+            }
+        }
+        true
     }
 }
 

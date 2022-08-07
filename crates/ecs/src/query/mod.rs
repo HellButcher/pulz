@@ -6,7 +6,7 @@ use std::sync::{
 pub use self::exec::Query;
 use crate::{
     archetype::{Archetype, ArchetypeId, ArchetypeSet},
-    component::{ComponentId, ComponentSet, Components},
+    component::{ComponentId, Components},
     Component, WorldInner,
 };
 
@@ -18,7 +18,7 @@ pub trait QueryParam: for<'w> QueryParamWithFetch<'w> {
     /// the relevant type states from a matching [`Archetype`]
     type State: QueryParamState;
 
-    fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet);
+    fn update_access(state: &Self::State, access: &mut ResourceAccess);
 }
 
 pub trait QueryParamWithFetch<'w> {
@@ -84,7 +84,9 @@ mod fetch;
 mod filter;
 pub use fetch::*;
 pub use filter::*;
-use pulz_schedule::resource::{FromResources, ResourceId, Resources, ResourcesSend};
+use pulz_schedule::resource::{
+    FromResources, ResourceAccess, ResourceId, Resources, ResourcesSend,
+};
 
 struct QueryState<Q>
 where
@@ -92,8 +94,7 @@ where
 {
     world_resource_id: ResourceId<WorldInner>,
     param_state: Q::State,
-    shared_access: ComponentSet,
-    exclusive_access: ComponentSet,
+    access: ResourceAccess,
 
     sparse_only: bool,
     last_archetype_index: AtomicUsize,
@@ -119,20 +120,15 @@ where
         resource_id: ResourceId<WorldInner>,
     ) -> Self {
         let state = Q::State::init(resources, &world.components);
-        let mut shared_access = ComponentSet::new();
-        let mut exclusive_access = ComponentSet::new();
-        Q::update_access(&state, &mut shared_access, &mut exclusive_access);
+        let mut access = ResourceAccess::new();
+        Q::update_access(&state, &mut access);
 
-        let sparse_only = shared_access
-            .iter(&world.components)
-            .chain(exclusive_access.iter(&world.components))
-            .all(ComponentId::is_sparse);
+        let sparse_only = false; // TODO
 
         let query = Self {
             world_resource_id: resource_id,
             param_state: state,
-            shared_access,
-            exclusive_access,
+            access,
             sparse_only,
             last_archetype_index: AtomicUsize::new(0),
             updating_archetypes: Mutex::new(()),

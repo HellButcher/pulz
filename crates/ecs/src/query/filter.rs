@@ -1,9 +1,11 @@
 use std::marker::PhantomData;
 
+use pulz_schedule::resource::ResourceAccess;
+
 use super::{QryRefState, QueryParamState, QueryParamWithFetch};
 use crate::{
     archetype::Archetype,
-    component::{Component, ComponentSet, Components},
+    component::{Component, Components},
     query::{QueryParam, QueryParamFetch, QueryParamFetchGet},
     resource::{Resources, ResourcesSend},
 };
@@ -68,9 +70,9 @@ where
     type State = QryWithoutFilterState<F::State, Q::State>;
 
     #[inline]
-    fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
+    fn update_access(state: &Self::State, access: &mut ResourceAccess) {
         // TODO: special handling for sparse filter components
-        Q::update_access(&state.query, shared, exclusive);
+        Q::update_access(&state.query, access);
     }
 }
 
@@ -157,9 +159,9 @@ where
     type State = QryWithFilterState<F::State, Q::State>;
 
     #[inline]
-    fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
+    fn update_access(state: &Self::State, access: &mut ResourceAccess) {
         // TODO: special handling for sparce filter components
-        Q::update_access(&state.query, shared, exclusive);
+        Q::update_access(&state.query, access);
     }
 }
 

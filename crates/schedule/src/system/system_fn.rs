@@ -1,5 +1,5 @@
 use crate::{
-    resource::{FromResources, ResourceId, Resources},
+    resource::{FromResources, ResourceAccess, ResourceId, Resources},
     system::{
         param::{SystemParam, SystemParamFetch, SystemParamItem, SystemParamState},
         ExclusiveSystem, IntoSystemDescriptor, System, SystemDescriptor, SystemVariant,
@@ -66,7 +66,10 @@ where
 {
     fn into_system_descriptor(self) -> SystemDescriptor {
         SystemDescriptor {
-            system_variant: SystemVariant::Concurrent(Box::new(SystemFn::<P, F>::new(self))),
+            system_variant: SystemVariant::Concurrent(
+                Box::new(SystemFn::<P, F>::new(self)),
+                ResourceAccess::new(),
+            ),
             dependencies: Vec::new(),
             label: None,
             before: Vec::new(),
@@ -104,6 +107,15 @@ where
 
     fn is_send(&self) -> bool {
         self.is_send
+    }
+
+    #[inline]
+    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
+        let state_resource_id = self.state_resource_id.expect("not initialized");
+        let state = resources
+            .borrow_res_id(state_resource_id)
+            .expect("state unavailable");
+        state.param_state.update_access(resources, access);
     }
 }
 
@@ -167,29 +179,6 @@ where
     }
 }
 
-// impl<Out, F, T0, T1> SystemParamFn<(T0,T1),Out> for F
-// where
-//     F: Send + Sync + 'static,
-//     T0: SystemParam,
-//     T1: SystemParam,
-//     F: FnMut(SystemParamItem<'_, '_, T0>, SystemParamItem<'_, '_, T1>) -> Out,
-// {
-//     #[inline]
-//     fn call(&mut self, params: SystemParamItem<'_, '_, (T0, T1)>) -> Out {
-//         // #[inline]
-//         // fn call_inner<Out, $($name,)*>(
-//         //     mut f: impl FnMut($($name,)*)->Out,
-//         //     args: ($($name,)*)
-//         // )->Out{
-//         //     f($(args.$index,)*)
-//         // }
-//         // let fetched = <<($($name,)*) as SystemParam>::Fetch as SystemParamFetch<'_>>::fetch(state, resources);
-//         // call_inner(self, fetched)
-//         let (p0, p1) = params;
-//         self(p0, p1)
-//     }
-// }
-
 macro_rules! tuple {
   () => ();
   ( $($name:ident.$index:tt,)+ ) => (
@@ -204,16 +193,6 @@ macro_rules! tuple {
       {
           #[inline]
           fn call(&mut self, params: SystemParamItem<'_, ($($name,)*)>) -> Out {
-            // #[inline]
-            // fn call_inner<Out, $($name,)*>(
-            //     mut f: impl FnMut($($name,)*)->Out,
-            //     args: ($($name,)*)
-            // )->Out{
-            //     f($(args.$index,)*)
-            // }
-
-            // let fetched = <<($($name,)*) as SystemParam>::Fetch as SystemParamFetch<'_>>::fetch(state, resources);
-            // call_inner(self, fetched)
             self($(params.$index,)*)
           }
       }
@@ -277,8 +256,9 @@ mod tests {
                 system.init(resources);
                 system.run(resources);
             }
-            SystemVariant::Concurrent(ref mut system) => {
+            SystemVariant::Concurrent(ref mut system, ref mut access) => {
                 system.init(resources);
+                system.update_access(resources, access);
                 system.run(resources);
             }
         }
@@ -323,8 +303,9 @@ mod tests {
 
         let mut sys = IntoSystemDescriptor::into_system_descriptor(sys_a);
         match sys.system_variant {
-            SystemVariant::Concurrent(ref mut system) => {
+            SystemVariant::Concurrent(ref mut system, ref mut access) => {
                 system.init(&mut resources);
+                system.update_access(&resources, access);
                 system.run(&resources);
             }
             _ => unreachable!("unexpected value"),

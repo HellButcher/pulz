@@ -1,7 +1,9 @@
+use pulz_schedule::resource::ResourceAccess;
+
 use super::{QryRefState, QueryParamState, QueryParamWithFetch};
 use crate::{
     archetype::Archetype,
-    component::{Component, ComponentSet, Components},
+    component::{Component, Components},
     entity::Entity,
     query::{QueryParam, QueryParamFetch, QueryParamFetchGet},
     resource::{Res, ResMut, Resources, ResourcesSend},
@@ -12,12 +14,8 @@ impl<T: Component> QueryParam for &'_ T {
     type State = QryRefState<T>;
 
     #[inline]
-    fn update_access(
-        state: &Self::State,
-        shared: &mut ComponentSet,
-        _exclusive: &mut ComponentSet,
-    ) {
-        shared.insert(state.component_id);
+    fn update_access(state: &Self::State, access: &mut ResourceAccess) {
+        access.add_shared_checked(state.storage_id);
     }
 }
 
@@ -59,12 +57,8 @@ impl<T: Component> QueryParam for &'_ mut T {
     type State = QryRefState<T>;
 
     #[inline]
-    fn update_access(
-        state: &QryRefState<T>,
-        _shared: &mut ComponentSet,
-        exclusive: &mut ComponentSet,
-    ) {
-        exclusive.insert(state.component_id);
+    fn update_access(state: &QryRefState<T>, access: &mut ResourceAccess) {
+        access.add_exclusive_checked(state.storage_id);
     }
 }
 
@@ -106,7 +100,7 @@ impl QueryParam for Entity {
     type State = ();
 
     #[inline(always)]
-    fn update_access(_state: &(), _shared: &mut ComponentSet, _exclusive: &mut ComponentSet) {}
+    fn update_access(_state: &(), _access: &mut ResourceAccess) {}
 }
 
 impl QueryParamWithFetch<'_> for Entity {
@@ -144,8 +138,8 @@ where
     type State = QryOptionState<Q::State>;
 
     #[inline]
-    fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
-        Q::update_access(&state.0, shared, exclusive);
+    fn update_access(state: &Self::State, access: &mut ResourceAccess) {
+        Q::update_access(&state.0, access);
     }
 }
 
@@ -218,12 +212,7 @@ impl QueryParam for () {
     type State = ();
 
     #[inline(always)]
-    fn update_access(
-        _state: &Self::State,
-        _shared: &mut ComponentSet,
-        _exclusive: &mut ComponentSet,
-    ) {
-    }
+    fn update_access(_state: &Self::State, _access: &mut ResourceAccess) {}
 }
 
 impl QueryParamWithFetch<'_> for () {
@@ -270,10 +259,9 @@ where
     #[inline]
     fn update_access(
         state: &Self::State,
-        shared: &mut ComponentSet,
-        exclusive: &mut ComponentSet,
+        access: &mut ResourceAccess,
     ) {
-        $($name::update_access(&state.$index, shared, exclusive);)+
+        $($name::update_access(&state.$index, access);)+
     }
 }
 

@@ -11,6 +11,8 @@ readme = "README.md"
 edition = "2021"
 
 [dependencies]
+pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
+
 atomic_refcell = "0.1"
 once_cell = "1.13"
 downcast-rs = "1.2"
