@@ -1,62 +1,33 @@
 use std::marker::PhantomData;
 
+use super::{QryRefState, QueryParamState};
 use crate::{
     archetype::Archetype,
-    component::{Component, ComponentId, ComponentSet, Components},
-    get_or_init_component,
+    component::{Component, ComponentSet, Components},
     query::{QueryFetch, QueryParam, QueryParamFetch},
     resource::{Resources, ResourcesSend},
 };
 
 pub trait Filter {
-    type State: Send + Sync + 'static;
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State;
-
-    /// Checks if the archetype matches the query
-    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool;
+    type State: QueryParamState;
 }
 
 impl<T> Filter for &'_ T
 where
     T: Component,
 {
-    type State = ComponentId<T>;
-    #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State {
-        get_or_init_component::<T>(res, components).1
-    }
-
-    #[inline]
-    fn matches_archetype(component_id: &ComponentId<T>, archetype: &Archetype) -> bool {
-        archetype.contains_component_id(*component_id)
-    }
+    type State = QryRefState<T>;
 }
 
 impl<T> Filter for &'_ mut T
 where
     T: Component,
 {
-    type State = ComponentId<T>;
-    #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State {
-        get_or_init_component::<T>(res, components).1
-    }
-
-    #[inline]
-    fn matches_archetype(component_id: &ComponentId<T>, archetype: &Archetype) -> bool {
-        archetype.contains_component_id(*component_id)
-    }
+    type State = QryRefState<T>;
 }
 
 impl Filter for () {
     type State = ();
-    #[inline(always)]
-    fn prepare(_res: &mut Resources, _components: &mut Components) {}
-
-    #[inline(always)]
-    fn matches_archetype(_prepared: &(), _archetype: &Archetype) -> bool {
-        true
-    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -72,16 +43,6 @@ where
     $($name: Filter,)+
 {
     type State = ($($name::State,)+);
-
-    #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State {
-        ($($name::prepare(res, components),)+)
-    }
-
-    #[inline(always)]
-    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool {
-        $($name::matches_archetype(&state.$index, archetype))&&+
-    }
 }
 
 impl<$($name),+> Filter for Or<($($name,)+)>
@@ -89,16 +50,6 @@ where
     $($name: Filter,)+
 {
     type State = ($($name::State,)+);
-
-    #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State {
-        ($($name::prepare(res, components),)+)
-    }
-
-    #[inline(always)]
-    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool {
-        $($name::matches_archetype(&state.$index, archetype))||+
-    }
 }
 
     peel! { tuple [] $($name.$index,)+ }
@@ -114,28 +65,41 @@ where
     F: Filter,
     Q: QueryParam,
 {
-    type State = (F::State, Q::State);
+    type State = QryWithoutFilterState<F::State, Q::State>;
     type Fetch = Q::Fetch;
     type Borrow = Without<F, Q::Borrow>;
 
     #[inline]
-    fn init(res: &mut Resources, components: &mut Components) -> Self::State {
-        (F::prepare(res, components), Q::init(res, components))
-    }
-
-    #[inline]
     fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
-        Q::update_access(&state.1, shared, exclusive);
-    }
-
-    #[inline(always)]
-    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool {
-        !F::matches_archetype(&state.0, archetype) && Q::matches_archetype(&state.1, archetype)
+        // TODO: special handling for sparse filter components
+        Q::update_access(&state.query, shared, exclusive);
     }
 
     #[inline(always)]
     fn fetch(state: &Self::State, archetype: &Archetype) -> Q::Fetch {
-        Q::fetch(&state.1, archetype)
+        Q::fetch(&state.query, archetype)
+    }
+}
+
+#[doc(hidden)]
+pub struct QryWithoutFilterState<F, S> {
+    filter: F,
+    query: S,
+}
+
+impl<F: QueryParamState, S: QueryParamState> QueryParamState for QryWithoutFilterState<F, S> {
+    #[inline]
+    fn init(resources: &Resources, components: &Components) -> Self {
+        Self {
+            filter: F::init(resources, components),
+            query: S::init(resources, components),
+        }
+    }
+
+    #[inline]
+    fn matches_archetype(&self, archetype: &Archetype) -> bool {
+        // TODO: special handling for sparse filter components
+        !self.filter.matches_archetype(archetype) && self.query.matches_archetype(archetype)
     }
 }
 
@@ -149,7 +113,7 @@ where
 
     #[inline(always)]
     fn borrow(res: &'w ResourcesSend, state: &Self::State) -> Self::Borrowed {
-        Q::borrow(res, &state.1)
+        Q::borrow(res, &state.query)
     }
 }
 
@@ -181,28 +145,40 @@ where
     F: Filter,
     Q: QueryParam,
 {
-    type State = (F::State, Q::State);
+    type State = QryWithFilterState<F::State, Q::State>;
     type Fetch = Q::Fetch;
     type Borrow = With<F, Q::Borrow>;
 
     #[inline]
-    fn init(res: &mut Resources, components: &mut Components) -> Self::State {
-        (F::prepare(res, components), Q::init(res, components))
-    }
-
-    #[inline]
     fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
-        Q::update_access(&state.1, shared, exclusive);
-    }
-
-    #[inline(always)]
-    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool {
-        F::matches_archetype(&state.0, archetype) && Q::matches_archetype(&state.1, archetype)
+        // TODO: special handling for sparce filter components
+        Q::update_access(&state.query, shared, exclusive);
     }
 
     #[inline(always)]
     fn fetch(state: &Self::State, archetype: &Archetype) -> Q::Fetch {
-        Q::fetch(&state.1, archetype)
+        Q::fetch(&state.query, archetype)
+    }
+}
+
+#[doc(hidden)]
+pub struct QryWithFilterState<F, S> {
+    filter: F,
+    query: S,
+}
+
+impl<F: QueryParamState, S: QueryParamState> QueryParamState for QryWithFilterState<F, S> {
+    #[inline]
+    fn init(resources: &Resources, components: &Components) -> Self {
+        Self {
+            filter: F::init(resources, components),
+            query: S::init(resources, components),
+        }
+    }
+
+    #[inline]
+    fn matches_archetype(&self, archetype: &Archetype) -> bool {
+        self.filter.matches_archetype(archetype) && self.query.matches_archetype(archetype)
     }
 }
 
@@ -216,7 +192,7 @@ where
 
     #[inline(always)]
     fn borrow(res: &'w ResourcesSend, state: &Self::State) -> Self::Borrowed {
-        Q::borrow(res, &state.1)
+        Q::borrow(res, &state.query)
     }
 }
 

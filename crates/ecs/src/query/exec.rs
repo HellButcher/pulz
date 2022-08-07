@@ -43,9 +43,9 @@ where
 
     fn new_id(res: &'w Resources, resource_id: ResourceId<QueryState<Q>>) -> Self {
         let state = res.borrow_res_id(resource_id).expect("query-state");
-        let world = res.borrow_res_id(state.resource_id).unwrap();
+        let world = res.borrow_res_id(state.world_resource_id).unwrap();
         state.update_archetypes(&world);
-        let borrow = <Q::Borrow as QueryParamFetch<'w>>::borrow(res.as_send(), &state.state);
+        let borrow = <Q::Borrow as QueryParamFetch<'w>>::borrow(res.as_send(), &state.param_state);
         Self {
             state,
             world,
@@ -98,7 +98,7 @@ where
             return None;
         }
         let archetype = &self.world.archetypes[location.archetype_id];
-        let fetch = Q::fetch(&self.state.state, archetype);
+        let fetch = Q::fetch(&self.state.param_state, archetype);
         Some(Q::get(&mut self.borrow, fetch, archetype, location.index))
     }
 }
@@ -143,7 +143,7 @@ where
                 let archetype = &self.world.archetypes[self.current_archetype_id];
                 self.current_archetype_index = 0;
                 self.current_archetype_len = archetype.len();
-                self.fetch = Some(F::fetch(&self.state.state, archetype));
+                self.fetch = Some(F::fetch(&self.state.param_state, archetype));
             }
         }
     }

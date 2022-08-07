@@ -7,7 +7,7 @@ pub use self::exec::Query;
 use crate::{
     archetype::{Archetype, ArchetypeId, ArchetypeSet},
     component::{ComponentId, ComponentSet, Components},
-    WorldInner,
+    Component, WorldInner,
 };
 
 // mostly based on `hecs` (https://github.com/Ralith/hecs/blob/9a2405c703ea0eb6481ad00d55e74ddd226c1494/src/query.rs)
@@ -16,21 +16,23 @@ use crate::{
 pub trait QueryParam {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
-    type State: Send + Sync + 'static;
+    type State: QueryParamState;
 
     type Fetch: Sized + Copy + 'static;
 
     type Borrow: for<'w> QueryParamFetch<'w, State = Self::State>;
 
-    /// Looks up data that can be re-used between multiple query invocations
-    fn init(res: &mut Resources, components: &mut Components) -> Self::State;
-
     fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet);
 
-    /// Checks if the archetype matches the query
-    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool;
-
     fn fetch(state: &Self::State, archetype: &Archetype) -> Self::Fetch;
+}
+
+pub trait QueryParamState: Send + Sync + Sized + 'static {
+    /// Looks up data that can be re-used between multiple query invocations
+    fn init(resources: &Resources, components: &Components) -> Self;
+
+    /// Checks if the archetype matches the query
+    fn matches_archetype(&self, archetype: &Archetype) -> bool;
 }
 
 pub trait QueryParamFetch<'w>: QueryParam<Borrow = Self> {
@@ -61,6 +63,29 @@ pub trait QueryFetch<'w, 'a>: QueryParamFetch<'w, FetchGet = Self> {
         'w: 'a;
 }
 
+#[doc(hidden)]
+pub struct QryRefState<T: Component> {
+    storage_id: ResourceId<T::Storage>,
+    component_id: ComponentId<T>,
+}
+
+impl<T: Component> QueryParamState for QryRefState<T> {
+    #[inline]
+    fn init(_res: &Resources, components: &Components) -> Self {
+        let component_id = components.id::<T>().expect("component_id");
+        let component = components.get(component_id).unwrap();
+        Self {
+            storage_id: component.storage_id.typed(),
+            component_id,
+        }
+    }
+
+    #[inline]
+    fn matches_archetype(&self, archetype: &Archetype) -> bool {
+        self.component_id.is_sparse() || archetype.contains_component_id(self.component_id)
+    }
+}
+
 pub mod exec;
 mod fetch;
 mod filter;
@@ -72,8 +97,8 @@ struct QueryState<Q>
 where
     Q: QueryParam,
 {
-    resource_id: ResourceId<WorldInner>,
-    state: Q::State,
+    world_resource_id: ResourceId<WorldInner>,
+    param_state: Q::State,
     shared_access: ComponentSet,
     exclusive_access: ComponentSet,
 
@@ -96,11 +121,11 @@ where
     }
 
     fn from_world(
-        resources: &mut Resources,
-        world: &mut WorldInner,
+        resources: &Resources,
+        world: &WorldInner,
         resource_id: ResourceId<WorldInner>,
     ) -> Self {
-        let state = Q::init(resources, &mut world.components);
+        let state = Q::State::init(resources, &world.components);
         let mut shared_access = ComponentSet::new();
         let mut exclusive_access = ComponentSet::new();
         Q::update_access(&state, &mut shared_access, &mut exclusive_access);
@@ -111,8 +136,8 @@ where
             .all(ComponentId::is_sparse);
 
         let query = Self {
-            resource_id,
-            state,
+            world_resource_id: resource_id,
+            param_state: state,
             shared_access,
             exclusive_access,
             sparse_only,
@@ -139,7 +164,7 @@ where
         for index in old_archetype_index..last_archetype_index {
             let id = ArchetypeId::new(index);
             let archetype = &archetypes[id];
-            if Q::matches_archetype(&self.state, archetype) {
+            if self.param_state.matches_archetype(archetype) {
                 // init scratch
                 let scratch = archetypes_scratch.get_or_insert_with(|| {
                     let ptr = self.matching_archetypes_p.load(Ordering::Relaxed);
