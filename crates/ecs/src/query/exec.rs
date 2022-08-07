@@ -3,7 +3,7 @@ use pulz_schedule::{resource::ResourceId, system::param::SystemParamState};
 use crate::{
     archetype::{ArchetypeId, ArchetypeSetIter},
     entity::Entity,
-    query::{QueryBorrow, QueryFetch, QueryItem, QueryParam, QueryState},
+    query::{QueryFetch, QueryItem, QueryParam, QueryParamFetch, QueryState},
     resource::{Res, Resources},
     system::param::{SystemParam, SystemParamFetch},
     WorldInner,
@@ -13,19 +13,19 @@ pub struct Query<'w, Q>
 where
     Q: QueryParam,
 {
-    prepared: Res<'w, QueryState<Q>>,
+    state: Res<'w, QueryState<Q>>,
     world: Res<'w, WorldInner>,
-    borrow: <Q::Borrow as QueryBorrow<'w>>::Borrowed,
+    borrow: <Q::Borrow as QueryParamFetch<'w>>::Borrowed,
 }
 
 pub struct QueryIter<'w, 'a, Q>
 where
-    Q: QueryBorrow<'w>,
+    Q: QueryParamFetch<'w>,
 {
-    prepared: &'a QueryState<Q>,
+    state: &'a QueryState<Q>,
     world: &'a WorldInner,
     borrow: &'a mut Q::Borrowed,
-    state: Option<Q::State>,
+    fetch: Option<Q::Fetch>,
     matching_archetypes: ArchetypeSetIter<'a>,
     current_archetype_id: ArchetypeId,
     current_archetype_len: usize,
@@ -42,32 +42,32 @@ where
     }
 
     fn new_id(res: &'w Resources, resource_id: ResourceId<QueryState<Q>>) -> Self {
-        let prepared = res.borrow_res_id(resource_id).expect("query-state");
-        let world = res.borrow_res_id(prepared.resource_id).unwrap();
-        prepared.update_archetypes(&world);
-        let borrow = <Q::Borrow as QueryBorrow<'w>>::borrow(res.as_send(), prepared.prepared);
+        let state = res.borrow_res_id(resource_id).expect("query-state");
+        let world = res.borrow_res_id(state.resource_id).unwrap();
+        state.update_archetypes(&world);
+        let borrow = <Q::Borrow as QueryParamFetch<'w>>::borrow(res.as_send(), &state.state);
         Self {
-            prepared,
+            state,
             world,
             borrow,
         }
     }
 
     #[inline]
-    pub fn iter<'a>(&'a mut self) -> QueryIter<'w, 'a, Q::Fetch>
+    pub fn iter<'a>(&'a mut self) -> QueryIter<'w, 'a, Q::FetchGet>
     where
         Q: QueryFetch<'w, 'a>,
         'w: 'a,
     {
-        let prepared: &'a QueryState<Q> = &self.prepared;
-        let matching_archetypes = self.prepared.matching_archetypes().iter();
+        let state: &'a QueryState<Q> = &self.state;
+        let matching_archetypes = self.state.matching_archetypes().iter();
         let world = &self.world;
         let borrow = &mut self.borrow;
         QueryIter {
-            prepared,
+            state,
             world,
             borrow,
-            state: None,
+            fetch: None,
             matching_archetypes,
             current_archetype_id: ArchetypeId::EMPTY,
             current_archetype_len: 0,
@@ -91,15 +91,15 @@ where
     {
         let location = self.world.entities.get(entity)?;
         if !self
-            .prepared
+            .state
             .matching_archetypes()
             .contains(location.archetype_id)
         {
             return None;
         }
         let archetype = &self.world.archetypes[location.archetype_id];
-        let state = Q::state(self.prepared.prepared, archetype);
-        Some(Q::get(&mut self.borrow, state, archetype, location.index))
+        let fetch = Q::fetch(&self.state.state, archetype);
+        Some(Q::get(&mut self.borrow, fetch, archetype, location.index))
     }
 }
 
@@ -108,7 +108,7 @@ where
     Q: QueryFetch<'w, 'a> + 'static,
 {
     type Item = QueryItem<'w, 'a, Q>;
-    type IntoIter = QueryIter<'w, 'a, Q::Fetch>;
+    type IntoIter = QueryIter<'w, 'a, Q::FetchGet>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -127,11 +127,11 @@ where
         let borrow: *mut _ = &mut self.borrow;
         loop {
             if self.current_archetype_index < self.current_archetype_len {
-                let state = self.state.unwrap();
+                let fetch = self.fetch.unwrap();
                 let archetype = &self.world.archetypes[self.current_archetype_id];
                 let item = F::get(
                     unsafe { *borrow },
-                    state,
+                    fetch,
                     archetype,
                     self.current_archetype_index,
                 );
@@ -143,7 +143,7 @@ where
                 let archetype = &self.world.archetypes[self.current_archetype_id];
                 self.current_archetype_index = 0;
                 self.current_archetype_len = archetype.len();
-                self.state = Some(F::state(self.prepared.prepared, archetype));
+                self.fetch = Some(F::fetch(&self.state.state, archetype));
             }
         }
     }

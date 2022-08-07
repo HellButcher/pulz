@@ -16,48 +16,44 @@ use crate::{
 pub trait QueryParam {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
-    type Prepared: Send + Sync + Sized + Copy + 'static;
+    type State: Send + Sync + 'static;
 
-    type State: Sized + Copy + 'static;
+    type Fetch: Sized + Copy + 'static;
 
-    type Borrow: for<'w> QueryBorrow<'w, Prepared = Self::Prepared>;
+    type Borrow: for<'w> QueryParamFetch<'w, State = Self::State>;
 
     /// Looks up data that can be re-used between multiple query invocations
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared;
+    fn init(res: &mut Resources, components: &mut Components) -> Self::State;
 
-    fn update_access(
-        prepared: Self::Prepared,
-        shared: &mut ComponentSet,
-        exclusive: &mut ComponentSet,
-    );
+    fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet);
 
     /// Checks if the archetype matches the query
-    fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool;
+    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool;
 
-    fn state(prepared: Self::Prepared, archetype: &Archetype) -> Self::State;
+    fn fetch(state: &Self::State, archetype: &Archetype) -> Self::Fetch;
 }
 
-pub trait QueryBorrow<'w>: QueryParam<Borrow = Self> {
+pub trait QueryParamFetch<'w>: QueryParam<Borrow = Self> {
     type Borrowed: Send;
 
     #[doc(hidden)]
-    type Fetch: for<'a> QueryFetch<'w, 'a>;
+    type FetchGet: for<'a> QueryFetch<'w, 'a>;
 
     /// Acquire dynamic borrows from `archetype`
-    fn borrow(res: &'w ResourcesSend, prepared: Self::Prepared) -> Self::Borrowed;
+    fn borrow(res: &'w ResourcesSend, state: &Self::State) -> Self::Borrowed;
 }
 
 /// Type of values yielded by a query
-pub type QueryItem<'w, 'a, Q> = <<Q as QueryBorrow<'w>>::Fetch as QueryFetch<'w, 'a>>::Item;
+pub type QueryItem<'w, 'a, Q> = <<Q as QueryParamFetch<'w>>::FetchGet as QueryFetch<'w, 'a>>::Item;
 
-pub trait QueryFetch<'w, 'a>: QueryBorrow<'w, Fetch = Self> {
+pub trait QueryFetch<'w, 'a>: QueryParamFetch<'w, FetchGet = Self> {
     /// Type of value to be fetched
     type Item;
 
     /// Access the given item in this archetype
     fn get(
         this: &'a mut Self::Borrowed,
-        state: Self::State,
+        fetch: Self::Fetch,
         archetype: &Archetype,
         index: usize,
     ) -> Self::Item
@@ -77,7 +73,7 @@ where
     Q: QueryParam,
 {
     resource_id: ResourceId<WorldInner>,
-    prepared: Q::Prepared,
+    state: Q::State,
     shared_access: ComponentSet,
     exclusive_access: ComponentSet,
 
@@ -104,10 +100,10 @@ where
         world: &mut WorldInner,
         resource_id: ResourceId<WorldInner>,
     ) -> Self {
-        let prepared = Q::prepare(resources, &mut world.components);
+        let state = Q::init(resources, &mut world.components);
         let mut shared_access = ComponentSet::new();
         let mut exclusive_access = ComponentSet::new();
-        Q::update_access(prepared, &mut shared_access, &mut exclusive_access);
+        Q::update_access(&state, &mut shared_access, &mut exclusive_access);
 
         let sparse_only = shared_access
             .iter(&world.components)
@@ -116,7 +112,7 @@ where
 
         let query = Self {
             resource_id,
-            prepared,
+            state,
             shared_access,
             exclusive_access,
             sparse_only,
@@ -143,7 +139,7 @@ where
         for index in old_archetype_index..last_archetype_index {
             let id = ArchetypeId::new(index);
             let archetype = &archetypes[id];
-            if Q::matches_archetype(self.prepared, archetype) {
+            if Q::matches_archetype(&self.state, archetype) {
                 // init scratch
                 let scratch = archetypes_scratch.get_or_insert_with(|| {
                     let ptr = self.matching_archetypes_p.load(Ordering::Relaxed);

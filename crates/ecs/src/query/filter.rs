@@ -4,31 +4,31 @@ use crate::{
     archetype::Archetype,
     component::{Component, ComponentId, ComponentSet, Components},
     get_or_init_component,
-    query::{QueryBorrow, QueryFetch, QueryParam},
+    query::{QueryFetch, QueryParam, QueryParamFetch},
     resource::{Resources, ResourcesSend},
 };
 
 pub trait Filter {
-    type Prepared: Send + Sync + Sized + Copy + 'static;
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared;
+    type State: Send + Sync + 'static;
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State;
 
     /// Checks if the archetype matches the query
-    fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool;
+    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool;
 }
 
 impl<T> Filter for &'_ T
 where
     T: Component,
 {
-    type Prepared = ComponentId<T>;
+    type State = ComponentId<T>;
     #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State {
         get_or_init_component::<T>(res, components).1
     }
 
     #[inline]
-    fn matches_archetype(component_id: ComponentId<T>, archetype: &Archetype) -> bool {
-        archetype.contains_component_id(component_id)
+    fn matches_archetype(component_id: &ComponentId<T>, archetype: &Archetype) -> bool {
+        archetype.contains_component_id(*component_id)
     }
 }
 
@@ -36,25 +36,25 @@ impl<T> Filter for &'_ mut T
 where
     T: Component,
 {
-    type Prepared = ComponentId<T>;
+    type State = ComponentId<T>;
     #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State {
         get_or_init_component::<T>(res, components).1
     }
 
     #[inline]
-    fn matches_archetype(component_id: ComponentId<T>, archetype: &Archetype) -> bool {
-        archetype.contains_component_id(component_id)
+    fn matches_archetype(component_id: &ComponentId<T>, archetype: &Archetype) -> bool {
+        archetype.contains_component_id(*component_id)
     }
 }
 
 impl Filter for () {
-    type Prepared = ();
+    type State = ();
     #[inline(always)]
     fn prepare(_res: &mut Resources, _components: &mut Components) {}
 
     #[inline(always)]
-    fn matches_archetype(_prepared: (), _archetype: &Archetype) -> bool {
+    fn matches_archetype(_prepared: &(), _archetype: &Archetype) -> bool {
         true
     }
 }
@@ -71,16 +71,16 @@ impl<$($name),+> Filter for ($($name,)+)
 where
     $($name: Filter,)+
 {
-    type Prepared = ($($name::Prepared,)+);
+    type State = ($($name::State,)+);
 
     #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State {
         ($($name::prepare(res, components),)+)
     }
 
     #[inline(always)]
-    fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool {
-        $($name::matches_archetype(prepared.$index, archetype))&&+
+    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool {
+        $($name::matches_archetype(&state.$index, archetype))&&+
     }
 }
 
@@ -88,16 +88,16 @@ impl<$($name),+> Filter for Or<($($name,)+)>
 where
     $($name: Filter,)+
 {
-    type Prepared = ($($name::Prepared,)+);
+    type State = ($($name::State,)+);
 
     #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
+    fn prepare(res: &mut Resources, components: &mut Components) -> Self::State {
         ($($name::prepare(res, components),)+)
     }
 
     #[inline(always)]
-    fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool {
-        $($name::matches_archetype(prepared.$index, archetype))||+
+    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool {
+        $($name::matches_archetype(&state.$index, archetype))||+
     }
 }
 
@@ -114,46 +114,42 @@ where
     F: Filter,
     Q: QueryParam,
 {
-    type Prepared = (F::Prepared, Q::Prepared);
-    type State = Q::State;
+    type State = (F::State, Q::State);
+    type Fetch = Q::Fetch;
     type Borrow = Without<F, Q::Borrow>;
 
     #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
-        (F::prepare(res, components), Q::prepare(res, components))
+    fn init(res: &mut Resources, components: &mut Components) -> Self::State {
+        (F::prepare(res, components), Q::init(res, components))
     }
 
     #[inline]
-    fn update_access(
-        prepared: Self::Prepared,
-        shared: &mut ComponentSet,
-        exclusive: &mut ComponentSet,
-    ) {
-        Q::update_access(prepared.1, shared, exclusive);
+    fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
+        Q::update_access(&state.1, shared, exclusive);
     }
 
     #[inline(always)]
-    fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool {
-        !F::matches_archetype(prepared.0, archetype) && Q::matches_archetype(prepared.1, archetype)
+    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool {
+        !F::matches_archetype(&state.0, archetype) && Q::matches_archetype(&state.1, archetype)
     }
 
     #[inline(always)]
-    fn state(prepared: Self::Prepared, archetype: &Archetype) -> Q::State {
-        Q::state(prepared.1, archetype)
+    fn fetch(state: &Self::State, archetype: &Archetype) -> Q::Fetch {
+        Q::fetch(&state.1, archetype)
     }
 }
 
-impl<'w, F, Q> QueryBorrow<'w> for Without<F, Q>
+impl<'w, F, Q> QueryParamFetch<'w> for Without<F, Q>
 where
     F: Filter,
-    Q: QueryBorrow<'w>,
+    Q: QueryParamFetch<'w>,
 {
     type Borrowed = Q::Borrowed;
-    type Fetch = Without<F, Q::Fetch>;
+    type FetchGet = Without<F, Q::FetchGet>;
 
     #[inline(always)]
-    fn borrow(res: &'w ResourcesSend, prepared: Self::Prepared) -> Self::Borrowed {
-        Q::borrow(res, prepared.1)
+    fn borrow(res: &'w ResourcesSend, state: &Self::State) -> Self::Borrowed {
+        Q::borrow(res, &state.1)
     }
 }
 
@@ -167,14 +163,14 @@ where
     #[inline(always)]
     fn get(
         this: &'a mut Self::Borrowed,
-        state: Q::State,
+        fetch: Q::Fetch,
         archetype: &Archetype,
         index: usize,
     ) -> Self::Item
     where
         'w: 'a,
     {
-        Q::get(this, state, archetype, index)
+        Q::get(this, fetch, archetype, index)
     }
 }
 
@@ -185,46 +181,42 @@ where
     F: Filter,
     Q: QueryParam,
 {
-    type Prepared = (F::Prepared, Q::Prepared);
-    type State = Q::State;
+    type State = (F::State, Q::State);
+    type Fetch = Q::Fetch;
     type Borrow = With<F, Q::Borrow>;
 
     #[inline]
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared {
-        (F::prepare(res, components), Q::prepare(res, components))
+    fn init(res: &mut Resources, components: &mut Components) -> Self::State {
+        (F::prepare(res, components), Q::init(res, components))
     }
 
     #[inline]
-    fn update_access(
-        prepared: Self::Prepared,
-        shared: &mut ComponentSet,
-        exclusive: &mut ComponentSet,
-    ) {
-        Q::update_access(prepared.1, shared, exclusive);
+    fn update_access(state: &Self::State, shared: &mut ComponentSet, exclusive: &mut ComponentSet) {
+        Q::update_access(&state.1, shared, exclusive);
     }
 
     #[inline(always)]
-    fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool {
-        F::matches_archetype(prepared.0, archetype) && Q::matches_archetype(prepared.1, archetype)
+    fn matches_archetype(state: &Self::State, archetype: &Archetype) -> bool {
+        F::matches_archetype(&state.0, archetype) && Q::matches_archetype(&state.1, archetype)
     }
 
     #[inline(always)]
-    fn state(prepared: Self::Prepared, archetype: &Archetype) -> Q::State {
-        Q::state(prepared.1, archetype)
+    fn fetch(state: &Self::State, archetype: &Archetype) -> Q::Fetch {
+        Q::fetch(&state.1, archetype)
     }
 }
 
-impl<'w, F, Q> QueryBorrow<'w> for With<F, Q>
+impl<'w, F, Q> QueryParamFetch<'w> for With<F, Q>
 where
     F: Filter,
-    Q: QueryBorrow<'w>,
+    Q: QueryParamFetch<'w>,
 {
     type Borrowed = Q::Borrowed;
-    type Fetch = With<F, Q::Fetch>;
+    type FetchGet = With<F, Q::FetchGet>;
 
     #[inline(always)]
-    fn borrow(res: &'w ResourcesSend, prepared: Self::Prepared) -> Self::Borrowed {
-        Q::borrow(res, prepared.1)
+    fn borrow(res: &'w ResourcesSend, state: &Self::State) -> Self::Borrowed {
+        Q::borrow(res, &state.1)
     }
 }
 
@@ -238,13 +230,13 @@ where
     #[inline(always)]
     fn get(
         this: &'a mut Self::Borrowed,
-        state: Q::State,
+        fetch: Q::Fetch,
         archetype: &Archetype,
         index: usize,
     ) -> Self::Item
     where
         'w: 'a,
     {
-        Q::get(this, state, archetype, index)
+        Q::get(this, fetch, archetype, index)
     }
 }
