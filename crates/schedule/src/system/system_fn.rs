@@ -1,3 +1,5 @@
+use pulz_bitset::BitSet;
+
 use crate::{
     resource::{FromResources, ResourceAccess, ResourceId, Resources},
     system::{
@@ -70,7 +72,7 @@ where
                 Box::new(SystemFn::<P, F>::new(self)),
                 ResourceAccess::new(),
             ),
-            dependencies: Vec::new(),
+            dependencies: BitSet::new(),
             label: None,
             before: Vec::new(),
             after: Vec::new(),
@@ -128,7 +130,7 @@ where
     fn into_system_descriptor(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(ExclusiveSystemFn { func: self })),
-            dependencies: Vec::new(),
+            dependencies: BitSet::new(),
             label: None,
             before: Vec::new(),
             after: Vec::new(),

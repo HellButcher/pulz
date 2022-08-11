@@ -538,8 +538,8 @@ impl<T: Default> FromResources for T {
 }
 
 pub struct ResourceAccess {
-    shared: BitSet,
-    exclusive: BitSet,
+    pub(crate) shared: BitSet,
+    pub(crate) exclusive: BitSet,
 }
 
 impl ResourceAccess {

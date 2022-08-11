@@ -1,6 +1,8 @@
 use crossbeam_utils::sync::WaitGroup;
+use pulz_bitset::BitSet;
 
 use crate::{
+    label::SystemLabel,
     resource::Resources,
     system::{ExclusiveSystem, IntoSystemDescriptor, SystemDescriptor, SystemVariant},
 };
@@ -50,19 +52,249 @@ impl Schedule {
         self.systems.push(system)
     }
 
+    fn find_system(&self, label: &SystemLabel) -> Option<usize> {
+        self.systems.iter().enumerate().find_map(|(i, s)| {
+            s.label
+                .as_ref()
+                .and_then(|l| if l == label { Some(i) } else { None })
+        })
+    }
+
+    fn update_dependencies(&mut self) {
+        let mut before_dep_pairs = Vec::new();
+        for i in 0..self.systems.len() {
+            let mut dependencies = BitSet::new();
+            for after in &self.systems[i].after {
+                if let Some(index) = self.find_system(after) {
+                    assert_ne!(index, i);
+                    dependencies.insert(index);
+                }
+            }
+            for before in &self.systems[i].before {
+                if let Some(index) = self.find_system(before) {
+                    assert_ne!(index, i);
+                    before_dep_pairs.push((i, index));
+                }
+            }
+
+            // SAFETY: i < len
+            unsafe {
+                self.systems.get_unchecked_mut(i).dependencies = dependencies;
+            }
+        }
+        for (before, after) in before_dep_pairs {
+            unsafe {
+                self.systems
+                    .get_unchecked_mut(after)
+                    .dependencies
+                    .insert(before);
+            }
+        }
+    }
+
+    fn build_topological_groups(&self) -> Vec<Vec<usize>> {
+        // (lets say, a system is in group `b`, this means that there is at least one
+        // dependency for this system in group `b-1`).
+        // The order inside the group is the insertion order.
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        let mut completed = BitSet::with_capacity_for(self.systems.len());
+        let mut todo = self.systems.len();
+        while todo > 0 {
+            let mut new_group = Vec::new();
+            for (i, system) in self.systems.iter().enumerate() {
+                if !completed.contains(i) && completed.contains_all(&system.dependencies) {
+                    new_group.push(i);
+                    todo -= 1;
+                }
+            }
+            if new_group.is_empty() {
+                panic!("unable to build topological order: probbably cycles in systems");
+            }
+            for i in &new_group {
+                completed.insert(*i);
+            }
+            groups.push(new_group);
+        }
+        groups
+    }
+
+    fn add_resource_dependencies_and_check_conflicts(&mut self, groups: &[Vec<usize>]) {
+        // assigns last exclusive system and group to resources.
+        // Its a conflict, if they are accessed in the same group.
+        let mut ru = Vec::new();
+        for (g, group) in groups.iter().enumerate() {
+            // first check & update exclusive access (forward)
+            for &s in group {
+                let system = &mut self.systems[s];
+                if let SystemVariant::Concurrent(_, access) = &system.system_variant {
+                    for r in access.exclusive.iter() {
+                        let item = get_resource_usage_entry_mut(&mut ru, r);
+                        if item.0 == g {
+                            panic!("resource conflict for exclusive/exclusive access on resource {} between system {} and {}", r, item.1, s);
+                        } else if item.0 < g {
+                            // add dependency
+                            system.dependencies.insert(item.1);
+                        }
+                        *item = (g, s);
+                    }
+                }
+            }
+            // then check shared access
+            for &s in group {
+                let system = &mut self.systems[s];
+                if let SystemVariant::Concurrent(_, access) = &system.system_variant {
+                    for r in access.shared.iter() {
+                        let item = get_resource_usage_entry_mut(&mut ru, r);
+                        if item.0 == g {
+                            panic!("resource conflict for shared/exclusive access on resource {} on between system {} and {}", r, item.1, s);
+                        } else if item.0 < g {
+                            // add dependency
+                            system.dependencies.insert(item.1);
+                        }
+                    }
+                }
+            }
+        }
+        // then update exclusive access (backward)
+        ru.clear();
+        let mut tmp_deps_pairs = Vec::new();
+        for (g, group) in groups.iter().enumerate().rev() {
+            for &s in group {
+                if let SystemVariant::Concurrent(_, access) = &self.systems[s].system_variant {
+                    for r in access.exclusive.iter() {
+                        *get_resource_usage_entry_mut(&mut ru, r) = (g, s);
+                    }
+                    for r in access.shared.iter() {
+                        let item = get_resource_usage_entry_mut(&mut ru, r);
+                        if item.0 != !0 && item.1 != !0 {
+                            tmp_deps_pairs.push((s, item.1));
+                        }
+                    }
+                }
+            }
+        }
+        for (before, after) in tmp_deps_pairs {
+            unsafe {
+                self.systems
+                    .get_unchecked_mut(after)
+                    .dependencies
+                    .insert(before);
+            }
+        }
+    }
+
+    fn move_nonsync_and_exclusive(&self, groups: &mut Vec<Vec<usize>>) {
+        if groups.is_empty() {
+            return;
+        }
+        let mut tmp_nosend = Vec::new();
+        let mut tmp_excl = Vec::new();
+        let len = groups.len();
+        for i in 0..len {
+            self.add_to_prev_group_if_conflict(&mut tmp_nosend, groups, i);
+            self.add_to_prev_group_if_conflict(&mut tmp_excl, groups, i);
+
+            let group = &mut groups[i];
+            let mut j = 0;
+            while j < group.len() {
+                let s = group[j];
+                let system = &self.systems[s];
+                if system.is_exclusive() {
+                    tmp_excl.push(group.remove(j));
+                } else if !system.is_send() {
+                    tmp_nosend.push(group.remove(j));
+                } else {
+                    j += 1;
+                }
+            }
+        }
+        groups[len - 1].extend(tmp_nosend);
+        groups[len - 1].extend(tmp_excl);
+    }
+
+    fn add_to_prev_group_if_conflict(
+        &self,
+        src: &mut Vec<usize>,
+        groups: &mut Vec<Vec<usize>>,
+        i: usize,
+    ) {
+        let mut j = 0;
+        while j < src.len() {
+            let s = src[j];
+            let mut conflict = false;
+            for &s2 in &groups[i] {
+                if self.systems[s2].dependencies.contains(s) {
+                    conflict = true;
+                    break;
+                }
+            }
+            if conflict {
+                src.remove(j);
+                groups[i - 1].push(s);
+            } else {
+                j += 1;
+            }
+        }
+    }
+
+    fn finalize_concurrent_task_group(&mut self, group: &mut Vec<(usize, usize)>) {
+        if group.is_empty() {
+            return;
+        }
+        let len = group.len();
+        for i in 0..len {
+            let s = group[i].0;
+            let mut j = i + 1;
+            while j < len {
+                let t = group[j].0;
+                if self.systems[t].dependencies.contains(s) {
+                    break;
+                } else {
+                    j += 1;
+                }
+            }
+            group[i].1 = j;
+        }
+        self.ordered_task_groups
+            .push(TaskGroup::Concurrent(std::mem::take(group)));
+    }
+
     fn rebuild(&mut self) {
-        // TODO: simple order
-        self.ordered_task_groups = (0..self.systems.len()).map(TaskGroup::Exclusive).collect();
+        // first update the dependencies metadata
+        self.update_dependencies();
+
+        // now group these systems based on their dependency
+        let mut groups = self.build_topological_groups();
+
+        // add implicit dependencies, and check conflicts
+        self.add_resource_dependencies_and_check_conflicts(&groups);
+
+        // move non-sync and exclusive systems to the end as far as possible (first nonsend then exclusive)
+        self.move_nonsync_and_exclusive(&mut groups);
+
+        // build final
+        self.ordered_task_groups.clear();
+        let mut current_concurrent_group: Vec<(usize, usize)> = Vec::new();
+        for s in groups.into_iter().flatten() {
+            if self.systems[s].is_exclusive() {
+                self.finalize_concurrent_task_group(&mut current_concurrent_group);
+                self.ordered_task_groups.push(TaskGroup::Exclusive(s));
+            } else {
+                current_concurrent_group.push((s, !0usize));
+            }
+        }
+        self.finalize_concurrent_task_group(&mut current_concurrent_group);
     }
 
     pub fn init(&mut self, resources: &mut Resources) {
-        // TODO: track identity of resource-set
+        // TODO: track identity of resource-
         if self.dirty {
-            self.rebuild();
-            self.dirty = false;
             for sys in &mut self.systems {
                 sys.init(resources)
             }
+
+            self.rebuild();
+            self.dirty = false;
         }
     }
 
@@ -86,10 +318,71 @@ impl Schedule {
     }
 }
 
+fn get_resource_usage_entry_mut(
+    resource_usage: &mut Vec<(usize, usize)>,
+    r: usize,
+) -> &mut (usize, usize) {
+    if resource_usage.len() <= r {
+        resource_usage.resize(r + 1, (!0usize, !0usize));
+    }
+    // SAFETY: we have checked the length, and resized it if smaller
+    unsafe { resource_usage.get_unchecked_mut(r) }
+}
+
 impl Default for Schedule {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+struct TGItem<'s>(&'s SystemDescriptor, usize, usize);
+impl std::fmt::Debug for TGItem<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("System");
+        s.field("index", &self.1);
+        s.field("label", &self.0.label);
+        s.field("exclusive", &self.0.is_exclusive());
+        s.field("send", &self.0.is_send());
+        s.field("next", &self.2);
+        s.finish()
+    }
+}
+
+struct TGDebug<'s>(&'s [SystemDescriptor], &'s TaskGroup);
+
+impl std::fmt::Debug for TGDebug<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_list();
+        match &self.1 {
+            TaskGroup::Exclusive(i) => {
+                s.entry(&self.0[*i]);
+            }
+            TaskGroup::Concurrent(group) => {
+                for &(i, next) in group {
+                    s.entry(&TGItem(&self.0[i], i, next));
+                }
+            }
+        }
+        s.finish()
+    }
+}
+
+impl std::fmt::Debug for Schedule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("Schedule");
+        s.field("dirty", &self.dirty);
+        if self.dirty {
+            s.field("systems", &self.systems);
+        } else {
+            let tmp: Vec<_> = self
+                .ordered_task_groups
+                .iter()
+                .map(|g| TGDebug(&self.systems, g))
+                .collect();
+            s.field("order", &tmp);
+        }
+        s.finish()
     }
 }
 
@@ -174,20 +467,21 @@ pub mod threadpool {
         F: FnOnce() + Send + 'static,
     {
         CURRENT.with(|current| {
-            if let Some(current) = current.borrow().as_ref() {
-                current.execute(task);
-            } else {
-                let global = get_or_init_global().lock().unwrap();
-                current.replace(Some(global.clone()));
-                global.execute(task);
+            {
+                if let Some(current) = current.borrow().as_ref() {
+                    current.execute(task);
+                    return;
+                }
             }
+            let global = { get_or_init_global().lock().unwrap().clone() };
+            current.replace(Some(global.clone()));
+            global.execute(task);
         });
-        todo!()
     }
 }
 
 impl<'s> ScheduleExecution<'s> {
-    fn check_end(&mut self) -> bool {
+    fn check_end_and_reset(&mut self) -> bool {
         if self.current_task_group < self.ordered_task_groups.len() {
             true
         } else {
@@ -226,7 +520,7 @@ impl<'s> ScheduleExecution<'s> {
             }
             None => (),
         }
-        self.check_end()
+        self.check_end_and_reset()
     }
 
     /// The current target does not support spawning threads.
@@ -290,7 +584,7 @@ impl<'s> ScheduleExecution<'s> {
                         .resize_with(entries.len() + 1 - self.current_sub_entry, Default::default);
                     let current_wait_group = self.tasks_rev.pop().unwrap();
                     let signal_wait_group =
-                        self.tasks_rev[entries.len() - self.current_sub_entry].clone();
+                        self.tasks_rev[entries.len() - self.current_sub_entry - 1].clone();
 
                     // UNSAFE: cast these lifetimes to a 'static scope for usage in
                     // spawned tasks. The requirement is, that these tasks do not
@@ -318,6 +612,7 @@ impl<'s> ScheduleExecution<'s> {
                     } else {
                         panic!("expected a concurrent system!");
                     }
+                    self.current_sub_entry += 1;
                 } else {
                     self.current_task_group += 1;
                     self.current_sub_entry = 0;
@@ -326,7 +621,8 @@ impl<'s> ScheduleExecution<'s> {
             }
             None => (),
         }
-        self.check_end()
+
+        self.check_end_and_reset()
     }
 
     #[cfg(not(target_os = "unknown"))]
@@ -335,6 +631,12 @@ impl<'s> ScheduleExecution<'s> {
         while let Some(wait_group) = self.tasks_rev.pop() {
             wait_group.wait();
         }
+    }
+}
+
+impl Drop for ScheduleExecution<'_> {
+    fn drop(&mut self) {
+        self.join();
     }
 }
 

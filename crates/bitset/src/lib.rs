@@ -39,6 +39,11 @@ impl BitSet {
         Self(Vec::new())
     }
 
+    /// creates a new bitset with a reserved capacity for items up to the given index.
+    pub fn with_capacity_for(max_item: usize) -> Self {
+        Self(Vec::with_capacity((max_item >> SHIFT_DIV64) + 1))
+    }
+
     pub fn clear(&mut self) {
         self.0.clear()
     }
@@ -91,6 +96,20 @@ impl BitSet {
         } else {
             false
         }
+    }
+
+    pub fn contains_all(&self, other: &Self) -> bool {
+        if other.0.len() > self.0.len() {
+            return false;
+        }
+        for i in 0..other.0.len() {
+            let l = self.0[i];
+            let r = other.0[i];
+            if l & r != r {
+                return false;
+            }
+        }
+        true
     }
 
     pub fn insert(&mut self, value: usize) -> bool {

@@ -1,3 +1,5 @@
+use pulz_bitset::BitSet;
+
 use crate::{
     label::{AnyLabel, SystemLabel},
     resource::{ResourceAccess, Resources, ResourcesSend},
@@ -56,7 +58,7 @@ pub trait IntoSystemDescriptor<Marker>: Sized {
 
 pub struct SystemDescriptor {
     pub(crate) system_variant: SystemVariant,
-    pub(crate) dependencies: Vec<usize>,
+    pub(crate) dependencies: BitSet,
     pub(crate) label: Option<SystemLabel>,
     pub(crate) before: Vec<SystemLabel>,
     pub(crate) after: Vec<SystemLabel>,
@@ -71,6 +73,11 @@ impl SystemDescriptor {
             SystemVariant::Exclusive(_) => false,
             SystemVariant::Concurrent(_, _) => true,
         }
+    }
+
+    #[inline]
+    pub fn is_exclusive(&self) -> bool {
+        !self.is_concurrent()
     }
 
     pub fn exclusive(self) -> Self {
@@ -126,6 +133,16 @@ impl SystemDescriptor {
             SystemVariant::Concurrent(ref mut system, _) => system.run_send(resources),
             _ => panic!("exclusive systems are not `send`!"),
         }
+    }
+}
+
+impl std::fmt::Debug for SystemDescriptor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("System");
+        s.field("label", &self.label);
+        s.field("exclusive", &self.is_exclusive());
+        s.field("send", &self.is_send());
+        s.finish()
     }
 }
 
@@ -201,7 +218,7 @@ where
     fn into_system_descriptor(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Concurrent(Box::new(self), ResourceAccess::new()),
-            dependencies: Vec::new(),
+            dependencies: BitSet::new(),
             label: None,
             before: Vec::new(),
             after: Vec::new(),
@@ -220,7 +237,7 @@ where
     fn into_system_descriptor(self) -> SystemDescriptor {
         SystemDescriptor {
             system_variant: SystemVariant::Exclusive(Box::new(self)),
-            dependencies: Vec::new(),
+            dependencies: BitSet::new(),
             label: None,
             before: Vec::new(),
             after: Vec::new(),
