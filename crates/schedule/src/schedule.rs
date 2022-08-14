@@ -316,6 +316,107 @@ impl Schedule {
             tasks_rev: Vec::new(),
         }
     }
+
+    pub fn write_dot(&self, w: &mut dyn std::io::Write, title: Option<&str>) -> std::io::Result<()> {
+        write!(w, "digraph system {{\n")?;
+        write!(w, "  graph [ranksep=0.5,overlap=scale,splines=true,compound=true];\n")?;
+        if let Some(title) = title {
+            write!(w, "  label[shape=underline,label=\"{title}\"]")?;
+        }
+        write!(w, "  start [shape=point];\n")?;
+
+        for (i, group) in self.ordered_task_groups.iter().enumerate() {
+            match group {
+                &TaskGroup::Exclusive(s) => {
+                    if let Some(label) = &self.systems[s].label {
+                        write!(w, "  s{s} [shape=box, label=\"{label:?}\"];\n")?;
+                    } else {
+                        write!(w, "  s{s} [shape=box];\n")?;
+                    }
+                    if i == 0 {
+                        write!(w, "  start -> s{s} [style=dashed];\n")?;
+                    }
+                },
+                TaskGroup::Concurrent(entries) => {
+                    write!(w, "  subgraph cluster_{i} {{\n")?;
+                    for &(s,_) in entries {
+                        if let Some(label) = &self.systems[s].label {
+                            write!(w, "    s{s} [label=\"{label:?}\"];\n")?;
+                        } else {
+                            write!(w, "    s{s};\n")?;
+                        }
+                    }
+                    write!(w, "    style=dashed;\n")?;
+                    write!(w, "  }}\n")?;
+
+                    let first_in_group = entries.first().unwrap().0;
+                    if i == 0 {
+                        write!(w, "  start -> s{first_in_group} [style=dashed, lhead=cluster_{i}];\n")?;
+                    } else if let TaskGroup::Exclusive(prev) = self.ordered_task_groups[i-1] {
+                        write!(w, "  s{prev} -> s{first_in_group} [style=dashed, lhead=cluster_{i}];\n")?;
+                    }
+                    let next = match self.ordered_task_groups.get(i+1) {
+                        Some(TaskGroup::Exclusive(next)) => *next,
+                        Some(TaskGroup::Concurrent(entries)) => entries.first().unwrap().0,
+                        None => self.systems.len(),
+                    };
+                    for &(s,e) in entries {
+                        if e >= entries.len() {
+                            write!(w, "  s{s} -> s{next} [style=dashed];\n")?;
+                        } else {
+                            let next = entries[e].0;
+                            write!(w, "  s{s} -> s{next};\n")?;
+                        }
+                    }
+                }
+            }
+        }
+
+        let end = self.systems.len();
+        write!(w, "  s{end} [shape=point];\n")?;
+        if self.ordered_task_groups.is_empty() {
+            write!(w, "  start -> s{end} [style=dashed];\n")?;
+        } else if let Some(&TaskGroup::Exclusive(prev)) = self.ordered_task_groups.last() {
+            write!(w, "  s{prev} -> s{end} [style=dashed];\n")?;
+        }
+
+
+        for (s, system) in self.systems.iter().enumerate() {
+            for label in &system.after {
+                if let Some(after) = self.find_system(label) {
+                    write!(w, "  s{s} -> s{after} [constraint=false, color=red];\n")?;
+                }
+            }
+            for label in &system.before {
+                if let Some(before) = self.find_system(label) {
+                    write!(w, "  s{s} -> s{before} [constraint=false, color=blue];\n")?;
+                }
+            }
+        }
+
+        // legend
+        write!(w, "  subgraph cluster_legend {{\n")?;
+        write!(w, "    x0 [shape=point,xlabel=\"Start\"];\n")?;
+        write!(w, "    x1 [shape=box, label=\"Exclusive\"];\n")?;
+        write!(w, "    subgraph cluster_legend_sub {{\n")?;
+        write!(w, "      x2 [label=\"Concurrent\"];\n")?;
+        write!(w, "      x3 [label=\"Send\", color=green];\n")?;
+        write!(w, "      style=dashed;\n")?;
+        write!(w, "    }}\n")?;
+        write!(w, "    x4 [shape=point,xlabel=\"End\"];\n")?;
+        write!(w, "\n")?;
+        write!(w, "    x0 -> x1 [style=dashed]\n")?;
+        write!(w, "    x1 -> x2 [color=blue, label=\"is\\nbefore\", constraint=false]\n")?;
+        write!(w, "    x2 -> x3 [label=\"critical\\ndep.\"]\n")?;
+        write!(w, "    x3 -> x2 [color=red, label=\"is\\nafter\", constraint=false]\n")?;
+        write!(w, "    x1 -> x2 [style=dashed, label=\"implicit\\ndep.\",lhead=cluster_legend_sub]\n")?;
+        write!(w, "    x3 -> x4 [style=dashed]\n")?;
+        write!(w, "    label=\"Legend\"\n")?;
+        write!(w, "  }}\n")?;
+        // end
+        write!(w, "}}\n")?;
+        Ok(())
+    }
 }
 
 fn get_resource_usage_entry_mut(
@@ -640,6 +741,18 @@ impl Drop for ScheduleExecution<'_> {
     }
 }
 
+#[macro_export]
+macro_rules! dump_schedule_dot {
+    ($schedule:expr) => {
+        use std::io::Write;
+        let mut filename = module_path!().replace("::", "_");
+        filename.push_str(".sched.dot");
+        let mut f = std::fs::File::create(&filename).unwrap();
+        write!(f, "# mod: {}\n# file: {}:{}\n", module_path!(), file!(), line!()).unwrap();
+        $schedule.write_dot(&mut f, Some(module_path!())).unwrap();
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -678,6 +791,8 @@ mod tests {
         let mut resources = Resources::new();
         let mut schedule = Schedule::new().with(Sys(counter.clone())).with(ExSys);
         schedule.init(&mut resources);
+
+        //dump_schedule_dot!(&schedule);
 
         assert_eq!(0, counter.load(std::sync::atomic::Ordering::Acquire));
         assert!(resources.get_mut::<A>().is_none());
