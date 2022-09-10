@@ -36,6 +36,7 @@ pub enum Void {}
 
 pub mod event;
 pub mod label;
+pub mod local;
 pub mod module;
 pub mod resource;
 pub mod schedule;
