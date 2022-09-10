@@ -12,11 +12,7 @@ use atomic_refcell::AtomicRefCell;
 pub use atomic_refcell::{AtomicRef as Res, AtomicRefMut as ResMut};
 use pulz_bitset::BitSet;
 
-use crate::{
-    module::Module,
-    schedule::Schedule,
-    system::param::{SystemParam, SystemParamFetch, SystemParamState},
-};
+use crate::system::param::{SystemParam, SystemParamFetch, SystemParamState};
 
 #[repr(transparent)]
 pub struct ResourceId<T = crate::Void>(usize, PhantomData<fn() -> T>);
@@ -321,18 +317,6 @@ impl Resources {
     }
 
     #[inline]
-    pub fn install<M>(&mut self, module: M) -> M::Output
-    where
-        M: Module,
-    {
-        let schedule_id = self.init_unsend::<Schedule>();
-        let mut schedule = self.remove_id(schedule_id).unwrap();
-        let result = module.install(self, &mut schedule);
-        self.insert_again(schedule);
-        result
-    }
-
-    #[inline]
     pub fn borrow_res<T>(&self) -> Option<Res<'_, T>>
     where
         T: 'static,
@@ -601,6 +585,13 @@ impl ResourceAccess {
         self.shared.is_disjoint(&other.exclusive)
             && self.exclusive.is_disjoint(&other.shared)
             && self.exclusive.is_disjoint(&other.exclusive)
+    }
+}
+
+impl Default for ResourceAccess {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 
