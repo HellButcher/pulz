@@ -1,0 +1,13 @@
+[package]
+name = "pulz-functional-utils"
+description = "traits and macros to work with tuples and functions"
+version = "0.1.0-alpha"
+authors = ["Christoph Hommelsheim <main@chommel.eu>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HellButcher/pulz.git"
+readme = "README.md"
+edition = "2021"
+
+
+[dependencies]
+pulz-functional-utils-macros = { version = "0.1.0-alpha", path = "macros" }
