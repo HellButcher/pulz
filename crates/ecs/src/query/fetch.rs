@@ -1,9 +1,9 @@
-use pulz_schedule::resource::ResourceAccess;
+use pulz_schedule::resource::{ResourceAccess, ResourceId};
 
-use super::{QryRefState, QueryParamState, QueryParamWithFetch};
+use super::{QueryParamState, QueryParamWithFetch};
 use crate::{
     archetype::Archetype,
-    component::{Component, Components},
+    component::{Component, ComponentId, Components},
     entity::Entity,
     query::{QueryParam, QueryParamFetch, QueryParamFetchGet},
     resource::{Res, ResMut, Resources, ResourcesSend},
@@ -12,10 +12,33 @@ use crate::{
 
 impl<T: Component> QueryParam for &'_ T {
     type State = QryRefState<T>;
+}
+
+#[doc(hidden)]
+pub struct QryRefState<T: Component> {
+    storage_id: ResourceId<T::Storage>,
+    component_id: ComponentId<T>,
+}
+
+impl<T: Component> QueryParamState for QryRefState<T> {
+    #[inline]
+    fn init(_res: &Resources, components: &Components) -> Self {
+        let component_id = components.id::<T>().expect("component_id");
+        let component = components.get(component_id).unwrap();
+        Self {
+            storage_id: component.storage_id.typed(),
+            component_id,
+        }
+    }
 
     #[inline]
-    fn update_access(state: &Self::State, access: &mut ResourceAccess) {
-        access.add_shared_checked(state.storage_id);
+    fn update_access(&self, access: &mut ResourceAccess) {
+        access.add_shared_checked(self.storage_id);
+    }
+
+    #[inline]
+    fn matches_archetype(&self, archetype: &Archetype) -> bool {
+        self.component_id.is_sparse() || archetype.contains_component_id(self.component_id)
     }
 }
 
@@ -54,11 +77,34 @@ impl<'w, 'a, T: Component> QueryParamFetchGet<'w, 'a> for QryRefFetch<'w, T> {
 }
 
 impl<T: Component> QueryParam for &'_ mut T {
-    type State = QryRefState<T>;
+    type State = QryRefMutState<T>;
+}
+
+#[doc(hidden)]
+pub struct QryRefMutState<T: Component> {
+    storage_id: ResourceId<T::Storage>,
+    component_id: ComponentId<T>,
+}
+
+impl<T: Component> QueryParamState for QryRefMutState<T> {
+    #[inline]
+    fn init(_res: &Resources, components: &Components) -> Self {
+        let component_id = components.id::<T>().expect("component_id");
+        let component = components.get(component_id).unwrap();
+        Self {
+            storage_id: component.storage_id.typed(),
+            component_id,
+        }
+    }
 
     #[inline]
-    fn update_access(state: &QryRefState<T>, access: &mut ResourceAccess) {
-        access.add_exclusive_checked(state.storage_id);
+    fn update_access(&self, access: &mut ResourceAccess) {
+        access.add_exclusive_checked(self.storage_id);
+    }
+
+    #[inline]
+    fn matches_archetype(&self, archetype: &Archetype) -> bool {
+        self.component_id.is_sparse() || archetype.contains_component_id(self.component_id)
     }
 }
 
@@ -71,10 +117,10 @@ impl<'w, T: Component> QueryParamWithFetch<'w> for &'_ mut T {
 pub struct QryRefMutFetch<'w, T: Component>(ResMut<'w, T::Storage>);
 
 impl<'w, T: Component> QueryParamFetch<'w> for QryRefMutFetch<'w, T> {
-    type State = QryRefState<T>;
+    type State = QryRefMutState<T>;
 
     #[inline]
-    fn fetch(res: &'w ResourcesSend, state: &QryRefState<T>) -> Self {
+    fn fetch(res: &'w ResourcesSend, state: &QryRefMutState<T>) -> Self {
         Self(
             res.borrow_res_mut_id(state.storage_id)
                 .expect("unable to borrow mut component"),
@@ -98,9 +144,6 @@ impl<'w, 'a, T: Component> QueryParamFetchGet<'w, 'a> for QryRefMutFetch<'w, T> 
 
 impl QueryParam for Entity {
     type State = ();
-
-    #[inline(always)]
-    fn update_access(_state: &(), _access: &mut ResourceAccess) {}
 }
 
 impl QueryParamWithFetch<'_> for Entity {
@@ -136,11 +179,6 @@ where
     Q: QueryParam,
 {
     type State = QryOptionState<Q::State>;
-
-    #[inline]
-    fn update_access(state: &Self::State, access: &mut ResourceAccess) {
-        Q::update_access(&state.0, access);
-    }
 }
 
 impl<'w, Q: QueryParamWithFetch<'w>> QueryParamWithFetch<'w> for Option<Q> {
@@ -156,6 +194,12 @@ impl<S: QueryParamState> QueryParamState for QryOptionState<S> {
     fn init(resources: &Resources, components: &Components) -> Self {
         Self(S::init(resources, components))
     }
+
+    #[inline]
+    fn update_access(&self, access: &mut ResourceAccess) {
+        self.0.update_access(access);
+    }
+
     #[inline]
     fn matches_archetype(&self, _archetype: &Archetype) -> bool {
         true
@@ -196,10 +240,7 @@ where
     type Item = Option<F::Item>;
 
     #[inline]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item
-    where
-        'w: 'a,
-    {
+    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
         if self.available {
             Some(self.sub_fetch.get(archetype, index))
         } else {
@@ -210,9 +251,6 @@ where
 
 impl QueryParam for () {
     type State = ();
-
-    #[inline(always)]
-    fn update_access(_state: &Self::State, _access: &mut ResourceAccess) {}
 }
 
 impl QueryParamWithFetch<'_> for () {
@@ -222,6 +260,9 @@ impl QueryParamWithFetch<'_> for () {
 impl QueryParamState for () {
     #[inline]
     fn init(_res: &Resources, _components: &Components) -> Self {}
+
+    #[inline(always)]
+    fn update_access(&self, _access: &mut ResourceAccess) {}
 
     #[inline(always)]
     fn matches_archetype(&self, _archetype: &Archetype) -> bool {
@@ -255,14 +296,6 @@ where
     $($name: QueryParam,)+
 {
     type State = ($($name::State,)+);
-
-    #[inline]
-    fn update_access(
-        state: &Self::State,
-        access: &mut ResourceAccess,
-    ) {
-        $($name::update_access(&state.$index, access);)+
-    }
 }
 
 impl<'w, $($name),+> QueryParamWithFetch<'w> for ($($name,)+)
@@ -279,6 +312,14 @@ where
     #[inline]
     fn init(res: &Resources, components: &Components) -> Self {
         ($($name::init(res, components),)+)
+    }
+
+    #[inline]
+    fn update_access(
+        &self,
+        access: &mut ResourceAccess,
+    ) {
+        $(self.$index.update_access(access);)+
     }
 
     #[inline]
@@ -312,7 +353,7 @@ where
     type Item = ($($name::Item,)+);
 
     #[inline(always)]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item where 'w: 'a {
+    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
         ($(self.$index.get(archetype, index),)+)
     }
 }

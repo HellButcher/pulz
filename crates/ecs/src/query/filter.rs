@@ -21,13 +21,6 @@ where
     type State = QryRefState<T>;
 }
 
-impl<T> Filter for &'_ mut T
-where
-    T: Component,
-{
-    type State = QryRefState<T>;
-}
-
 impl Filter for () {
     type State = ();
 }
@@ -68,12 +61,6 @@ where
     Q: QueryParam,
 {
     type State = QryWithoutFilterState<F::State, Q::State>;
-
-    #[inline]
-    fn update_access(state: &Self::State, access: &mut ResourceAccess) {
-        // TODO: special handling for sparse filter components
-        Q::update_access(&state.query, access);
-    }
 }
 
 impl<'w, F, Q> QueryParamWithFetch<'w> for Without<F, Q>
@@ -97,6 +84,12 @@ impl<F: QueryParamState, Q: QueryParamState> QueryParamState for QryWithoutFilte
             filter: F::init(resources, components),
             query: Q::init(resources, components),
         }
+    }
+
+    #[inline]
+    fn update_access(&self, access: &mut ResourceAccess) {
+        // TODO: special handling for sparse filter components
+        self.query.update_access(access);
     }
 
     #[inline]
@@ -141,10 +134,7 @@ where
     type Item = Q::Item;
 
     #[inline(always)]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item
-    where
-        'w: 'a,
-    {
+    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
         self.query.get(archetype, index)
     }
 }
@@ -157,12 +147,6 @@ where
     Q: QueryParam,
 {
     type State = QryWithFilterState<F::State, Q::State>;
-
-    #[inline]
-    fn update_access(state: &Self::State, access: &mut ResourceAccess) {
-        // TODO: special handling for sparce filter components
-        Q::update_access(&state.query, access);
-    }
 }
 
 impl<'w, F, Q> QueryParamWithFetch<'w> for With<F, Q>
@@ -186,6 +170,12 @@ impl<F: QueryParamState, S: QueryParamState> QueryParamState for QryWithFilterSt
             filter: F::init(resources, components),
             query: S::init(resources, components),
         }
+    }
+
+    #[inline]
+    fn update_access(&self, access: &mut ResourceAccess) {
+        // TODO: special handling for sparce filter components
+        self.query.update_access(access);
     }
 
     #[inline]
@@ -229,10 +219,7 @@ where
     type Item = Q::Item;
 
     #[inline(always)]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item
-    where
-        'w: 'a,
-    {
+    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
         self.query.get(archetype, index)
     }
 }

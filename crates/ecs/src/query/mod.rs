@@ -6,8 +6,8 @@ use std::sync::{
 pub use self::exec::Query;
 use crate::{
     archetype::{Archetype, ArchetypeId, ArchetypeSet},
-    component::{ComponentId, Components},
-    Component, WorldInner,
+    component::Components,
+    WorldInner,
 };
 
 // mostly based on `hecs` (https://github.com/Ralith/hecs/blob/9a2405c703ea0eb6481ad00d55e74ddd226c1494/src/query.rs)
@@ -17,8 +17,6 @@ pub trait QueryParam: for<'w> QueryParamWithFetch<'w> {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
     type State: QueryParamState;
-
-    fn update_access(state: &Self::State, access: &mut ResourceAccess);
 }
 
 pub trait QueryParamWithFetch<'w> {
@@ -28,6 +26,8 @@ pub trait QueryParamWithFetch<'w> {
 pub trait QueryParamState: Send + Sync + Sized + 'static {
     /// Looks up data that can be re-used between multiple query invocations
     fn init(resources: &Resources, components: &Components) -> Self;
+
+    fn update_access(&self, access: &mut ResourceAccess);
 
     /// Checks if the archetype matches the query
     fn matches_archetype(&self, archetype: &Archetype) -> bool;
@@ -48,35 +48,10 @@ pub type QueryItem<'w, 'a, Q> =
 
 pub trait QueryParamFetchGet<'w, 'a>: QueryParamFetch<'w> {
     /// Type of value to be fetched
-    type Item;
+    type Item: 'a;
 
     /// Access the given item in this archetype
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item
-    where
-        'w: 'a;
-}
-
-#[doc(hidden)]
-pub struct QryRefState<T: Component> {
-    storage_id: ResourceId<T::Storage>,
-    component_id: ComponentId<T>,
-}
-
-impl<T: Component> QueryParamState for QryRefState<T> {
-    #[inline]
-    fn init(_res: &Resources, components: &Components) -> Self {
-        let component_id = components.id::<T>().expect("component_id");
-        let component = components.get(component_id).unwrap();
-        Self {
-            storage_id: component.storage_id.typed(),
-            component_id,
-        }
-    }
-
-    #[inline]
-    fn matches_archetype(&self, archetype: &Archetype) -> bool {
-        self.component_id.is_sparse() || archetype.contains_component_id(self.component_id)
-    }
+    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item;
 }
 
 pub mod exec;
@@ -88,12 +63,12 @@ use pulz_schedule::resource::{
     FromResources, ResourceAccess, ResourceId, Resources, ResourcesSend,
 };
 
-struct QueryState<Q>
+struct QueryState<S>
 where
-    Q: QueryParam,
+    S: QueryParamState,
 {
     world_resource_id: ResourceId<WorldInner>,
-    param_state: Q::State,
+    param_state: S,
     access: ResourceAccess,
 
     sparse_only: bool,
@@ -102,16 +77,14 @@ where
     matching_archetypes_p: AtomicPtr<ArchetypeSet>,
 }
 
-impl<Q> QueryState<Q>
+impl<S> QueryState<S>
 where
-    Q: QueryParam,
+    S: QueryParamState,
 {
     pub fn new(resources: &mut Resources) -> Self {
         let world_id = resources.init::<WorldInner>();
-        let mut world = resources.remove_id(world_id).unwrap();
-        let result = Self::from_world(resources, &mut world, world_id);
-        resources.insert_again(world);
-        result
+        let world = resources.borrow_res_id(world_id).unwrap();
+        Self::from_world(resources, &world, world_id)
     }
 
     fn from_world(
@@ -119,9 +92,9 @@ where
         world: &WorldInner,
         resource_id: ResourceId<WorldInner>,
     ) -> Self {
-        let state = Q::State::init(resources, &world.components);
+        let state = S::init(resources, &world.components);
         let mut access = ResourceAccess::new();
-        Q::update_access(&state, &mut access);
+        S::update_access(&state, &mut access);
 
         let sparse_only = false; // TODO
 
@@ -195,7 +168,7 @@ where
     }
 }
 
-impl<Q: QueryParam> FromResources for QueryState<Q> {
+impl<S: QueryParamState> FromResources for QueryState<S> {
     fn from_resources(resources: &mut Resources) -> Self {
         Self::new(resources)
     }
