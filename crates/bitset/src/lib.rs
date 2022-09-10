@@ -98,6 +98,10 @@ impl BitSet {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty() || !self.0.iter().any(|i| *i != 0)
+    }
+
     pub fn contains_all(&self, other: &Self) -> bool {
         if other.0.len() > self.0.len() {
             return false;
@@ -264,6 +268,12 @@ where
         let mut bitset = Self::new();
         bitset.extend(iter);
         bitset
+    }
+}
+
+impl std::fmt::Debug for BitSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
