@@ -160,8 +160,8 @@ where
     }
 }
 
-macro_rules! tuple_fn_sub {
-    ( [$($arg_name:ident.$arg_index:tt),*] $($name:ident.$index:tt,)* ) => (
+macro_rules! impl_system_fn_sub {
+    ( [$(($arg_name:ident,$arg_index:tt)),*] [$(($name:ident,$index:tt)),*]) => (
 
         impl<Out, F $(,$name)* $(,$arg_name)*> SystemParamFn<($($arg_name,)*), ($($name,)*),Out> for F
         where
@@ -179,22 +179,13 @@ macro_rules! tuple_fn_sub {
     )
 }
 
-macro_rules! tuple_fn {
-  ( $($name:ident.$index:tt,)* ) => (
-
-        tuple_fn_sub! { [] $($name.$index,)* }
-        tuple_fn_sub! { [A0.0] $($name.$index,)* }
-        tuple_fn_sub! { [A0.0, A1.1] $($name.$index,)* }
-        tuple_fn_sub! { [A0.0, A1.1, A2.2] $($name.$index,)* }
-        tuple_fn_sub! { [A0.0, A1.1, A2.2, A3.3] $($name.$index,)* }
-        tuple_fn_sub! { [A0.0, A1.1, A2.2, A3.3, A4.4] $($name.$index,)* }
-        tuple_fn_sub! { [A0.0, A1.1, A2.2, A3.3, A4.4, A5.5] $($name.$index,)* }
-
-        peel! { tuple_fn [] $($name.$index,)* }
-  )
+macro_rules! impl_system_fn {
+    ([$($args:tt)*]) => (
+        pulz_functional_utils::generate_variadic_array! {[B,#] impl_system_fn_sub!{[$($args)*]}}
+    )
 }
 
-tuple_fn! { T0.0, T1.1, T2.2, T3.3, T4.4, T5.5, T6.6, T7.7, T8.8, T9.9, T10.10, T11.11, }
+pulz_functional_utils::generate_variadic_array! {[0..9 A,#] impl_system_fn!{}}
 
 #[cfg(test)]
 mod tests {

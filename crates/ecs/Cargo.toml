@@ -15,6 +15,7 @@ edition = "2021"
 pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
 pulz-schedule = { version = "0.1.0-alpha", path = "../schedule" }
 pulz-ecs-macros = { version = "0.1.0-alpha", path = "macros" }
+pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
 
 slotmap = "1.0"
 hashbrown = "0.12"

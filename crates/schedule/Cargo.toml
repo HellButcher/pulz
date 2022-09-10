@@ -12,6 +12,7 @@ edition = "2021"
 
 [dependencies]
 pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
+pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
 
 atomic_refcell = "0.1"
 once_cell = "1.13"

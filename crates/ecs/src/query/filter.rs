@@ -29,29 +29,27 @@ impl Filter for () {
 #[repr(transparent)]
 pub struct Or<T>(pub T);
 
-macro_rules! tuple {
-    () => ();
-    ( $($name:ident.$index:tt,)+ ) => (
+macro_rules! impl_filter_param {
+    ([]) => ();
+    ([$(($name:ident,$index:tt)),+]) => (
 
-impl<$($name),+> Filter for ($($name,)+)
-where
-    $($name: Filter,)+
-{
-    type State = ($($name::State,)+);
+        impl<$($name),+> Filter for ($($name,)+)
+        where
+            $($name: Filter,)+
+        {
+            type State = ($($name::State,)+);
+        }
+
+        impl<$($name),+> Filter for Or<($($name,)+)>
+        where
+            $($name: Filter,)+
+        {
+            type State = ($($name::State,)+);
+        }
+    )
 }
 
-impl<$($name),+> Filter for Or<($($name,)+)>
-where
-    $($name: Filter,)+
-{
-    type State = ($($name::State,)+);
-}
-
-    peel! { tuple [] $($name.$index,)+ }
-)
-}
-
-tuple! { T0.0, T1.1, T2.2, T3.3, T4.4, T5.5, T6.6, T7.7, T8.8, T9.9, T10.10, T11.11, }
+pulz_functional_utils::generate_variadic_array! {[T,#] impl_filter_param!{}}
 
 pub struct Without<F, Q>(PhantomData<(Q, fn(F))>);
 

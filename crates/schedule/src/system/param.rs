@@ -23,8 +23,8 @@ pub unsafe trait SystemParamFetch<'r>: SystemParamState {
 
 pub type SystemParamItem<'r, P> = <<P as SystemParam>::Fetch as SystemParamFetch<'r>>::Item;
 
-macro_rules! tuple_sub {
-    ( $($($name:ident.$index:tt,)+)? ) => (
+macro_rules! impl_system_param {
+    ([$($(($name:ident,$index:tt)),+)?]) => (
 
         unsafe impl$(<$($name),+>)? SystemParam for ($($($name,)+)?)
         $(
@@ -68,12 +68,4 @@ macro_rules! tuple_sub {
     )
 }
 
-macro_rules! tuple {
-    ( $($name:ident:$letter:ident.$index:tt,)* ) => (
-        tuple_sub! { $($name.$index,)* }
-
-        peel! { tuple [] $($name:$letter.$index,)* }
-    )
-}
-
-tuple! { T0:a.0, T1:b.1, T2:c.2, T3:d.3, T4:e.4, T5:f.5, T6:g.6, T7:h.7, T8:i.8, T9:j.9, T10:k.10, T11:l.11, }
+pulz_functional_utils::generate_variadic_array! {[T,#] impl_system_param!{}}

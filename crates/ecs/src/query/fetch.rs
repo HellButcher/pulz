@@ -287,80 +287,78 @@ impl QueryParamFetchGet<'_, '_> for () {
     fn get(&mut self, _archetype: &Archetype, _index: usize) {}
 }
 
-macro_rules! tuple {
-    () => ();
-    ( $($name:ident.$index:tt,)+ ) => (
+macro_rules! impl_query_param {
+    ([]) => ();
+    ([$(($name:ident,$index:tt)),+]) => (
 
-impl<$($name),+> QueryParam for ($($name,)+)
-where
-    $($name: QueryParam,)+
-{
-    type State = ($($name::State,)+);
-}
+        impl<$($name),+> QueryParam for ($($name,)+)
+        where
+            $($name: QueryParam,)+
+        {
+            type State = ($($name::State,)+);
+        }
 
-impl<'w, $($name),+> QueryParamWithFetch<'w> for ($($name,)+)
-where
-    $($name: QueryParamWithFetch<'w>,)+
-{
-    type Fetch = ($($name::Fetch,)+);
-}
+        impl<'w, $($name),+> QueryParamWithFetch<'w> for ($($name,)+)
+        where
+            $($name: QueryParamWithFetch<'w>,)+
+        {
+            type Fetch = ($($name::Fetch,)+);
+        }
 
-impl<$($name),+> QueryParamState for ($($name,)+)
-where
-    $($name: QueryParamState,)+
-{
-    #[inline]
-    fn init(res: &Resources, components: &Components) -> Self {
-        ($($name::init(res, components),)+)
-    }
+        impl<$($name),+> QueryParamState for ($($name,)+)
+        where
+            $($name: QueryParamState,)+
+        {
+            #[inline]
+            fn init(res: &Resources, components: &Components) -> Self {
+                ($($name::init(res, components),)+)
+            }
 
-    #[inline]
-    fn update_access(
-        &self,
-        access: &mut ResourceAccess,
-    ) {
-        $(self.$index.update_access(access);)+
-    }
+            #[inline]
+            fn update_access(
+                &self,
+                access: &mut ResourceAccess,
+            ) {
+                $(self.$index.update_access(access);)+
+            }
 
-    #[inline]
-    fn matches_archetype(&self, archetype: &Archetype) -> bool {
-        $(self.$index.matches_archetype(archetype))&&+
-    }
+            #[inline]
+            fn matches_archetype(&self, archetype: &Archetype) -> bool {
+                $(self.$index.matches_archetype(archetype))&&+
+            }
 
-}
+        }
 
-impl<'w, $($name),+> QueryParamFetch<'w> for ($($name,)+)
-where
-    $($name: QueryParamFetch<'w>,)+
-{
-    type State = ($($name::State,)+);
+        impl<'w, $($name),+> QueryParamFetch<'w> for ($($name,)+)
+        where
+            $($name: QueryParamFetch<'w>,)+
+        {
+            type State = ($($name::State,)+);
 
-    #[inline]
-    fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
-        ($($name::fetch(res, &state.$index),)+)
-    }
+            #[inline]
+            fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
+                ($($name::fetch(res, &state.$index),)+)
+            }
 
-    #[inline]
-    fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype) {
-        $(self.$index.set_archetype(&state.$index, archetype);)+
-    }
-}
+            #[inline]
+            fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype) {
+                $(self.$index.set_archetype(&state.$index, archetype);)+
+            }
+        }
 
-impl<'w, 'a, $($name),+> QueryParamFetchGet<'w, 'a> for ($($name,)+)
-where
-    $($name: QueryParamFetchGet<'w,'a>,)+
-{
-    type Item = ($($name::Item,)+);
+        impl<'w, 'a, $($name),+> QueryParamFetchGet<'w, 'a> for ($($name,)+)
+        where
+            $($name: QueryParamFetchGet<'w,'a>,)+
+        {
+            type Item = ($($name::Item,)+);
 
-    #[inline(always)]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
-        ($(self.$index.get(archetype, index),)+)
-    }
-}
+            #[inline(always)]
+            fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
+                ($(self.$index.get(archetype, index),)+)
+            }
+        }
 
-
-        peel! { tuple [] $($name.$index,)+ }
     )
 }
 
-tuple! { T0.0, T1.1, T2.2, T3.3, T4.4, T5.5, T6.6, T7.7, T8.8, T9.9, T10.10, T11.11, }
+pulz_functional_utils::generate_variadic_array! {[T,#] impl_query_param!{}}

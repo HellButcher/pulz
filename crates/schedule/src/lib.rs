@@ -25,12 +25,6 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-macro_rules! peel {
-    ($macro:tt [$($args:tt)*] ) => ();
-    ($macro:tt [$($args:tt)*] $name:ident$(:$letter:ident)?.$index:tt, ) => ($macro! { $($args)* });
-    ($macro:tt [$($args:tt)*] $name:ident$(:$letter:ident)?.$index:tt, $($other:tt)+) => (peel!{ $macro [$($args)* $name$(:$letter)?.$index, ] $($other)+ } );
-}
-
 #[doc(hidden)]
 pub enum Void {}
 
