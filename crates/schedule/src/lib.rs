@@ -39,3 +39,12 @@ pub mod module;
 pub mod resource;
 pub mod schedule;
 pub mod system;
+
+pub mod prelude {
+    pub use crate::{
+        module::Module,
+        resource::{FromResources, Res, ResMut, ResourceId, Resources},
+        schedule::Schedule,
+        system::{IntoExclusiveSystem, IntoSystem},
+    };
+}

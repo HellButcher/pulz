@@ -49,12 +49,12 @@ pub use entity::{Entity, EntityMut, EntityRef};
 pub use world::WorldExt;
 
 pub mod prelude {
+    pub use pulz_schedule::prelude::*;
+
     pub use crate::{
         component::Component,
         entity::{Entity, EntityMut, EntityRef},
         query::Query,
-        resource::{Res, ResMut, Resources},
-        schedule::Schedule,
         world::{World, WorldExt},
     };
 }

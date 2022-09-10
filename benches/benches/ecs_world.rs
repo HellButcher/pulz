@@ -14,7 +14,7 @@ fn configure_criterion() -> Criterion {
         .measurement_time(std::time::Duration::from_secs(4))
 }
 
-use pulz_ecs::{component::Component, resource::Resources, world::WorldExt};
+use pulz_ecs::prelude::*;
 
 #[derive(Copy, Clone, Component, bevy_ecs::component::Component)]
 struct A(usize);
@@ -221,7 +221,7 @@ pub fn world_spawn2(c: &mut Criterion) {
     group.finish()
 }
 
-fn pulz_insert_many_components2<T>(e: &mut pulz_ecs::EntityMut, value: T)
+fn pulz_insert_many_components2<T>(e: &mut EntityMut, value: T)
 where
     T: Send + Sync + Copy + 'static,
 {
@@ -237,7 +237,7 @@ where
     e.insert(X(value, J(1)));
 }
 
-fn pulz_insert_many_components<T>(e: &mut pulz_ecs::EntityMut, value: T)
+fn pulz_insert_many_components<T>(e: &mut EntityMut, value: T)
 where
     T: Send + Sync + Copy + 'static,
 {
