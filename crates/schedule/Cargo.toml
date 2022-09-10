@@ -15,9 +15,9 @@ pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
 
 atomic_refcell = "0.1"
 once_cell = "1.13"
-downcast-rs = "1.2"
-tinybox = "0.2"
 crossbeam-utils = "0.8"
+hashbrown = "0.12.3"
+backtrace = "0.3"
 
 [target.'cfg(not(target_os = "unknown"))'.dependencies]
 threadpool = "1.8"

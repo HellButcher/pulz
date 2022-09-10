@@ -1,13 +1,10 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
 use crate::{
-    label::CoreSystemLabel,
+    label::CoreSystemPhase,
     resource::{Res, ResMut, ResourceAccess, ResourceId, Resources},
     schedule::Schedule,
-    system::{
-        param::{SystemParam, SystemParamFetch, SystemParamState},
-        IntoSystemDescriptor,
-    },
+    system::param::{SystemParam, SystemParamFetch, SystemParamState},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -67,7 +64,9 @@ impl<T> Events<T> {
         T: Send + Sync + 'static,
     {
         if resources.try_init::<Self>().is_ok() {
-            schedule.add_system(Self::update_system.with_label(CoreSystemLabel::First));
+            schedule
+                .add_system(Self::update_system)
+                .into_phase(CoreSystemPhase::First);
         }
     }
 }
