@@ -1,14 +1,13 @@
 [package]
 name = "pulz-bitset"
-version = "0.1.0-alpha"
 description = "A simple bitset implementation"
-authors = ["Christoph Hommelsheim <main@chommel.eu>"]
-license = "MIT OR Apache-2.0"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
 keywords = ["bitset", "collection"]
 categories = ["data-structures"]
-repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
-edition = "2021"
-
 
 [dependencies]

@@ -2,23 +2,23 @@
 name = "pulz-schedule"
 description = "For scheduling systems and managing their resources"
 version = "0.1.0-alpha"
-authors = ["Christoph Hommelsheim <main@chommel.eu>"]
-license = "MIT OR Apache-2.0"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
 keywords = ["ecs", "systems", "schedule", "resources"]
 categories = ["data-structures", "game-engines", "game-development", "asynchronous"]
 repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
-edition = "2021"
 
 [dependencies]
 pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
 pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
 
-atomic_refcell = "0.1"
-once_cell = "1.13"
-crossbeam-utils = "0.8"
-hashbrown = "0.12.3"
-backtrace = "0.3"
+atomic_refcell = { workspace = true }
+once_cell = { workspace = true }
+crossbeam-utils = { workspace = true }
+hashbrown = { workspace = true}
+backtrace = { workspace = true }
 
 [target.'cfg(not(target_os = "unknown"))'.dependencies]
-threadpool = "1.8"
+threadpool = { workspace = true }

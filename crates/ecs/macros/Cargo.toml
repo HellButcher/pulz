@@ -1,21 +1,21 @@
 [package]
 name = "pulz-ecs-macros"
 description = "Proc-Macros for pulz-ecs"
-version = "0.1.0-alpha"
-authors = ["Christoph Hommelsheim <main@chommel.en>"]
-license = "MIT OR Apache-2.0"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
 keywords = ["ecs", "game"]
 categories = ["data-structures", "game-engines", "game-development"]
-repository = "https://github.com/HellButcher/pulz.git"
 readme = "../README.md"
-edition = "2021"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-darling = "0.14"
-proc-macro2 = "1.0"
-syn = "1.0"
-quote = "1.0"
-proc-macro-crate = "1.2"
+darling = { workspace = true }
+proc-macro2 = { workspace = true }
+syn = { workspace = true }
+quote = { workspace = true }
+proc-macro-crate = { workspace = true }
