@@ -13,14 +13,11 @@ use crate::{
 // mostly based on `hecs` (https://github.com/Ralith/hecs/blob/9a2405c703ea0eb6481ad00d55e74ddd226c1494/src/query.rs)
 
 /// A collection of component types to fetch from a [`World`](crate::World)
-pub trait QueryParam: for<'w> QueryParamWithFetch<'w> {
+pub trait QueryParam {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
     type State: QueryParamState;
-}
-
-pub trait QueryParamWithFetch<'w> {
-    type Fetch: QueryParamFetch<'w>;
+    type Fetch<'w>: QueryParamFetch<'w, State = Self::State>;
 }
 
 pub trait QueryParamState: Send + Sync + Sized + 'static {
@@ -36,23 +33,22 @@ pub trait QueryParamState: Send + Sync + Sized + 'static {
 pub trait QueryParamFetch<'w>: Send {
     type State: QueryParamState;
 
+    /// Type of value to be fetched
+    type Item<'a>
+    where
+        Self: 'a;
+
     /// Acquire dynamic borrows from `archetype`
     fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self;
 
     fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype);
+
+    /// Access the given item in this archetype
+    fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item<'_>;
 }
 
 /// Type of values yielded by a query
-pub type QueryItem<'w, 'a, Q> =
-    <<Q as QueryParamWithFetch<'w>>::Fetch as QueryParamFetchGet<'w, 'a>>::Item;
-
-pub trait QueryParamFetchGet<'w, 'a>: QueryParamFetch<'w> {
-    /// Type of value to be fetched
-    type Item: 'a;
-
-    /// Access the given item in this archetype
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item;
-}
+pub type QueryItem<'w, 'a, Q> = <<Q as QueryParam>::Fetch<'w> as QueryParamFetch<'w>>::Item<'a>;
 
 pub mod exec;
 mod fetch;

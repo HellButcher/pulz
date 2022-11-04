@@ -2,11 +2,10 @@ use std::marker::PhantomData;
 
 use pulz_schedule::resource::ResourceAccess;
 
-use super::{QryRefState, QueryParamState, QueryParamWithFetch};
 use crate::{
     archetype::Archetype,
     component::{Component, Components},
-    query::{QueryParam, QueryParamFetch, QueryParamFetchGet},
+    query::{QryRefState, QueryParam, QueryParamFetch, QueryParamState},
     resource::{Resources, ResourcesSend},
 };
 
@@ -59,14 +58,7 @@ where
     Q: QueryParam,
 {
     type State = QryWithoutFilterState<F::State, Q::State>;
-}
-
-impl<'w, F, Q> QueryParamWithFetch<'w> for Without<F, Q>
-where
-    F: Filter,
-    Q: QueryParamWithFetch<'w>,
-{
-    type Fetch = QryWithoutFilterFetch<F, Q::Fetch>;
+    type Fetch<'w> = QryWithoutFilterFetch<F, Q::Fetch<'w>>;
 }
 
 #[doc(hidden)]
@@ -109,6 +101,7 @@ where
     Q: QueryParamFetch<'w>,
 {
     type State = QryWithoutFilterState<F::State, Q::State>;
+    type Item<'a> = Q::Item<'a> where Self: 'a;
 
     #[inline]
     fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
@@ -122,17 +115,9 @@ where
     fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype) {
         self.query.set_archetype(&state.query, archetype);
     }
-}
-
-impl<'w, 'a, F, Q> QueryParamFetchGet<'w, 'a> for QryWithoutFilterFetch<F, Q>
-where
-    F: Filter,
-    Q: QueryParamFetchGet<'w, 'a>,
-{
-    type Item = Q::Item;
 
     #[inline(always)]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
+    fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item<'_> {
         self.query.get(archetype, index)
     }
 }
@@ -145,14 +130,7 @@ where
     Q: QueryParam,
 {
     type State = QryWithFilterState<F::State, Q::State>;
-}
-
-impl<'w, F, Q> QueryParamWithFetch<'w> for With<F, Q>
-where
-    F: Filter,
-    Q: QueryParamWithFetch<'w>,
-{
-    type Fetch = QryWithFilterFetch<F, Q::Fetch>;
+    type Fetch<'w> = QryWithFilterFetch<F, Q::Fetch<'w>>;
 }
 
 #[doc(hidden)]
@@ -194,6 +172,7 @@ where
     Q: QueryParamFetch<'w>,
 {
     type State = QryWithFilterState<F::State, Q::State>;
+    type Item<'a> = Q::Item<'a> where Self: 'a;
 
     #[inline(always)]
     fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
@@ -207,17 +186,9 @@ where
     fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype) {
         self.query.set_archetype(&state.query, archetype);
     }
-}
-
-impl<'w, 'a, F, Q> QueryParamFetchGet<'w, 'a> for QryWithFilterFetch<F, Q>
-where
-    F: Filter,
-    Q: QueryParamFetchGet<'w, 'a>,
-{
-    type Item = Q::Item;
 
     #[inline(always)]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
+    fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item<'_> {
         self.query.get(archetype, index)
     }
 }

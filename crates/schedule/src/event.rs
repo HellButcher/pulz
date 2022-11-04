@@ -4,7 +4,7 @@ use crate::{
     label::CoreSystemPhase,
     resource::{Res, ResMut, ResourceAccess, ResourceId, Resources},
     schedule::Schedule,
-    system::param::{SystemParam, SystemParamFetch, SystemParamState},
+    system::param::{SystemParam, SystemParamState},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -183,13 +183,15 @@ unsafe impl<T> SystemParam for EventSubscriber<'_, T>
 where
     T: Send + Sync + 'static,
 {
-    type Fetch = FetchEventSubscriber<T>;
+    type State = FetchEventSubscriber<T>;
 }
 
 unsafe impl<T> SystemParamState for FetchEventSubscriber<T>
 where
     T: Send + Sync + 'static,
 {
+    type Item<'r> = EventSubscriber<'r, T>;
+
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.init::<Events<T>>())
@@ -199,15 +201,9 @@ where
     fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
         access.add_shared_checked(self.0);
     }
-}
 
-unsafe impl<'r, T> SystemParamFetch<'r> for FetchEventSubscriber<T>
-where
-    T: Send + Sync + 'static,
-{
-    type Item = EventSubscriber<'r, T>;
     #[inline]
-    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
         EventSubscriber {
             next_id: 0, // TODO: keep state
             events: resources.borrow_res_id(self.0).expect("borrow"),
@@ -222,13 +218,15 @@ unsafe impl<T> SystemParam for EventWriter<'_, T>
 where
     T: Send + Sync + 'static,
 {
-    type Fetch = FetchEventWriter<T>;
+    type State = FetchEventWriter<T>;
 }
 
 unsafe impl<T> SystemParamState for FetchEventWriter<T>
 where
     T: Send + Sync + 'static,
 {
+    type Item<'r> = EventWriter<'r, T>;
+
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.init::<Events<T>>())
@@ -238,15 +236,9 @@ where
     fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
         access.add_exclusive_checked(self.0);
     }
-}
 
-unsafe impl<'r, T> SystemParamFetch<'r> for FetchEventWriter<T>
-where
-    T: Send + Sync + 'static,
-{
-    type Item = EventWriter<'r, T>;
     #[inline]
-    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
         EventWriter(resources.borrow_res_mut_id(self.0).expect("borrow"))
     }
 }

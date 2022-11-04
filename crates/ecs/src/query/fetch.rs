@@ -1,17 +1,17 @@
 use pulz_schedule::resource::{ResourceAccess, ResourceId};
 
-use super::{QueryParamState, QueryParamWithFetch};
 use crate::{
     archetype::Archetype,
     component::{Component, ComponentId, Components},
     entity::Entity,
-    query::{QueryParam, QueryParamFetch, QueryParamFetchGet},
+    query::{QueryParam, QueryParamFetch, QueryParamState},
     resource::{Res, ResMut, Resources, ResourcesSend},
     storage::Storage,
 };
 
 impl<T: Component> QueryParam for &'_ T {
     type State = QryRefState<T>;
+    type Fetch<'w> = QryRefFetch<'w, T>;
 }
 
 #[doc(hidden)]
@@ -46,12 +46,9 @@ impl<T: Component> QueryParamState for QryRefState<T> {
 #[repr(transparent)]
 pub struct QryRefFetch<'w, T: Component>(Res<'w, T::Storage>);
 
-impl<'w, T: Component> QueryParamWithFetch<'w> for &'_ T {
-    type Fetch = QryRefFetch<'w, T>;
-}
-
 impl<'w, T: Component> QueryParamFetch<'w> for QryRefFetch<'w, T> {
     type State = QryRefState<T>;
+    type Item<'a> = &'a T where Self: 'a;
 
     #[inline]
     fn fetch(res: &'w ResourcesSend, state: &QryRefState<T>) -> Self {
@@ -63,13 +60,9 @@ impl<'w, T: Component> QueryParamFetch<'w> for QryRefFetch<'w, T> {
 
     #[inline(always)]
     fn set_archetype(&mut self, _state: &Self::State, _archetype: &Archetype) {}
-}
-
-impl<'w, 'a, T: Component> QueryParamFetchGet<'w, 'a> for QryRefFetch<'w, T> {
-    type Item = &'a T;
 
     #[inline]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
+    fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item<'_> {
         self.0
             .get(archetype.entities[index], archetype.id, index)
             .expect("unable to get component item")
@@ -78,6 +71,7 @@ impl<'w, 'a, T: Component> QueryParamFetchGet<'w, 'a> for QryRefFetch<'w, T> {
 
 impl<T: Component> QueryParam for &'_ mut T {
     type State = QryRefMutState<T>;
+    type Fetch<'w> = QryRefMutFetch<'w, T>;
 }
 
 #[doc(hidden)]
@@ -108,16 +102,13 @@ impl<T: Component> QueryParamState for QryRefMutState<T> {
     }
 }
 
-impl<'w, T: Component> QueryParamWithFetch<'w> for &'_ mut T {
-    type Fetch = QryRefMutFetch<'w, T>;
-}
-
 #[doc(hidden)]
 #[repr(transparent)]
 pub struct QryRefMutFetch<'w, T: Component>(ResMut<'w, T::Storage>);
 
 impl<'w, T: Component> QueryParamFetch<'w> for QryRefMutFetch<'w, T> {
     type State = QryRefMutState<T>;
+    type Item<'a> = &'a mut T where Self: 'a;
 
     #[inline]
     fn fetch(res: &'w ResourcesSend, state: &QryRefMutState<T>) -> Self {
@@ -129,13 +120,9 @@ impl<'w, T: Component> QueryParamFetch<'w> for QryRefMutFetch<'w, T> {
 
     #[inline(always)]
     fn set_archetype(&mut self, _state: &Self::State, _archetype: &Archetype) {}
-}
-
-impl<'w, 'a, T: Component> QueryParamFetchGet<'w, 'a> for QryRefMutFetch<'w, T> {
-    type Item = &'a mut T;
 
     #[inline]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
+    fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item<'_> {
         self.0
             .get_mut(archetype.entities[index], archetype.id, index)
             .expect("unable to get component item")
@@ -144,10 +131,7 @@ impl<'w, 'a, T: Component> QueryParamFetchGet<'w, 'a> for QryRefMutFetch<'w, T> 
 
 impl QueryParam for Entity {
     type State = ();
-}
-
-impl QueryParamWithFetch<'_> for Entity {
-    type Fetch = QryEntityFetch;
+    type Fetch<'w> = QryEntityFetch;
 }
 
 #[doc(hidden)]
@@ -155,6 +139,7 @@ pub struct QryEntityFetch;
 
 impl QueryParamFetch<'_> for QryEntityFetch {
     type State = ();
+    type Item<'a> = Entity;
 
     #[inline(always)]
     fn fetch(_res: &ResourcesSend, _state: &()) -> Self {
@@ -163,13 +148,9 @@ impl QueryParamFetch<'_> for QryEntityFetch {
 
     #[inline(always)]
     fn set_archetype(&mut self, _state: &Self::State, _archetype: &Archetype) {}
-}
-
-impl QueryParamFetchGet<'_, '_> for QryEntityFetch {
-    type Item = Entity;
 
     #[inline]
-    fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item {
+    fn get(&mut self, archetype: &Archetype, index: usize) -> Entity {
         archetype.entities[index]
     }
 }
@@ -179,10 +160,7 @@ where
     Q: QueryParam,
 {
     type State = QryOptionState<Q::State>;
-}
-
-impl<'w, Q: QueryParamWithFetch<'w>> QueryParamWithFetch<'w> for Option<Q> {
-    type Fetch = QryOptionFetch<Q::Fetch>;
+    type Fetch<'w> = QryOptionFetch<Q::Fetch<'w>>;
 }
 
 #[doc(hidden)]
@@ -217,6 +195,7 @@ where
     F: QueryParamFetch<'w>,
 {
     type State = QryOptionState<F::State>;
+    type Item<'a> = Option<F::Item<'a>> where Self: 'a;
 
     #[inline]
     fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
@@ -231,16 +210,9 @@ where
         self.available = state.0.matches_archetype(archetype);
         self.sub_fetch.set_archetype(&state.0, archetype);
     }
-}
-
-impl<'w, 'a, F> QueryParamFetchGet<'w, 'a> for QryOptionFetch<F>
-where
-    F: QueryParamFetchGet<'w, 'a>,
-{
-    type Item = Option<F::Item>;
 
     #[inline]
-    fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
+    fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item<'_> {
         if self.available {
             Some(self.sub_fetch.get(archetype, index))
         } else {
@@ -251,10 +223,7 @@ where
 
 impl QueryParam for () {
     type State = ();
-}
-
-impl QueryParamWithFetch<'_> for () {
-    type Fetch = ();
+    type Fetch<'w> = ();
 }
 
 impl QueryParamState for () {
@@ -272,16 +241,13 @@ impl QueryParamState for () {
 
 impl QueryParamFetch<'_> for () {
     type State = ();
+    type Item<'a> = ();
 
     #[inline(always)]
     fn fetch(_res: &ResourcesSend, _state: &Self::State) {}
 
     #[inline(always)]
     fn set_archetype(&mut self, _state: &Self::State, _archetype: &Archetype) {}
-}
-
-impl QueryParamFetchGet<'_, '_> for () {
-    type Item = ();
 
     #[inline(always)]
     fn get(&mut self, _archetype: &Archetype, _index: usize) {}
@@ -296,13 +262,7 @@ macro_rules! impl_query_param {
             $($name: QueryParam,)+
         {
             type State = ($($name::State,)+);
-        }
-
-        impl<'w, $($name),+> QueryParamWithFetch<'w> for ($($name,)+)
-        where
-            $($name: QueryParamWithFetch<'w>,)+
-        {
-            type Fetch = ($($name::Fetch,)+);
+            type Fetch<'w> = ($($name::Fetch<'w>,)+);
         }
 
         impl<$($name),+> QueryParamState for ($($name,)+)
@@ -334,6 +294,7 @@ macro_rules! impl_query_param {
             $($name: QueryParamFetch<'w>,)+
         {
             type State = ($($name::State,)+);
+            type Item<'a> = ($($name::Item<'a>,)+) where Self: 'a;
 
             #[inline]
             fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
@@ -344,16 +305,9 @@ macro_rules! impl_query_param {
             fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype) {
                 $(self.$index.set_archetype(&state.$index, archetype);)+
             }
-        }
-
-        impl<'w, 'a, $($name),+> QueryParamFetchGet<'w, 'a> for ($($name,)+)
-        where
-            $($name: QueryParamFetchGet<'w,'a>,)+
-        {
-            type Item = ($($name::Item,)+);
 
             #[inline(always)]
-            fn get(&'a mut self, archetype: &Archetype, index: usize) -> Self::Item {
+            fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item<'_> {
                 ($(self.$index.get(archetype, index),)+)
             }
         }

@@ -2,20 +2,20 @@ use super::{IntoExclusiveSystem, IntoSystem};
 use crate::{
     resource::{FromResources, ResourceAccess, ResourceId, Resources},
     system::{
-        param::{SystemParam, SystemParamFetch, SystemParamItem, SystemParamState},
+        param::{SystemParam, SystemParamItem, SystemParamState},
         ExclusiveSystem, System,
     },
 };
 
 struct SystemFnState<P: SystemParam> {
-    param_state: P::Fetch,
+    param_state: P::State,
     is_send: bool,
 }
 
 impl<P: SystemParam> FromResources for SystemFnState<P> {
     #[inline]
     fn from_resources(resources: &mut Resources) -> Self {
-        let param_state = <P::Fetch as SystemParamState>::init(resources);
+        let param_state = <P::State as SystemParamState>::init(resources);
         Self {
             param_state,
             is_send: false, // TODO
@@ -93,7 +93,7 @@ where
         let mut state = resources
             .borrow_res_mut_id(state_resource_id)
             .expect("state unavailable");
-        let params = <P::Fetch as SystemParamFetch>::fetch(&mut state.param_state, resources);
+        let params = state.param_state.fetch(resources);
         SystemParamFn::call(&mut self.func, args, params)
     }
 

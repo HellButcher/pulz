@@ -12,7 +12,7 @@ use atomic_refcell::AtomicRefCell;
 pub use atomic_refcell::{AtomicRef as Res, AtomicRefMut as ResMut};
 use pulz_bitset::BitSet;
 
-use crate::system::param::{SystemParam, SystemParamFetch, SystemParamState};
+use crate::system::param::{SystemParam, SystemParamState};
 
 #[repr(transparent)]
 pub struct ResourceId<T = crate::Void>(usize, PhantomData<fn() -> T>);
@@ -602,13 +602,15 @@ unsafe impl<T> SystemParam for Res<'_, T>
 where
     T: 'static,
 {
-    type Fetch = FetchRes<T>;
+    type State = FetchRes<T>;
 }
 
 unsafe impl<T> SystemParamState for FetchRes<T>
 where
     T: 'static,
 {
+    type Item<'r> = Res<'r, T>;
+
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.id::<T>().expect("resource not registered"))
@@ -618,15 +620,9 @@ where
     fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
         access.add_shared_checked(self.0);
     }
-}
 
-unsafe impl<'r, T> SystemParamFetch<'r> for FetchRes<T>
-where
-    T: 'static,
-{
-    type Item = Res<'r, T>;
     #[inline]
-    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
         resources.borrow_res_id(self.0).unwrap()
     }
 }
@@ -638,13 +634,15 @@ unsafe impl<T> SystemParam for ResMut<'_, T>
 where
     T: 'static,
 {
-    type Fetch = FetchResMut<T>;
+    type State = FetchResMut<T>;
 }
 
 unsafe impl<T> SystemParamState for FetchResMut<T>
 where
     T: 'static,
 {
+    type Item<'r> = ResMut<'r, T>;
+
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.id::<T>().expect("resource not registered"))
@@ -654,15 +652,9 @@ where
     fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
         access.add_exclusive_checked(self.0);
     }
-}
 
-unsafe impl<'r, T> SystemParamFetch<'r> for FetchResMut<T>
-where
-    T: 'static,
-{
-    type Item = ResMut<'r, T>;
     #[inline]
-    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
         resources.borrow_res_mut_id(self.0).unwrap()
     }
 }
@@ -674,13 +666,15 @@ unsafe impl<T> SystemParam for Option<Res<'_, T>>
 where
     T: 'static,
 {
-    type Fetch = FetchOptionRes<T>;
+    type State = FetchOptionRes<T>;
 }
 
 unsafe impl<T> SystemParamState for FetchOptionRes<T>
 where
     T: 'static,
 {
+    type Item<'r> = Option<Res<'r, T>>;
+
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.id::<T>())
@@ -692,16 +686,9 @@ where
             access.add_shared_checked(resource);
         }
     }
-}
-
-unsafe impl<'r, T> SystemParamFetch<'r> for FetchOptionRes<T>
-where
-    T: 'static,
-{
-    type Item = Option<Res<'r, T>>;
 
     #[inline]
-    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
         if let Some(resource_id) = self.0 {
             resources.borrow_res_id(resource_id)
         } else {
@@ -717,13 +704,15 @@ unsafe impl<T> SystemParam for Option<ResMut<'_, T>>
 where
     T: 'static,
 {
-    type Fetch = FetchOptionResMut<T>;
+    type State = FetchOptionResMut<T>;
 }
 
 unsafe impl<T> SystemParamState for FetchOptionResMut<T>
 where
     T: 'static,
 {
+    type Item<'r> = Option<ResMut<'r, T>>;
+
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.id::<T>())
@@ -735,16 +724,9 @@ where
             access.add_exclusive_checked(resource);
         }
     }
-}
-
-unsafe impl<'r, T> SystemParamFetch<'r> for FetchOptionResMut<T>
-where
-    T: 'static,
-{
-    type Item = Option<ResMut<'r, T>>;
 
     #[inline]
-    fn fetch(&'r mut self, resources: &'r Resources) -> Self::Item {
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
         if let Some(resource_id) = self.0 {
             resources.borrow_res_mut_id(resource_id)
         } else {

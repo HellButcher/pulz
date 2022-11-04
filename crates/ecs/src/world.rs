@@ -8,7 +8,7 @@ use crate::{
     component::{Component, ComponentId, Components},
     entity::{Entities, Entity},
     get_or_init_component,
-    query::{Query, QueryParam, QueryParamFetch, QueryParamWithFetch},
+    query::{Query, QueryParam},
     resource::{Res, Resources, TakenRes},
     WorldInner,
 };
@@ -122,8 +122,7 @@ pub trait WorldExt {
 
     fn query<'w, Q>(&'w mut self) -> Query<'w, Q>
     where
-        Q: QueryParam + 'static,
-        <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetch<'w, State = Q::State>;
+        Q: QueryParam + 'static;
 }
 
 impl WorldExt for Resources {
@@ -147,7 +146,6 @@ impl WorldExt for Resources {
     fn query<'w, Q>(&'w mut self) -> Query<'w, Q>
     where
         Q: QueryParam + 'static,
-        <Q as QueryParamWithFetch<'w>>::Fetch: QueryParamFetch<'w, State = Q::State>,
     {
         Query::new(self)
     }
