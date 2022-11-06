@@ -248,11 +248,10 @@ where
         index: usize,
         value: &mut dyn Any,
     ) -> bool {
-        if let Some(value_t) = take_option_t::<S::Component>(value) {
-            S::replace(self, entity, archetype, index, value_t).is_some()
-        } else {
-            false
-        }
+        let Some(value_t) = take_option_t::<S::Component>(value) else {
+            return false;
+        };
+        S::replace(self, entity, archetype, index, value_t).is_some()
     }
 
     fn swap_remove_and_insert_to(

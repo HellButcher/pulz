@@ -84,12 +84,11 @@ impl WorldMut<'_> {
 
     /// Removes the entity and all its components from the world.
     pub fn despawn(&mut self, entity: Entity) -> bool {
-        if let Some(ent) = self.entity_mut(entity) {
-            ent.despawn();
-            true
-        } else {
-            false
-        }
+        let Some(ent) = self.entity_mut(entity) else {
+            return false;
+        };
+        ent.despawn();
+        true
     }
 }
 

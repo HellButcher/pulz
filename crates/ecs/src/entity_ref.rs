@@ -51,11 +51,10 @@ impl<'w> EntityRef<'w> {
     where
         T: Component,
     {
-        if let Some(component_id) = self.world.components.id::<T>() {
-            self.contains_id(component_id)
-        } else {
-            false
-        }
+        let Some(component_id) = self.world.components.id::<T>() else {
+            return false;
+        };
+        self.contains_id(component_id)
     }
 
     pub fn contains_id<X>(&self, component_id: ComponentId<X>) -> bool
@@ -135,11 +134,10 @@ impl<'w> EntityMut<'w> {
     where
         T: Component,
     {
-        if let Some(component_id) = self.world.components.id::<T>() {
-            self.contains_id(component_id)
-        } else {
-            false
-        }
+        let Some(component_id) = self.world.components.id::<T>() else {
+            return false;
+        };
+        self.contains_id(component_id)
     }
 
     pub fn contains_id<X>(&self, component_id: ComponentId<X>) -> bool
@@ -337,39 +335,32 @@ impl<'w> Drop for EntityMut<'w> {
         for (id, mut box_value) in std::mem::take(&mut self.insert_components).into_entries() {
             if id.is_sparse() {
                 // apply insertion of sparse components
-                if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
-                    if storage
-                        .insert(self.entity, old.archetype_id, box_value.as_mut())
-                        .is_none()
-                    {
-                        panic!(
-                            "unexpected type {:?} != {:?} of sparse component with id {:?}",
-                            box_value.type_id(),
-                            storage.component_type_id(),
-                            id
-                        );
-                    }
-                } else {
+                let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
                     panic!("component {:?} is not available as storage", id);
+                };
+                if storage
+                    .insert(self.entity, old.archetype_id, box_value.as_mut())
+                    .is_none()
+                {
+                    panic!(
+                        "unexpected type {:?} != {:?} of sparse component with id {:?}",
+                        box_value.type_id(),
+                        storage.component_type_id(),
+                        id
+                    );
                 }
             } else if old_archetype.components.contains(id) {
-                if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
-                    // update existing dense components
-                    if !storage.replace(
-                        self.entity,
-                        old.archetype_id,
-                        old.index,
-                        box_value.as_mut(),
-                    ) {
-                        panic!(
-                            "unexpected type {:?} != {:?} of dense component with id {:?}",
-                            box_value.type_id(),
-                            storage.component_type_id(),
-                            id
-                        );
-                    }
-                } else {
+                let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
                     panic!("component {:?} is not available as storage", id);
+                };
+                // update existing dense components
+                if !storage.replace(self.entity, old.archetype_id, old.index, box_value.as_mut()) {
+                    panic!(
+                        "unexpected type {:?} != {:?} of dense component with id {:?}",
+                        box_value.type_id(),
+                        storage.component_type_id(),
+                        id
+                    );
                 }
             } else {
                 // remember new dense components
@@ -403,43 +394,41 @@ impl<'w> Drop for EntityMut<'w> {
 
         // move or remove old components
         for id in old_archetype.components.iter(components) {
-            if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
-                if new_archetype.components.contains(id) {
-                    let result = storage.swap_remove_and_insert_to(
-                        self.entity,
-                        old.archetype_id,
-                        old.index,
-                        new_archetype_id,
-                    );
-                    assert_eq!(
-                        Some(new_index),
-                        result,
-                        "unexpected type of storage {:?} of dense component with id {:?}",
-                        storage.component_type_id(),
-                        id
-                    );
-                } else {
-                    storage.swap_remove(self.entity, old.archetype_id, old.index);
-                }
-            } else {
+            let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
                 panic!("component {:?} is not available as storage", id);
-            }
-        }
-        // insert new components
-        for (id, mut box_value) in insert_dense {
-            if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
-                let result = storage.insert(self.entity, new_archetype_id, box_value.as_mut());
+            };
+            if new_archetype.components.contains(id) {
+                let result = storage.swap_remove_and_insert_to(
+                    self.entity,
+                    old.archetype_id,
+                    old.index,
+                    new_archetype_id,
+                );
                 assert_eq!(
                     Some(new_index),
                     result,
-                    "unexpected type {:?} != {:?} of dense component with id {:?}",
-                    box_value.type_id(),
+                    "unexpected type of storage {:?} of dense component with id {:?}",
                     storage.component_type_id(),
                     id
                 );
             } else {
-                panic!("component {:?} is not available as storage", id);
+                storage.swap_remove(self.entity, old.archetype_id, old.index);
             }
+        }
+        // insert new components
+        for (id, mut box_value) in insert_dense {
+            let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
+                panic!("component {:?} is not available as storage", id);
+            };
+            let result = storage.insert(self.entity, new_archetype_id, box_value.as_mut());
+            assert_eq!(
+                Some(new_index),
+                result,
+                "unexpected type {:?} != {:?} of dense component with id {:?}",
+                box_value.type_id(),
+                storage.component_type_id(),
+                id
+            );
         }
 
         // move entity by swaping entity locations
@@ -537,12 +526,11 @@ impl WorldMut<'_> {
     /// Returns an exclusive reference ([`EntityMut`]) to the entity with the
     /// given id.
     pub fn entity_mut(&mut self, entity: Entity) -> Option<EntityMut<'_>> {
-        if let Some(location) = self.world.entities.get_mut(entity) {
-            let location = *location;
-            Some(EntityMut::new(self.res, &mut self.world, entity, location))
-        } else {
-            None
-        }
+        let Some(location) = self.world.entities.get_mut(entity) else {
+            return None;
+        };
+        let location = *location;
+        Some(EntityMut::new(self.res, &mut self.world, entity, location))
     }
 
     /// Spawns/creates an new empty [`Entity`] in this `World` and returns a handle

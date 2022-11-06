@@ -285,22 +285,20 @@ impl<T> ComponentMap<T> {
 
     #[inline]
     pub fn get<X>(&self, id: ComponentId<X>) -> Option<&T> {
-        if let Ok(index) = self.search(id) {
-            // SAFETY: index was found by search
-            Some(unsafe { &self.0.get_unchecked(index).1 })
-        } else {
-            None
-        }
+        let Ok(index) = self.search(id) else {
+            return None;
+        };
+        // SAFETY: index was found by search
+        Some(unsafe { &self.0.get_unchecked(index).1 })
     }
 
     #[inline]
     pub fn get_mut<X>(&mut self, id: ComponentId<X>) -> Option<&mut T> {
-        if let Ok(index) = self.search(id) {
-            // SAFETY: index was found by search
-            Some(unsafe { &mut self.0.get_unchecked_mut(index).1 })
-        } else {
-            None
-        }
+        let Ok(index) = self.search(id) else {
+            return None;
+        };
+        // SAFETY: index was found by search
+        Some(unsafe { &mut self.0.get_unchecked_mut(index).1 })
     }
 
     #[inline]

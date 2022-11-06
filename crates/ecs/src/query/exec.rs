@@ -185,15 +185,14 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let fetch: *mut _ = self.fetch;
         let fetch = unsafe { &mut *fetch }; // found no better way to deal with the lifetimes
-        if let Some((archetype, index)) = self.cursor.next(self.world) {
-            if index == 0 {
-                fetch.set_archetype(&self.state.param_state, archetype);
-            }
-            let item = fetch.get(archetype, index);
-            Some(item)
-        } else {
-            None
+        let Some((archetype, index)) = self.cursor.next(self.world) else {
+            return None;
+        };
+        if index == 0 {
+            fetch.set_archetype(&self.state.param_state, archetype);
         }
+        let item = fetch.get(archetype, index);
+        Some(item)
     }
 }
 
@@ -209,15 +208,14 @@ where
         let world = unsafe { &*world }; // found no better way to deal with the lifetimes
         let fetch: *mut _ = &mut self.fetch;
         let fetch = unsafe { &mut *fetch }; // found no better way to deal with the lifetimes
-        if let Some((archetype, index)) = self.cursor.next(world) {
-            if index == 0 {
-                fetch.set_archetype(&self.state.param_state, archetype);
-            }
-            let item = fetch.get(archetype, index);
-            Some(item)
-        } else {
-            None
+        let Some((archetype, index)) = self.cursor.next(world) else {
+            return None;
+        };
+        if index == 0 {
+            fetch.set_archetype(&self.state.param_state, archetype);
         }
+        let item = fetch.get(archetype, index);
+        Some(item)
     }
 }
 

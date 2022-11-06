@@ -316,12 +316,11 @@ impl Schedule {
     }
     fn _add_phase_chain(&mut self, mut phases: impl Iterator<Item = SystemPhaseId>) {
         // get index of first entry of the sequence
-        let mut prev = if let Some(phase_label) = phases.next() {
-            self.dirty = true;
-            self.graph.insert_phase(phase_label).index
-        } else {
+        let Some(phase_label) = phases.next() else {
             return;
         };
+        self.dirty = true;
+        let mut prev = self.graph.insert_phase(phase_label).index;
         // handle rest of chain
         for phase_label in phases {
             let phase = self.graph.insert_phase(phase_label);
