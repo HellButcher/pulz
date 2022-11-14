@@ -17,5 +17,5 @@ pulz-schedule = { version = "0.1.0-alpha", path = "../schedule" }
 pulz-ecs-macros = { version = "0.1.0-alpha", path = "macros" }
 
 slotmap = "1.0"
-hashbrown = "0.12"
+hashbrown = "0.13"
 fnv = "1.0"
