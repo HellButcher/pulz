@@ -50,7 +50,7 @@ macro_rules! impl_filter_param {
 
 pulz_functional_utils::generate_variadic_array! {[T,#] impl_filter_param!{}}
 
-pub struct Without<F, Q>(PhantomData<(Q, fn(F))>);
+pub struct Without<F, Q>(PhantomData<fn(Q, F)>);
 
 impl<F, Q> QueryParam for Without<F, Q>
 where
@@ -122,7 +122,7 @@ where
     }
 }
 
-pub struct With<F, Q>(PhantomData<(Q, fn(F))>);
+pub struct With<F, Q>(PhantomData<fn(Q, F)>);
 
 impl<F, Q> QueryParam for With<F, Q>
 where

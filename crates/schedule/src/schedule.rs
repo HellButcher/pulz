@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use crossbeam_utils::sync::WaitGroup;
-use hashbrown::HashMap;
 use pulz_bitset::BitSet;
 
 use crate::{
@@ -9,6 +8,8 @@ use crate::{
     resource::{ResourceAccess, Resources},
     system::{ExclusiveSystem, IntoSystemDescriptor, System, SystemDescriptor, SystemVariant},
 };
+
+type HashMap<K, V> = std::collections::HashMap<K, V, fnv::FnvBuildHasher>;
 
 enum TaskGroup {
     // topoligical order of the systems, and the offset (index into `order`) where the system is

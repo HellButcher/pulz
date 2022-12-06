@@ -15,14 +15,14 @@ authors = ["Christoph Hommelsheim <main@chommel.en>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/HellButcher/pulz.git"
 edition = "2021"
+rust-version = "1.65"
 
 [workspace.dependencies]
 slotmap = "1.0"
 fnv = "1.0"
-hashbrown = "0.12"
 threadpool = "1.8"
 backtrace = "0.3"
-once_cell = "1.13"
+once_cell = "1.16"
 atomic_refcell = "0.1"
 crossbeam-utils = "0.8"
 darling = "0.14"

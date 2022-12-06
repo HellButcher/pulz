@@ -1,7 +1,7 @@
 use std::{
     any::TypeId,
     borrow::Cow,
-    collections::{btree_map::Entry, BTreeMap},
+    collections::btree_map::{BTreeMap, Entry},
     hash::Hash,
     marker::PhantomData,
 };

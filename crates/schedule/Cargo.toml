@@ -14,10 +14,10 @@ readme = "README.md"
 pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
 pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
 
+fnv = { workspace = true }
 atomic_refcell = { workspace = true }
 once_cell = { workspace = true }
 crossbeam-utils = { workspace = true }
-hashbrown = { workspace = true}
 backtrace = { workspace = true }
 
 [target.'cfg(not(target_os = "unknown"))'.dependencies]

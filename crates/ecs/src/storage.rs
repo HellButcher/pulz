@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 
-type HashMap<K, V> = hashbrown::HashMap<K, V, fnv::FnvBuildHasher>;
+type HashMap<K, V> = std::collections::HashMap<K, V, fnv::FnvBuildHasher>;
 
 use crate::{archetype::ArchetypeId, resource::FromResources, Entity};
 
