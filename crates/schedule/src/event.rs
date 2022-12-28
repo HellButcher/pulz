@@ -59,11 +59,12 @@ impl<T> Events<T> {
         events.update()
     }
 
-    pub fn install_into(resources: &mut Resources, schedule: &mut Schedule)
+    pub fn install_into(resources: &mut Resources)
     where
         T: Send + Sync + 'static,
     {
         if resources.try_init::<Self>().is_ok() {
+            let mut schedule = resources.borrow_res_mut::<Schedule>().unwrap();
             schedule
                 .add_system(Self::update_system)
                 .into_phase(CoreSystemPhase::First);

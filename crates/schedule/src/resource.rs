@@ -1,7 +1,7 @@
 use std::{
     any::{Any, TypeId},
     borrow::Cow,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     hash::Hash,
     marker::PhantomData,
     ops::{Deref, DerefMut},
@@ -191,17 +191,21 @@ impl Resource {
 pub struct Resources {
     resources: Vec<Resource>,
     by_type_id: BTreeMap<TypeId, ResourceId>,
+    pub(crate) modules: BTreeSet<TypeId>,
     _unsend: PhantomData<NonNull<()>>,
 }
 
 impl Resources {
     #[inline]
     pub fn new() -> Self {
-        Self {
+        let mut res = Self {
             resources: Vec::new(),
             by_type_id: BTreeMap::new(),
+            modules: BTreeSet::new(),
             _unsend: PhantomData,
-        }
+        };
+        res.init_unsend::<crate::schedule::Schedule>();
+        res
     }
 
     #[inline]
