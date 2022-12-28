@@ -101,3 +101,9 @@ define_label_enum! {
         Last,
     }
 }
+
+define_label_enum! {
+    pub(crate) enum UndefinedSystemPhase: SystemPhase {
+        Undefined
+    }
+}

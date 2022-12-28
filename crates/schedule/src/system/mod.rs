@@ -239,12 +239,18 @@ where
     fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
         self.as_ref().update_access(resources, access)
     }
+
+    #[inline]
+    fn type_name(&self) -> &'static str {
+        self.as_ref().type_name()
+    }
 }
 
 impl<Args, S> ExclusiveSystem<Args> for Box<S>
 where
     S: ExclusiveSystem<Args> + ?Sized,
 {
+    #[inline]
     fn init(&mut self, resources: &mut Resources) {
         self.as_mut().init(resources)
     }
@@ -252,6 +258,10 @@ where
     #[inline]
     fn run(&mut self, resources: &mut Resources, args: Args) {
         self.as_mut().run(resources, args)
+    }
+
+    fn type_name(&self) -> &'static str {
+        self.as_ref().type_name()
     }
 }
 

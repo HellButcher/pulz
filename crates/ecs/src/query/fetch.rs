@@ -23,7 +23,7 @@ pub struct QryRefState<T: Component> {
 impl<T: Component> QueryParamState for QryRefState<T> {
     #[inline]
     fn init(_res: &Resources, components: &Components) -> Self {
-        let component_id = components.id::<T>().expect("component_id");
+        let component_id = components.expect_id::<T>();
         let component = components.get(component_id).unwrap();
         Self {
             storage_id: component.storage_id.typed(),
@@ -83,7 +83,7 @@ pub struct QryRefMutState<T: Component> {
 impl<T: Component> QueryParamState for QryRefMutState<T> {
     #[inline]
     fn init(_res: &Resources, components: &Components) -> Self {
-        let component_id = components.id::<T>().expect("component_id");
+        let component_id = components.expect_id::<T>();
         let component = components.get(component_id).unwrap();
         Self {
             storage_id: component.storage_id.typed(),

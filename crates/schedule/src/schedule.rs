@@ -5,7 +5,7 @@ use hashbrown::HashMap;
 use pulz_bitset::BitSet;
 
 use crate::{
-    label::{CoreSystemPhase, SystemPhase, SystemPhaseId},
+    label::{CoreSystemPhase, SystemPhase, SystemPhaseId, UndefinedSystemPhase},
     resource::{ResourceAccess, Resources},
     system::{ExclusiveSystem, IntoSystemDescriptor, System, SystemDescriptor, SystemVariant},
 };
@@ -306,7 +306,7 @@ impl Schedule {
             graph: &mut self.graph,
             id: SystemId(i),
             dependency_node: !0,
-            phase: CoreSystemPhase::Update.as_label(), // The default phase
+            phase: UndefinedSystemPhase::Undefined.as_label(),
         }
     }
 
@@ -810,11 +810,35 @@ impl std::fmt::Debug for TGDebug<'_> {
     }
 }
 
+struct DNDebugItem<'s>(&'s DependencyNode, &'s str);
+impl std::fmt::Debug for DNDebugItem<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut t = f.debug_list();
+        t.entry(&self.1);
+        t.entry(&self.0);
+        t.finish()
+    }
+}
+impl std::fmt::Debug for DependencyGraph {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_list();
+        for n in &self.nodes {
+            let name = self.phase_labels.iter().find_map(|(p, i)| if *i == n.index {
+                Some(p.as_str())
+            } else {
+                None
+            }).unwrap_or_default();
+            s.entry(&DNDebugItem(n, name));
+        }
+        s.finish()
+    }
+}
+
 impl std::fmt::Debug for Schedule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("Schedule");
         s.field("dirty", &self.dirty);
-        s.field("nodes", &self.graph.nodes);
+        s.field("nodes", &self.graph);
         if self.dirty {
             s.field("systems", &self.systems);
         } else {

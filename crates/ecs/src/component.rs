@@ -152,6 +152,18 @@ impl Components {
             .map(ComponentId::typed)
     }
 
+    #[inline]
+    pub fn expect_id<T>(&self) -> ComponentId<T>
+    where
+        T: Component,
+    {
+        let Some(id) = self.id::<T>() else {
+            panic!("component {} not initialized", std::any::type_name::<T>());
+        };
+        id
+    }
+
+
     pub fn get<T>(&self, component_id: ComponentId<T>) -> Option<&ComponentDetails> {
         self.components.get(component_id.offset())
     }
