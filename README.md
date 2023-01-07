@@ -43,12 +43,12 @@ This project is in a _very early_ development stage.
 
 [license]: #license
 
-This repository is licensed under either of
+This project is licensed under either of
 
 * MIT license ([LICENSE-MIT] or <http://opensource.org/licenses/MIT>)
 * Apache License, Version 2.0, ([LICENSE-APACHE] or <http://www.apache.org/licenses/LICENSE-2.0>)
 
-at your option.
+at your option
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
