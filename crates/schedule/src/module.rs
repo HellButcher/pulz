@@ -16,13 +16,13 @@ pub trait ModuleWithOutput: Sized + 'static {
         if is_first {
             self.install_modules(resources);
             self.install_once(resources);
-     
+
             let resources_mut: *mut Resources = resources;
             let mut schedule = resources.remove::<Schedule>().unwrap();
             let output = self.install_resources(resources);
             Self::install_systems(&mut schedule);
             // SAFETY: will not access schedule, because it was removed
-            unsafe {&mut *resources_mut}.insert_again(schedule);
+            unsafe { &mut *resources_mut }.insert_again(schedule);
             output
         } else {
             self.install_resources(resources)
@@ -69,7 +69,7 @@ where
 
 impl Resources {
     #[inline]
-    pub fn install<M: ModuleWithOutput>(&mut self, module: M) -> M::Output::<'_> {
+    pub fn install<M: ModuleWithOutput>(&mut self, module: M) -> M::Output<'_> {
         module.install(self)
     }
 }

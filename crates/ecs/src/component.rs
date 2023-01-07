@@ -163,7 +163,6 @@ impl Components {
         id
     }
 
-
     pub fn get<T>(&self, component_id: ComponentId<T>) -> Option<&ComponentDetails> {
         self.components.get(component_id.offset())
     }

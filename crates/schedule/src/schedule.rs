@@ -824,11 +824,17 @@ impl std::fmt::Debug for DependencyGraph {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_list();
         for n in &self.nodes {
-            let name = self.phase_labels.iter().find_map(|(p, i)| if *i == n.index {
-                Some(p.as_str())
-            } else {
-                None
-            }).unwrap_or_default();
+            let name = self
+                .phase_labels
+                .iter()
+                .find_map(|(p, i)| {
+                    if *i == n.index {
+                        Some(p.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
             s.entry(&DNDebugItem(n, name));
         }
         s.finish()
