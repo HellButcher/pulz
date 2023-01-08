@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 edition.workspace = true
 repository.workspace = true
-keywords = ["ecs", "game"]
+keywords = ["ecs", "game", "macros"]
 categories = ["data-structures", "game-engines", "game-development"]
 readme = "../README.md"
 

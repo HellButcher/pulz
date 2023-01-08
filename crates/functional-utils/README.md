@@ -7,13 +7,7 @@
 [![license: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
 [![Rust CI](https://github.com/HellButcher/pulz/actions/workflows/rust.yml/badge.svg)](https://github.com/HellButcher/pulz/actions/workflows/rust.yml)
 
-<!-- TODO: Short Introduction -->
-**TODO**
-
-## Example
-
-<!-- TODO: basic Usage Example -->
-**TODO**
+traits and macros to work with tuples and functions.
 
 ## License
 
