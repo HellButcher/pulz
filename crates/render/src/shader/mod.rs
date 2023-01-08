@@ -5,7 +5,7 @@ mod preprocessor;
 pub use ::encase::*;
 pub use ::pulz_render_macros::ShaderType;
 
-crate::backend::define_gpu_resource!(ShaderModule, ShaderModules, ShaderModuleDescriptor<'l>);
+crate::backend::define_gpu_resource!(ShaderModule, ShaderModuleDescriptor<'l>);
 
 pub struct ShaderModuleDescriptor<'a> {
     pub label: Option<&'a str>,
@@ -15,7 +15,7 @@ pub struct ShaderModuleDescriptor<'a> {
 #[non_exhaustive]
 pub enum ShaderSource<'a> {
     Wgsl(Cow<'a, str>),
-    // Glsl(Cow<'a, str>),
+    Glsl(Cow<'a, str>),
     SpirV(Cow<'a, [u32]>),
 }
 

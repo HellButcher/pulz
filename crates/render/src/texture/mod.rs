@@ -3,4 +3,4 @@ mod image;
 
 pub use self::{descriptor::*, image::*};
 
-crate::backend::define_gpu_resource!(Texture, Textures, TextureDescriptor);
+crate::backend::define_gpu_resource!(Texture, TextureDescriptor);

@@ -3,12 +3,10 @@ pub trait GpuResource: slotmap::Key {
 }
 
 macro_rules! define_gpu_resource {
-  ($type_name:ident, $collection_type_name:ident, $descriptor_type:ident $(<$life:tt>)?) => {
+  ($type_name:ident, $descriptor_type:ident $(<$life:tt>)?) => {
     ::slotmap::new_key_type!{
       pub struct $type_name;
     }
-
-    pub type $collection_type_name<V> = ::slotmap::basic::SlotMap<$type_name, V>;
 
     impl $crate::backend::GpuResource for $type_name {
       type Descriptor<'l> = $descriptor_type $(<$life>)?;

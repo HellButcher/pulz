@@ -8,9 +8,9 @@ repository.workspace = true
 readme = "README.md"
 
 [features]
-default = ["winit/x11", "winit/wayland"]
+default = ["x11", "wayland"]
 x11 = ["winit/x11"]
-wayland = ["winit/wayland"]
+wayland = ["winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita"]
 
 [dependencies]
 pulz-ecs = { path = "../ecs" }

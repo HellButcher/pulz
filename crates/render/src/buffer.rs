@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-crate::backend::define_gpu_resource!(Buffer, Buffers, BufferDescriptor);
+crate::backend::define_gpu_resource!(Buffer, BufferDescriptor);
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BufferDescriptor {
