@@ -336,7 +336,7 @@ impl<'w> Drop for EntityMut<'w> {
             if id.is_sparse() {
                 // apply insertion of sparse components
                 let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
-                    panic!("component {:?} is not available as storage", id);
+                    panic!("component {id:?} is not available as storage");
                 };
                 if storage
                     .insert(self.entity, old.archetype_id, box_value.as_mut())
@@ -351,7 +351,7 @@ impl<'w> Drop for EntityMut<'w> {
                 }
             } else if old_archetype.components.contains(id) {
                 let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
-                    panic!("component {:?} is not available as storage", id);
+                    panic!("component {id:?} is not available as storage");
                 };
                 // update existing dense components
                 if !storage.replace(self.entity, old.archetype_id, old.index, box_value.as_mut()) {
@@ -395,7 +395,7 @@ impl<'w> Drop for EntityMut<'w> {
         // move or remove old components
         for id in old_archetype.components.iter(components) {
             let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
-                panic!("component {:?} is not available as storage", id);
+                panic!("component {id:?} is not available as storage");
             };
             if new_archetype.components.contains(id) {
                 let result = storage.swap_remove_and_insert_to(
@@ -418,7 +418,7 @@ impl<'w> Drop for EntityMut<'w> {
         // insert new components
         for (id, mut box_value) in insert_dense {
             let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
-                panic!("component {:?} is not available as storage", id);
+                panic!("component {id:?} is not available as storage");
             };
             let result = storage.insert(self.entity, new_archetype_id, box_value.as_mut());
             assert_eq!(

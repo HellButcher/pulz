@@ -119,7 +119,7 @@ pub trait WorldExt {
     fn world(&self) -> World<'_>;
     fn world_mut(&mut self) -> WorldMut<'_>;
 
-    fn query<'w, Q>(&'w mut self) -> Query<'w, Q>
+    fn query<Q>(&mut self) -> Query<'_, Q>
     where
         Q: QueryParam + 'static;
 }
@@ -142,9 +142,9 @@ impl WorldExt for Resources {
     }
 
     #[inline]
-    fn query<'w, Q>(&'w mut self) -> Query<'w, Q>
+    fn query<Q>(&mut self) -> Query<'_, Q>
     where
-        Q: QueryParam + 'static,
+        Q: QueryParam,
     {
         Query::new(self)
     }

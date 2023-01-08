@@ -11,7 +11,7 @@ use crate::{
 
 pub struct Query<'w, Q>
 where
-    Q: QueryParam,
+    Q: QueryParam + 'w,
 {
     world: Res<'w, WorldInner>,
     state: Res<'w, QueryState<Q::State>>,
@@ -20,7 +20,7 @@ where
 
 pub struct QueryIter<'w, 'a, Q>
 where
-    Q: QueryParam,
+    Q: QueryParam + 'a,
 {
     world: &'a WorldInner,
     state: &'a QueryState<Q::State>,
@@ -30,7 +30,7 @@ where
 
 pub struct QueryIntoIter<'w, Q>
 where
-    Q: QueryParam,
+    Q: QueryParam + 'w,
 {
     world: Pin<Res<'w, WorldInner>>,
     state: Pin<Res<'w, QueryState<Q::State>>>,
@@ -47,7 +47,7 @@ struct Cursor<'a> {
 
 impl<'w, Q> Query<'w, Q>
 where
-    Q: QueryParam,
+    Q: QueryParam + 'w,
 {
     pub(crate) fn new(res: &'w mut Resources) -> Self {
         let state_resource_id = res.init::<QueryState<Q::State>>();
@@ -137,7 +137,7 @@ impl<'a> Cursor<'a> {
 
 impl<'w: 'a, 'a, Q> IntoIterator for &'a mut Query<'w, Q>
 where
-    Q: QueryParam,
+    Q: QueryParam + 'a,
 {
     type Item = QueryItem<'w, 'a, Q>;
     type IntoIter = QueryIter<'w, 'a, Q>;
@@ -177,7 +177,7 @@ where
 
 impl<'w: 'a, 'a, Q> Iterator for QueryIter<'w, 'a, Q>
 where
-    Q: QueryParam,
+    Q: QueryParam + 'a,
 {
     type Item = QueryItem<'w, 'a, Q>;
 

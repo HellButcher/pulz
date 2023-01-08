@@ -356,12 +356,12 @@ impl<T> ComponentMap<T> {
     }
 
     #[inline]
-    pub fn entries<'l>(&'l self) -> impl Iterator<Item = (ComponentId, &'l T)> + '_ {
+    pub fn entries(&self) -> impl Iterator<Item = (ComponentId, &'_ T)> + '_ {
         self.0.iter().map(|(id, value)| (*id, value))
     }
 
     #[inline]
-    pub fn entries_mut<'l>(&'l mut self) -> impl Iterator<Item = (ComponentId, &'l mut T)> + '_ {
+    pub fn entries_mut(&mut self) -> impl Iterator<Item = (ComponentId, &'_ mut T)> + '_ {
         self.0.iter_mut().map(|(id, value)| (*id, value))
     }
 

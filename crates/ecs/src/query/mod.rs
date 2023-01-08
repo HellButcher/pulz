@@ -173,6 +173,8 @@ impl<S: QueryParamState> FromResources for QueryState<S> {
 #[cfg(test)]
 mod test {
 
+    use std::sync::{Arc, Mutex};
+
     use pulz_schedule::resource::Resources;
 
     use crate::{component::Component, prelude::Query, WorldExt};
@@ -258,5 +260,71 @@ mod test {
         }
         assert_eq!(750, counter4);
         assert_eq!(374500, sum4);
+    }
+
+    #[test]
+    fn test_query_sys() {
+        let mut resources = Resources::new();
+        let mut entities = Vec::new();
+        {
+            let mut world = resources.world_mut();
+            for i in 0..1000 {
+                let entity = match i % 4 {
+                    1 => world.spawn().insert(A(i)).id(),
+                    2 => world.spawn().insert(B(i)).id(),
+                    _ => world.spawn().insert(A(i)).insert(B(i)).id(),
+                };
+                entities.push(entity);
+            }
+        }
+
+        let data = Arc::new(Mutex::new((0, 0, 0)));
+        let data1 = data.clone();
+        let f1 = move |mut q1: Query<'_, &A>| {
+            let mut counter1 = 0;
+            let mut sum1 = 0;
+            for a in q1.iter() {
+                counter1 += 1;
+                sum1 += a.0;
+            }
+            *data1.lock().unwrap() = (counter1, sum1, 0);
+        };
+        resources.run(f1);
+        let (counter1, sum1, _) = *data.lock().unwrap();
+        assert_eq!(750, counter1);
+        assert_eq!(374500, sum1);
+
+        let data2 = data.clone();
+        let f2 = move |mut q2: Query<'_, (&A, &B)>| {
+            let mut counter2 = 0;
+            let mut sum2a = 0;
+            let mut sum2b = 0;
+            for (a, b) in q2.iter() {
+                counter2 += 1;
+                sum2a += a.0;
+                sum2b += b.0;
+            }
+            *data2.lock().unwrap() = (counter2, sum2a, sum2b);
+        };
+        resources.run(f2);
+        let (counter2, sum2a, sum2b) = *data.lock().unwrap();
+        assert_eq!(500, counter2);
+        assert_eq!(249750, sum2a);
+        assert_eq!(249750, sum2b);
+
+        let data3 = data.clone();
+        let f3 = move |mut q3: Query<'_, (&B,)>| {
+            let mut counter3 = 0;
+            let mut sum3 = 0;
+            for (b,) in q3.iter() {
+                counter3 += 1;
+                sum3 += b.0;
+            }
+            *data3.lock().unwrap() = (counter3, sum3, 0);
+        };
+        resources.run(f3);
+        let (counter3, sum3, _) = *data.lock().unwrap();
+        assert_eq!(750, counter3);
+        assert_eq!(374750, sum3);
     }
 }

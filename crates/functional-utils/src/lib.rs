@@ -516,7 +516,7 @@ generate_variadic_array! {[T,#] impl_bind_fn!{}}
 mod tests {
     use std::cell::Cell;
 
-    use crate::*;
+    use super::*;
 
     fn assert_fn_type<Args, O>(f: impl CallFn<Args, Output = O>) -> impl CallFn<Args, Output = O> {
         f

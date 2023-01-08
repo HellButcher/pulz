@@ -143,7 +143,7 @@ impl QueryParamFetch<'_> for QryEntityFetch {
 
     #[inline(always)]
     fn fetch(_res: &ResourcesSend, _state: &()) -> Self {
-        QryEntityFetch
+        Self
     }
 
     #[inline(always)]

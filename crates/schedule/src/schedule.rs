@@ -379,7 +379,7 @@ impl Schedule {
                 });
                 if let Err(e) = result {
                     let _ = self.debug_dump_if_env_ext(Some(groups), None);
-                    panic!("resource conflict ({:?})\nuse PULZ_DUMP_SCHEDULE=[path] to dump a .dot file of the schedule.", e);
+                    panic!("resource conflict ({e:?})\nuse PULZ_DUMP_SCHEDULE=[path] to dump a .dot file of the schedule.");
                 }
             }
         }
@@ -572,15 +572,15 @@ impl Schedule {
                 "// Debug Dump for schedule created on {:?}",
                 Instant::now()
             )?;
-            writeln!(f, "/*\n  Backtrace\n  =========\n{:?}\n*/", backtrace)?;
+            writeln!(f, "/*\n  Backtrace\n  =========\n{backtrace:?}\n*/")?;
             self.write_dot(&mut f, Some(module_path!()))?;
 
-            writeln!(f, "/*\n  Schedule\n  =========\n{:#?}", self)?;
+            writeln!(f, "/*\n  Schedule\n  =========\n{self:#?}")?;
             if let Some(groups) = groups {
-                writeln!(f, "\n  Groups\n  =========\n{:#?}", groups)?;
+                writeln!(f, "\n  Groups\n  =========\n{groups:#?}")?;
             }
             if let Some(conflict_groups) = conflict_groups {
-                writeln!(f, "  Conflict Groups\n  =========\n{:#?}", conflict_groups)?;
+                writeln!(f, "  Conflict Groups\n  =========\n{conflict_groups:#?}")?;
             }
             writeln!(f, "*/")?;
         }
@@ -934,7 +934,9 @@ impl IntoSystemDescriptor<ScheduleSystemMarker> for Schedule {
 impl Resources {
     #[inline]
     pub fn run<Marker>(&mut self, sys: impl IntoSystemDescriptor<Marker>) {
-        sys.into_system_descriptor().run(self)
+        let mut d = sys.into_system_descriptor();
+        d.init(self);
+        d.run(self);
     }
 }
 

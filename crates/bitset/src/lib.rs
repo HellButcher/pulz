@@ -186,7 +186,32 @@ impl BitSet {
     }
 
     pub fn iter(&self) -> BitSetIter<'_> {
-        BitSetIter::new(&self.0)
+        BitSetIter::new(&self.0, 0, !0)
+    }
+
+    #[inline]
+    fn bounds_inclusive(range: impl std::ops::RangeBounds<usize>) -> (usize, usize) {
+        let start = match range.start_bound() {
+            std::ops::Bound::Included(i) => *i,
+            std::ops::Bound::Excluded(i) => (*i).saturating_add(1),
+            std::ops::Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            std::ops::Bound::Included(i) => *i,
+            std::ops::Bound::Excluded(i) => (*i).saturating_sub(1),
+            std::ops::Bound::Unbounded => 0,
+        };
+        (start, end)
+    }
+
+    pub fn iter_range(&self, range: impl std::ops::RangeBounds<usize>) -> BitSetIter<'_> {
+        let (start, end) = Self::bounds_inclusive(range);
+        BitSetIter::new(&self.0, start, end)
+    }
+
+    pub fn drain(&mut self, range: impl std::ops::RangeBounds<usize>) -> BitSetDrain<'_> {
+        let (start, end) = Self::bounds_inclusive(range);
+        BitSetDrain::new(self, start, end)
     }
 
     /// Add items to this bitset. (union)
@@ -277,16 +302,51 @@ impl std::fmt::Debug for BitSet {
     }
 }
 
+#[inline]
+fn iter_next(slice: &[u64], index: &mut usize, end: usize) -> Option<usize> {
+    if *index > end {
+        return None;
+    }
+    let mut major = *index >> SHIFT_DIV64;
+    let mut minor = *index & MASK_MOD64;
+    let major_end = end >> SHIFT_DIV64;
+    while let Some(mut word) = slice.get(major).copied() {
+        if major > major_end {
+            break;
+        }
+        word >>= minor;
+        while word != 0 {
+            if word & 1 == 1 {
+                let result = major << 6 | minor;
+                *index = result + 1; // set next
+                return Some(result);
+            }
+            minor += 1;
+            word >>= 1;
+        }
+        // skip complete word
+        major += 1;
+        minor = 0;
+    }
+    *index = (major << SHIFT_DIV64) + 1;
+    None
+}
+
 #[derive(Clone)]
 pub struct BitSetIter<'l> {
     slice: &'l [u64],
     index: usize,
+    end: usize,
 }
 
 impl<'l> BitSetIter<'l> {
     #[inline]
-    fn new(slice: &'l [u64]) -> Self {
-        Self { slice, index: 0 }
+    fn new(slice: &'l [u64], start: usize, end: usize) -> Self {
+        Self {
+            slice,
+            index: start,
+            end,
+        }
     }
 }
 
@@ -294,25 +354,7 @@ impl<'l> Iterator for BitSetIter<'l> {
     type Item = usize;
     #[inline]
     fn next(&mut self) -> Option<usize> {
-        let mut major = self.index >> SHIFT_DIV64;
-        let mut minor = self.index & MASK_MOD64;
-        while let Some(mut word) = self.slice.get(major).copied() {
-            word >>= minor;
-            while word != 0 {
-                if word & 1 == 1 {
-                    let index = major << 6 | minor;
-                    self.index = index + 1; // set next
-                    return Some(index);
-                }
-                minor += 1;
-                word >>= 1;
-            }
-            // skip complete word
-            major += 1;
-            minor = 0;
-        }
-        self.index = (major << SHIFT_DIV64) + 1;
-        None
+        iter_next(self.slice, &mut self.index, self.end)
     }
 }
 
@@ -322,6 +364,33 @@ impl<'l> IntoIterator for &'l BitSet {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+pub struct BitSetDrain<'l> {
+    bitset: &'l mut BitSet,
+    index: usize,
+    end: usize,
+}
+
+impl<'l> BitSetDrain<'l> {
+    #[inline]
+    fn new(bitset: &'l mut BitSet, start: usize, end: usize) -> Self {
+        Self {
+            bitset,
+            index: start,
+            end,
+        }
+    }
+}
+
+impl<'l> Iterator for BitSetDrain<'l> {
+    type Item = usize;
+    #[inline]
+    fn next(&mut self) -> Option<usize> {
+        let i = iter_next(&self.bitset.0, &mut self.index, self.end)?;
+        self.bitset.remove(i);
+        Some(i)
     }
 }
 

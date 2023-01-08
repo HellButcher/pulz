@@ -218,6 +218,17 @@ impl Resources {
     }
 
     #[inline]
+    pub fn expect_id<T>(&self) -> ResourceId<T>
+    where
+        T: 'static,
+    {
+        let Some(id) = self.id::<T>() else {
+            panic!("resource {} not initialized", std::any::type_name::<T>());
+        };
+        id
+    }
+
+    #[inline]
     pub fn name<T>(&self, id: ResourceId<T>) -> Option<&str> {
         self.resources.get(id.0).map(|r| r.name.as_ref())
     }
@@ -617,7 +628,7 @@ where
 
     #[inline]
     fn init(resources: &mut Resources) -> Self {
-        Self(resources.id::<T>().expect("resource not registered"))
+        Self(resources.expect_id::<T>())
     }
 
     #[inline]
@@ -649,7 +660,7 @@ where
 
     #[inline]
     fn init(resources: &mut Resources) -> Self {
-        Self(resources.id::<T>().expect("resource not registered"))
+        Self(resources.expect_id::<T>())
     }
 
     #[inline]
