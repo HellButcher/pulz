@@ -1,15 +1,12 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Throughput};
-use criterion_cpu_time::PosixTime;
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 const NUM_ENTITIES: &[usize] = &[5_000, 10_000, 50_000, 100_000 /* 500_000, 1_000_000 */];
 
 criterion_group!(name = world_benches; config = configure_criterion(); targets = world_spawn, world_spawn2, world_many_components);
 criterion_main!(world_benches);
 
-type Criterion = criterion::Criterion<PosixTime>;
 fn configure_criterion() -> Criterion {
-    criterion::Criterion::default()
-        .with_measurement(PosixTime::UserAndSystemTime)
+    Criterion::default()
         .warm_up_time(std::time::Duration::from_secs(1))
         .measurement_time(std::time::Duration::from_secs(4))
 }
@@ -89,7 +86,7 @@ pub fn world_spawn(c: &mut Criterion) {
                 let mut world = World::new();
                 let mut entities = Vec::new();
                 for i in 0..entity_count {
-                    entities.push(world.spawn().insert(A(i)).insert(B(i)).insert(C(i)).id());
+                    entities.push(world.spawn(()).insert(A(i)).insert(B(i)).insert(C(i)).id());
                 }
                 for (i, entity) in entities.iter().enumerate() {
                     world
@@ -176,7 +173,7 @@ pub fn world_spawn2(c: &mut Criterion) {
                 let mut world = World::new();
                 let mut entities = Vec::new();
                 for i in 0..entity_count {
-                    entities.push(world.spawn().insert(A(i)).insert(B(i)).insert(C(i)).id());
+                    entities.push(world.spawn(()).insert(A(i)).insert(B(i)).insert(C(i)).id());
                 }
                 for (i, entity) in entities.iter().enumerate() {
                     let mut e = world.entity_mut(*entity);
@@ -343,7 +340,7 @@ pub fn world_many_components(c: &mut Criterion) {
                 let mut world = World::new();
                 let mut entities = Vec::new();
                 for i in 0..1000 {
-                    let mut e = world.spawn();
+                    let mut e = world.spawn(());
                     bevy_insert_many_components(&mut e, A(i));
                     entities.push(e.id());
                 }
