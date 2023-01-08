@@ -60,13 +60,8 @@ impl Entities {
     }
 
     #[inline]
-    pub(crate) fn reserve(&mut self, additional_capacity: usize) {
+    pub fn reserve(&mut self, additional_capacity: usize) {
         self.0.reserve(additional_capacity)
-    }
-
-    #[inline]
-    pub(crate) fn clear(&mut self) {
-        self.0.clear()
     }
 
     #[inline]

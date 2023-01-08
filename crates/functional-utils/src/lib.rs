@@ -536,8 +536,7 @@ mod tests {
 
     #[test]
     fn test_push() {
-        let a = ();
-        let b = a.push_front(1u32);
+        let b = ().push_front(1u32);
         assert_eq!((1,), b);
         let b = b.push_front(2u32);
         assert_eq!((2, 1), b);
@@ -554,8 +553,7 @@ mod tests {
         let (b, c) = b.pop_back();
         assert_eq!((2,), b);
         assert_eq!(3, c);
-        let (x, b) = b.pop_back();
-        assert_eq!((), x);
+        let ((), b) = b.pop_back();
         assert_eq!(2, b);
     }
 

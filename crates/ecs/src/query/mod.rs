@@ -65,9 +65,7 @@ where
 {
     world_resource_id: ResourceId<WorldInner>,
     param_state: S,
-    access: ResourceAccess,
 
-    sparse_only: bool,
     last_archetype_index: AtomicUsize,
     updating_archetypes: Mutex<()>,
     matching_archetypes_p: AtomicPtr<ArchetypeSet>,
@@ -89,16 +87,11 @@ where
         resource_id: ResourceId<WorldInner>,
     ) -> Self {
         let state = S::init(resources, &world.components);
-        let mut access = ResourceAccess::new();
-        S::update_access(&state, &mut access);
-
-        let sparse_only = false; // TODO
+        // TODO: detect if only sparse components are used, and handle this seperately
 
         let query = Self {
             world_resource_id: resource_id,
             param_state: state,
-            access,
-            sparse_only,
             last_archetype_index: AtomicUsize::new(0),
             updating_archetypes: Mutex::new(()),
             matching_archetypes_p: AtomicPtr::new(std::ptr::null_mut()),
