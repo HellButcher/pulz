@@ -1,0 +1,16 @@
+[package]
+name = "pulz-render-pipeline-core"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+keywords = ["game", "game-engine"]
+categories = ["game-engines", "game-development"]
+readme = "README.md"
+
+[dependencies]
+pulz-ecs = { path = "../ecs" }
+pulz-render = { path = "../render" }
+
+radsort = { workspace = true }

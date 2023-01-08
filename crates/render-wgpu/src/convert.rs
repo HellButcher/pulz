@@ -4,13 +4,15 @@ use pulz_render::{
     buffer::{BufferDescriptor, BufferUsage},
     color::Srgba,
     math::USize3,
-    pipeline::{Face, FrontFace, IndexFormat, PrimitiveTopology, VertexFormat},
+    pipeline::{Face, FrontFace, IndexFormat, PrimitiveTopology, VertexFormat, PipelineLayout, BindGroupLayoutEntry, VertexAttribute, BindGroupLayoutDescriptor, GraphicsPipelineDescriptor, ComputePipelineDescriptor, PipelineLayoutDescriptor, VertexState, FragmentState, ColorTargetState, BlendState, BlendComponent, PrimitiveState, DepthStencilState, StencilFaceState, ColorWrite, BlendOperation, BlendFactor, CompareFunction, StencilOperation},
     shader::{ShaderModule, ShaderModuleDescriptor, ShaderSource},
     texture::{
         ImageDataLayout, Texture, TextureDescriptor, TextureDimensions, TextureFormat, TextureUsage,
     },
 };
 use thiserror::Error;
+
+use crate::resources::WgpuResources;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -23,6 +25,9 @@ pub enum ConversionError {
 
     #[error("the texture {0:?} is not available!")]
     TextureNotAvailable(Texture),
+
+    #[error("the pipeline layout {0:?} is not available!")]
+    PipelineLayoutNotAvailable(PipelineLayout),
 }
 
 pub type Result<T, E = ConversionError> = std::result::Result<T, E>;
@@ -252,6 +257,18 @@ fn convert_texture_usages(val: TextureUsage) -> wgpu::TextureUsages {
     result
 }
 
+fn convert_bind_group_layout_entry(_val: BindGroupLayoutEntry) -> wgpu::BindGroupLayoutEntry {
+    todo!() // TODO
+}
+
+fn convert_vertex_attribute(index: usize, attr: VertexAttribute) -> Result<wgpu::VertexAttribute> {
+    Ok(wgpu::VertexAttribute {
+        format: convert_vertex_format(attr.format)?,
+        offset: attr.offset as u64,
+        shader_location: index as u32,
+    })
+}
+
 pub fn convert_shader_module_descriptor<'a>(
     val: &'a ShaderModuleDescriptor<'a>,
 ) -> wgpu::ShaderModuleDescriptor<'a> {
@@ -266,6 +283,257 @@ pub fn convert_shader_module_descriptor<'a>(
         label: val.label,
         source,
     }
+}
+
+pub fn convert_bind_group_layout_descriptor<'l>(
+    desc: &BindGroupLayoutDescriptor<'l>,
+    entries_tmp: &'l mut Vec<wgpu::BindGroupLayoutEntry>,
+) -> wgpu::BindGroupLayoutDescriptor<'l> {
+    entries_tmp.reserve_exact(desc.entries.len());
+    for entry in desc.entries.iter().copied() {
+        entries_tmp.push(convert_bind_group_layout_entry(entry));
+    }
+    wgpu::BindGroupLayoutDescriptor {
+        label: desc.label,
+        entries: entries_tmp,
+    }
+}
+
+pub fn convert_pipeline_layout_descriptor<'l>(
+    _res: &'l WgpuResources,
+    desc: &PipelineLayoutDescriptor<'l>,
+    layouts_tmp: &'l mut Vec<&'l wgpu::BindGroupLayout>,
+) -> wgpu::PipelineLayoutDescriptor<'l> {
+    wgpu::PipelineLayoutDescriptor {
+        label: desc.label,
+        bind_group_layouts: layouts_tmp,
+        push_constant_ranges: &[], // TODO
+    }
+}
+
+pub fn convert_compute_pipeline_descriptor<'l>(
+    res: &'l WgpuResources,
+    desc: &ComputePipelineDescriptor<'l>,
+) -> Result<wgpu::ComputePipelineDescriptor<'l>> {
+    let layout = if let Some(layout) = desc.layout {
+        Some(
+            res.pipeline_layouts
+                .get(layout)
+                .ok_or(ConversionError::PipelineLayoutNotAvailable(layout))?,
+        )
+    } else {
+        None
+    };
+
+    let module = res
+        .shader_modules
+        .get(desc.module)
+        .ok_or(ConversionError::ShaderModuleNotAvailable(desc.module))?;
+
+    Ok(wgpu::ComputePipelineDescriptor {
+        label: desc.label,
+        layout,
+        module,
+        entry_point: desc.entry_point,
+    })
+}
+
+pub fn convert_graphics_pipeline_descriptor<'l>(
+    res: &'l WgpuResources,
+    desc: &GraphicsPipelineDescriptor<'l>,
+    buffers_tmp: &'l mut Vec<wgpu::VertexBufferLayout<'l>>,
+    attribs_tmp: &'l mut Vec<wgpu::VertexAttribute>,
+    targets_tmp: &'l mut Vec<Option<wgpu::ColorTargetState>>,
+) -> Result<wgpu::RenderPipelineDescriptor<'l>> {
+    let layout = if let Some(layout) = desc.layout {
+        Some(
+            res.pipeline_layouts
+                .get(layout)
+                .ok_or(ConversionError::PipelineLayoutNotAvailable(layout))?,
+        )
+    } else {
+        None
+    };
+
+    let vertex = convert_vertex_state(res, &desc.vertex, buffers_tmp, attribs_tmp)?;
+
+    let depth_stencil = if let Some(ref state) = desc.depth_stencil {
+        Some(convert_depth_stencil_state(state)?)
+    } else {
+        None
+    };
+
+    let fragment = if let Some(ref fragment) = desc.fragment {
+        Some(convert_fragment_state(res, fragment, targets_tmp)?)
+    } else {
+        None
+    };
+
+    Ok(wgpu::RenderPipelineDescriptor {
+        label: desc.label,
+        layout,
+        vertex,
+        primitive: convert_primitive_state(&desc.primitive),
+        depth_stencil,
+        multisample: wgpu::MultisampleState {
+            count: desc.samples,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        fragment,
+        multiview: None,
+    })
+}
+
+fn convert_vertex_state<'l>(
+    res: &'l WgpuResources,
+    state: &VertexState<'l>,
+    buffers_tmp: &'l mut Vec<wgpu::VertexBufferLayout<'l>>,
+    attributes_tmp: &'l mut Vec<wgpu::VertexAttribute>,
+) -> Result<wgpu::VertexState<'l>> {
+    let module = res
+        .shader_modules
+        .get(state.module)
+        .ok_or(ConversionError::ShaderModuleNotAvailable(state.module))?;
+
+    attributes_tmp.reserve_exact(state.buffers.iter().map(|l| l.attributes.len()).sum());
+    for (i, attr) in state
+        .buffers
+        .iter()
+        .flat_map(|l| l.attributes)
+        .copied()
+        .enumerate()
+    {
+        attributes_tmp.push(convert_vertex_attribute(i, attr)?);
+    }
+
+    buffers_tmp.reserve_exact(state.buffers.len());
+    let mut offset = 0;
+    for layout in state.buffers {
+        let next_offset = offset + layout.attributes.len();
+        buffers_tmp.push(wgpu::VertexBufferLayout {
+            array_stride: layout.array_stride as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &attributes_tmp[offset..next_offset],
+        });
+        offset = next_offset;
+    }
+
+    Ok(wgpu::VertexState {
+        module,
+        entry_point: state.entry_point,
+        buffers: buffers_tmp,
+    })
+}
+
+fn convert_fragment_state<'l>(
+    res: &'l WgpuResources,
+    state: &FragmentState<'l>,
+    targets_tmp: &'l mut Vec<Option<wgpu::ColorTargetState>>,
+) -> Result<wgpu::FragmentState<'l>> {
+    let module = res
+        .shader_modules
+        .get(state.module)
+        .ok_or(ConversionError::ShaderModuleNotAvailable(state.module))?;
+
+    targets_tmp.reserve_exact(state.targets.len());
+    for target in state.targets {
+        targets_tmp.push(convert_color_target_state(&target)?);
+    }
+
+    Ok(wgpu::FragmentState {
+        module,
+        entry_point: state.entry_point,
+        targets: targets_tmp,
+    })
+}
+
+#[inline]
+fn convert_color_target_state(val: &ColorTargetState) -> Result<Option<wgpu::ColorTargetState>> {
+    Ok(Some(wgpu::ColorTargetState {
+        format: convert_texture_format(val.format)?,
+        blend: val.blend.map(convert_blent_state),
+        write_mask: convert_color_write(val.write_mask),
+    }))
+}
+
+#[inline]
+fn convert_blent_state(val: BlendState) -> wgpu::BlendState {
+    wgpu::BlendState {
+        color: convert_blent_component(val.color),
+        alpha: convert_blent_component(val.alpha),
+    }
+}
+
+#[inline]
+fn convert_blent_component(val: BlendComponent) -> wgpu::BlendComponent {
+    wgpu::BlendComponent {
+        operation: convert_blend_operation(val.operation),
+        src_factor: convert_blend_factor(val.src_factor),
+        dst_factor: convert_blend_factor(val.dst_factor),
+    }
+}
+
+#[inline]
+fn convert_primitive_state(val: &PrimitiveState) -> wgpu::PrimitiveState {
+    wgpu::PrimitiveState {
+        topology: convert_primitive_topology(val.topology),
+        strip_index_format: None,
+        front_face: convert_front_face(val.front_face),
+        cull_mode: val.cull_mode.map(convert_face),
+
+        polygon_mode: wgpu::PolygonMode::Fill, // TODO:
+        unclipped_depth: false,                // TODO,
+        conservative: false,                   // TODO
+    }
+}
+
+#[inline]
+fn convert_depth_stencil_state(val: &DepthStencilState) -> Result<wgpu::DepthStencilState> {
+    Ok(wgpu::DepthStencilState {
+        format: convert_texture_format(val.format)?,
+        depth_write_enabled: val.depth.write_enabled,
+        depth_compare: convert_compare_function(val.depth.compare),
+        stencil: wgpu::StencilState {
+            front: convert_stencil_face_state(&val.stencil.front),
+            back: convert_stencil_face_state(&val.stencil.back),
+            read_mask: val.stencil.read_mask,
+            write_mask: val.stencil.write_mask,
+        },
+        bias: wgpu::DepthBiasState {
+            constant: val.depth.bias,
+            slope_scale: val.depth.bias_slope_scale,
+            clamp: val.depth.bias_clamp,
+        },
+    })
+}
+
+#[inline]
+fn convert_stencil_face_state(val: &StencilFaceState) -> wgpu::StencilFaceState {
+    wgpu::StencilFaceState {
+        compare: convert_compare_function(val.compare),
+        fail_op: convert_stencil_operation(val.fail_op),
+        depth_fail_op: convert_stencil_operation(val.depth_fail_op),
+        pass_op: convert_stencil_operation(val.pass_op),
+    }
+}
+
+#[inline]
+fn convert_color_write(val: ColorWrite) -> wgpu::ColorWrites {
+    let mut result = wgpu::ColorWrites::empty();
+    if val.contains(ColorWrite::RED) {
+        result |= wgpu::ColorWrites::RED;
+    }
+    if val.contains(ColorWrite::GREEN) {
+        result |= wgpu::ColorWrites::GREEN;
+    }
+    if val.contains(ColorWrite::BLUE) {
+        result |= wgpu::ColorWrites::BLUE;
+    }
+    if val.contains(ColorWrite::ALPHA) {
+        result |= wgpu::ColorWrites::ALPHA;
+    }
+    result
 }
 
 #[inline]
@@ -296,12 +564,92 @@ fn convert_face(val: Face) -> wgpu::Face {
 }
 
 #[inline]
+fn convert_blend_operation(val: BlendOperation) -> wgpu::BlendOperation {
+    match val {
+        BlendOperation::Add => wgpu::BlendOperation::Add,
+        BlendOperation::Subtract => wgpu::BlendOperation::Subtract,
+        BlendOperation::ReverseSubtract => wgpu::BlendOperation::ReverseSubtract,
+        BlendOperation::Min => wgpu::BlendOperation::Min,
+        BlendOperation::Max => wgpu::BlendOperation::Max,
+    }
+}
+
+#[inline]
+fn convert_blend_factor(val: BlendFactor) -> wgpu::BlendFactor {
+    match val {
+        BlendFactor::Zero => wgpu::BlendFactor::Zero,
+        BlendFactor::One => wgpu::BlendFactor::One,
+        BlendFactor::Src => wgpu::BlendFactor::Src,
+        BlendFactor::OneMinusSrc => wgpu::BlendFactor::OneMinusSrc,
+        BlendFactor::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
+        BlendFactor::OneMinusSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
+        BlendFactor::Dst => wgpu::BlendFactor::Dst,
+        BlendFactor::OneMinusDst => wgpu::BlendFactor::OneMinusDst,
+        BlendFactor::DstAlpha => wgpu::BlendFactor::DstAlpha,
+        BlendFactor::OneMinusDstAlpha => wgpu::BlendFactor::OneMinusDstAlpha,
+        BlendFactor::SrcAlphaSaturated => wgpu::BlendFactor::SrcAlphaSaturated,
+        BlendFactor::Constant => wgpu::BlendFactor::Constant,
+        BlendFactor::OneMinusConstant => wgpu::BlendFactor::OneMinusConstant,
+    }
+}
+
+#[inline]
 fn convert_index_format(val: IndexFormat) -> wgpu::IndexFormat {
     match val {
         IndexFormat::Uint16 => wgpu::IndexFormat::Uint16,
         IndexFormat::Uint32 => wgpu::IndexFormat::Uint32,
     }
 }
+
+#[inline]
+fn convert_compare_function(val: CompareFunction) -> wgpu::CompareFunction {
+    match val {
+        CompareFunction::Never => wgpu::CompareFunction::Never,
+        CompareFunction::Less => wgpu::CompareFunction::Less,
+        CompareFunction::Equal => wgpu::CompareFunction::Equal,
+        CompareFunction::LessEqual => wgpu::CompareFunction::LessEqual,
+        CompareFunction::Greater => wgpu::CompareFunction::Greater,
+        CompareFunction::NotEqual => wgpu::CompareFunction::NotEqual,
+        CompareFunction::GreaterEqual => wgpu::CompareFunction::GreaterEqual,
+        CompareFunction::Always => wgpu::CompareFunction::Always,
+    }
+}
+
+#[inline]
+fn convert_stencil_operation(val: StencilOperation) -> wgpu::StencilOperation {
+    match val {
+        StencilOperation::Keep => wgpu::StencilOperation::Keep,
+        StencilOperation::Zero => wgpu::StencilOperation::Zero,
+        StencilOperation::Replace => wgpu::StencilOperation::Replace,
+        StencilOperation::Invert => wgpu::StencilOperation::Invert,
+        StencilOperation::IncrementClamp => wgpu::StencilOperation::IncrementClamp,
+        StencilOperation::DecrementClamp => wgpu::StencilOperation::DecrementClamp,
+        StencilOperation::IncrementWrap => wgpu::StencilOperation::IncrementWrap,
+        StencilOperation::DecrementWrap => wgpu::StencilOperation::DecrementWrap,
+    }
+}
+
+// #[inline]
+// fn convert_color_operations(val: Operations<Srgba>) -> wgpu::Operations<wgpu::Color> {
+//     wgpu::Operations {
+//         load: match val.load {
+//             LoadOp::Clear(clear) => wgpu::LoadOp::Clear(convert_color(clear)),
+//             LoadOp::Load => wgpu::LoadOp::Load,
+//         },
+//         store: val.store,
+//     }
+// }
+
+// #[inline]
+// fn convert_operations<T>(val: Operations<T>) -> wgpu::Operations<T> {
+//     wgpu::Operations {
+//         load: match val.load {
+//             LoadOp::Clear(clear) => wgpu::LoadOp::Clear(clear),
+//             LoadOp::Load => wgpu::LoadOp::Load,
+//         },
+//         store: val.store,
+//     }
+// }
 
 #[inline]
 fn convert_color(color: Srgba) -> wgpu::Color {
@@ -312,3 +660,67 @@ fn convert_color(color: Srgba) -> wgpu::Color {
         a: color.alpha as f64,
     }
 }
+
+// pub fn convert_render_pass<'l>(
+//     res: &'l RenderBackendResources<WgpuRendererBackend>,
+//     desc: &GraphicsPassDescriptor<'l>,
+//     tmp_color: &'l mut Vec<wgpu::RenderPassColorAttachment<'l>>,
+// ) -> Result<wgpu::RenderPassDescriptor<'l, 'l>> {
+//     tmp_color.reserve_exact(desc.color_attachments.len());
+//     for a in desc.color_attachments {
+//         tmp_color.push(convert_color_attachment(res, a)?);
+//     }
+
+//     let depth_stencil_attachment = if let Some(a) = &desc.depth_stencil_attachment {
+//         Some(convert_depth_stencil_attachment(res, a)?)
+//     } else {
+//         None
+//     };
+//     Ok(wgpu::RenderPassDescriptor {
+//         label: desc.label,
+//         color_attachments: tmp_color,
+//         depth_stencil_attachment,
+//     })
+// }
+
+// pub fn convert_color_attachment<'l>(
+//     res: &'l RenderBackendResources<WgpuRendererBackend>,
+//     desc: &ColorAttachment,
+// ) -> Result<wgpu::RenderPassColorAttachment<'l>> {
+//     let view = res
+//         .textures
+//         .get(desc.texture)
+//         .ok_or(ConversionError::TextureNotAvailable(desc.texture))?
+//         .view();
+//     let resolve_target = if let Some(resolve) = desc.resolve_target {
+//         Some(
+//             res.textures
+//                 .get(resolve)
+//                 .ok_or(ConversionError::TextureNotAvailable(resolve))?
+//                 .view(),
+//         )
+//     } else {
+//         None
+//     };
+//     Ok(wgpu::RenderPassColorAttachment {
+//         view,
+//         resolve_target,
+//         ops: convert_color_operations(desc.ops),
+//     })
+// }
+
+// pub fn convert_depth_stencil_attachment<'l>(
+//     res: &'l RenderBackendResources<WgpuRendererBackend>,
+//     desc: &DepthStencilAttachment,
+// ) -> Result<wgpu::RenderPassDepthStencilAttachment<'l>> {
+//     let view = res
+//         .textures
+//         .get(desc.texture)
+//         .ok_or(ConversionError::TextureNotAvailable(desc.texture))?
+//         .view();
+//     Ok(wgpu::RenderPassDepthStencilAttachment {
+//         view,
+//         depth_ops: desc.depth_ops.map(convert_operations),
+//         stencil_ops: desc.stencil_ops.map(convert_operations),
+//     })
+// }

@@ -17,10 +17,8 @@ macro_rules! define_gpu_resource {
 // export macro to crate
 pub(crate) use define_gpu_resource;
 
-pub trait RenderBackend {
-    type Error: std::error::Error;
-
-    type Buffer;
-    type Texture;
-    type ShaderModule;
+pub trait CommandEncoder {
+    fn insert_debug_marker(&mut self, label: &str);
+    fn push_debug_group(&mut self, label: &str);
+    fn pop_debug_group(&mut self);
 }

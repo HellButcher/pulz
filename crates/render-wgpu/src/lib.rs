@@ -25,20 +25,22 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-use std::{
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+use std::rc::Rc;
 
+use convert::ConversionError;
+use graph::WgpuRenderGraph;
 use pulz_ecs::prelude::*;
-use pulz_render::{RenderModule, RenderSystemPhase};
+use pulz_render::{graph::RenderGraph, RenderModule, RenderSystemPhase};
 use pulz_window::{RawWindow, RawWindowHandles, Window, WindowId, Windows, WindowsMirror};
+use resources::WgpuResources;
 use surface::Surface;
 use thiserror::Error;
 use tracing::info;
 
 mod backend;
 mod convert;
+mod graph;
+mod resources;
 mod surface;
 
 #[derive(Error, Debug)]
@@ -52,6 +54,9 @@ pub enum Error {
 
     #[error("The window is not available, or it has no raw-window-handle")]
     WindowNotAvailable,
+
+    #[error("Unable to convert objects")]
+    ConversionError(#[from] ConversionError),
 
     #[error("unknown renderer error")]
     Unknown,
@@ -67,30 +72,13 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 pub struct WgpuRenderer {
     instance: wgpu::Instance,
-    backend: WgpuRendererBackend,
-    surfaces: WindowsMirror<Surface>,
-    tmp_surface_textures: Vec<wgpu::SurfaceTexture>,
-}
-
-pub struct WgpuRendererBackend {
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
-}
-
-impl Deref for WgpuRenderer {
-    type Target = WgpuRendererBackend;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.backend
-    }
-}
-
-impl DerefMut for WgpuRenderer {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.backend
-    }
+    resources: WgpuResources,
+    surfaces: WindowsMirror<Surface>,
+    graph: WgpuRenderGraph,
+    tmp_surface_textures: Vec<wgpu::SurfaceTexture>,
 }
 
 fn backend_bits_from_env_or_default() -> wgpu::Backends {
@@ -162,31 +150,21 @@ impl WgpuRenderer {
 
         Ok(Self {
             instance,
-            backend: WgpuRendererBackend {
-                adapter,
-                device,
-                queue,
-            },
+            adapter,
+            device,
+            queue,
+            resources: WgpuResources::new(),
             surfaces: WindowsMirror::new(),
             tmp_surface_textures: Vec::new(),
+            graph: WgpuRenderGraph::new(),
         })
-    }
-
-    #[inline]
-    pub fn backend(&self) -> &WgpuRendererBackend {
-        &self.backend
-    }
-
-    #[inline]
-    pub fn backend_mut(&mut self) -> &mut WgpuRendererBackend {
-        &mut self.backend
     }
 
     fn reconfigure_surfaces(&mut self, windows: &Windows) {
         for (window_id, surface) in self.surfaces.iter_mut() {
             if let Some(window) = windows.get(window_id) {
                 if surface.update(window) {
-                    surface.configure(&self.backend);
+                    surface.configure(&self.adapter, &self.device);
                 }
             }
         }
@@ -205,7 +183,7 @@ impl WgpuRenderer {
                 Ok(t) => t,
                 Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
                     info!("reconfigure surface (outdated)");
-                    surface.configure(&self.backend);
+                    surface.configure(&self.adapter, &self.device);
                     surface
                         .get_current_texture()
                         .expect("Failed to acquire next surface texture!")
@@ -224,13 +202,28 @@ impl WgpuRenderer {
         }
     }
 
-    fn run_render_system(mut renderer: ResMut<'_, Self>, windows: Res<'_, Windows>) {
+    fn run_graph(&mut self, src_graph: &RenderGraph) {
+        if self.tmp_surface_textures.is_empty() {
+            // skip
+            return;
+        }
+        let _ = tracing::trace_span!("RunGraph").entered();
+        let encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let cmds = self.graph.execute(src_graph, encoder);
+        self.queue.submit(cmds);
+    }
+
+    fn run_render_system(
+        mut renderer: ResMut<'_, Self>,
+        windows: Res<'_, Windows>,
+        src_graph: Res<'_, RenderGraph>,
+    ) {
         renderer.reconfigure_surfaces(&windows);
-
+        renderer.graph.update(&src_graph);
         renderer.aquire_swapchain_images();
-
-        // TODO: render
-
+        renderer.run_graph(&src_graph);
         renderer.present_swapchain_images();
     }
 }

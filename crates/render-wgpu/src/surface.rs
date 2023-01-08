@@ -6,8 +6,6 @@ use std::{
 use pulz_window::{RawWindow, Size2, Window};
 use tracing::info;
 
-use crate::WgpuRendererBackend;
-
 pub struct Surface {
     surface: wgpu::Surface,
     window_handle: Rc<dyn RawWindow>, // holds reference to window to ensure sufface is still valid until destruction
@@ -57,11 +55,11 @@ impl Surface {
         changed
     }
 
-    pub fn configure(&mut self, backend: &WgpuRendererBackend) {
+    pub fn configure(&mut self, adapter: &wgpu::Adapter, device:&wgpu::Device) {
         // TODO: also reconfigure on resize, and when presenting results in `Outdated/Lost`
         self.format = self
             .surface
-            .get_supported_formats(&backend.adapter)
+            .get_supported_formats(adapter)
             .first()
             .copied()
             .expect("surface not compatible");
@@ -78,7 +76,7 @@ impl Surface {
             present_mode,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
-        self.surface.configure(&backend.device, &surface_config);
+        self.surface.configure(device, &surface_config);
     }
 }
 

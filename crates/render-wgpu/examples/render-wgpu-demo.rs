@@ -1,17 +1,20 @@
 use std::rc::Rc;
 
 use pulz_ecs::prelude::*;
+use pulz_render::camera::{Camera, RenderTarget};
 use pulz_render_wgpu::WgpuRendererBuilder;
-use pulz_window::WindowDescriptor;
+use pulz_render_pipeline_core::core_3d::CoreShadingModule;
+use pulz_window::{WindowDescriptor, WindowId};
 use pulz_window_winit::{
     winit::{event_loop::EventLoop, window::Window},
     WinitWindowModule, WinitWindowSystem,
 };
-use tracing::info;
+use tracing::*;
 
 async fn init() -> (Resources, EventLoop<()>, Rc<Window>, WinitWindowSystem) {
     info!("Initializing...");
     let mut resources = Resources::new();
+    resources.install(CoreShadingModule);
 
     let event_loop = EventLoop::new();
     let (window_system, window_id, window) =
@@ -28,7 +31,23 @@ async fn init() -> (Resources, EventLoop<()>, Rc<Window>, WinitWindowSystem) {
             .unwrap()
     };
 
+    // let mut schedule = resources.remove::<Schedule>().unwrap();
+    // schedule.init(&mut resources);
+    // schedule.debug_dump_if_env(None).unwrap();
+    // resources.insert_again(schedule);
+
+    setup_demo_scene(&mut resources, window_id);
+
     (resources, event_loop, window, window_system)
+}
+
+fn setup_demo_scene(resources: &mut Resources, window: WindowId) {
+    let mut world = resources.world_mut();
+
+    world
+        .spawn()
+        .insert(Camera::new())
+        .insert(RenderTarget::Window(window));
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -43,6 +62,7 @@ async fn main() {
         .init();
 
     let (resources, event_loop, _window, window_system) = init().await;
+
     window_system.run(resources, event_loop);
 }
 
