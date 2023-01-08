@@ -1,0 +1,31 @@
+[package]
+name = "pulz-render-ash"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+pulz-ecs = { path = "../ecs" }
+pulz-window = { path = "../window" }
+pulz-render = { path = "../render" }
+
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bitflags = { workspace = true }
+slotmap = { workspace = true }
+raw-window-handle = { workspace = true }
+ash = "0.37"
+gpu-alloc = "0.5"
+gpu-alloc-ash = "0.5"
+gpu-descriptor = "0.2"
+crossbeam-queue = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+pulz-window-winit = { path = "../window-winit" }
+pulz-render-pipeline-core = { path = "../render-pipeline-core" }
+tracing-subscriber = { workspace = true }
+async-std = { workspace = true }
