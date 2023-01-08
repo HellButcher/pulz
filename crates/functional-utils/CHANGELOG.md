@@ -1,4 +1,4 @@
-# `pulz-executor` Changelog
+# `pulz-functional-utils` Changelog
 All notable changes to this crate will be documented in this file.
 
 ## Unreleased (DATE)

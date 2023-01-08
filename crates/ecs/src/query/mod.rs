@@ -1,178 +1,176 @@
-use crate::{
-    archetype::{Archetype, ArchetypeId, ArchetypeSet},
-    component::{ComponentId, ComponentSet, Components},
-    WorldInner,
+use std::sync::{
+    atomic::{AtomicPtr, AtomicUsize, Ordering},
+    Mutex,
 };
 
 pub use self::exec::Query;
+use crate::{
+    archetype::{Archetype, ArchetypeId, ArchetypeSet},
+    component::Components,
+    WorldInner,
+};
 
 // mostly based on `hecs` (https://github.com/Ralith/hecs/blob/9a2405c703ea0eb6481ad00d55e74ddd226c1494/src/query.rs)
 
 /// A collection of component types to fetch from a [`World`](crate::World)
-pub trait QueryPrepare {
+pub trait QueryParam {
     /// The type of the data which can be cached to speed up retrieving
     /// the relevant type states from a matching [`Archetype`]
-    type Prepared: Send + Sync + Sized + Copy + 'static;
-
-    type State: Sized + Copy + 'static;
-
-    type Borrow: for<'w> QueryBorrow<'w, Prepared = Self::Prepared>;
-
-    /// Looks up data that can be re-used between multiple query invocations
-    fn prepare(res: &mut Resources, components: &mut Components) -> Self::Prepared;
-
-    fn update_access(
-        prepared: Self::Prepared,
-        shared: &mut ComponentSet,
-        exclusive: &mut ComponentSet,
-    );
-
-    /// Checks if the archetype matches the query
-    fn matches_archetype(prepared: Self::Prepared, archetype: &Archetype) -> bool;
-
-    fn state(prepared: Self::Prepared, archetype: &Archetype) -> Self::State;
+    type State: QueryParamState;
+    type Fetch<'w>: QueryParamFetch<'w, State = Self::State>;
 }
 
-pub trait QueryBorrow<'w>: QueryPrepare<Borrow = Self> {
-    type Borrowed: Send;
+pub trait QueryParamState: Send + Sync + Sized + 'static {
+    /// Looks up data that can be re-used between multiple query invocations
+    fn init(resources: &Resources, components: &Components) -> Self;
 
-    #[doc(hidden)]
-    type Fetch: for<'a> QueryFetch<'w, 'a>;
+    fn update_access(&self, access: &mut ResourceAccess);
+
+    /// Checks if the archetype matches the query
+    fn matches_archetype(&self, archetype: &Archetype) -> bool;
+}
+
+pub trait QueryParamFetch<'w>: Send {
+    type State: QueryParamState;
+
+    /// Type of value to be fetched
+    type Item<'a>
+    where
+        Self: 'a;
 
     /// Acquire dynamic borrows from `archetype`
-    fn borrow(res: &'w ResourcesSend, prepared: Self::Prepared) -> Self::Borrowed;
+    fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self;
+
+    fn set_archetype(&mut self, state: &Self::State, archetype: &Archetype);
+
+    /// Access the given item in this archetype
+    fn get(&mut self, archetype: &Archetype, index: usize) -> Self::Item<'_>;
 }
 
 /// Type of values yielded by a query
-pub type QueryItem<'w, 'a, Q> = <<Q as QueryBorrow<'w>>::Fetch as QueryFetch<'w, 'a>>::Item;
-
-pub trait QueryFetch<'w, 'a>: QueryBorrow<'w, Fetch = Self> {
-    /// Type of value to be fetched
-    type Item;
-
-    /// Access the given item in this archetype
-    fn get(
-        this: &'a mut Self::Borrowed,
-        state: Self::State,
-        archetype: &Archetype,
-        index: usize,
-    ) -> Self::Item
-    where
-        'w: 'a;
-}
+pub type QueryItem<'w, 'a, Q> = <<Q as QueryParam>::Fetch<'w> as QueryParamFetch<'w>>::Item<'a>;
 
 pub mod exec;
 mod fetch;
 mod filter;
 pub use fetch::*;
 pub use filter::*;
-use pulz_schedule::resource::{ResourceId, Resources, ResourcesSend};
+use pulz_schedule::resource::{
+    FromResources, ResourceAccess, ResourceId, Resources, ResourcesSend,
+};
 
-pub struct PreparedQuery<Q>
+struct QueryState<S>
 where
-    Q: QueryPrepare,
+    S: QueryParamState,
 {
-    resource_id: ResourceId<WorldInner>,
-    prepared: Q::Prepared,
-    shared_access: ComponentSet,
-    exclusive_access: ComponentSet,
+    world_resource_id: ResourceId<WorldInner>,
+    param_state: S,
 
-    sparse_only: bool,
-    last_archetype_index: usize,
-    matching_archetypes: ArchetypeSet,
+    last_archetype_index: AtomicUsize,
+    updating_archetypes: Mutex<()>,
+    matching_archetypes_p: AtomicPtr<ArchetypeSet>,
 }
 
-impl<Q> PreparedQuery<Q>
+impl<S> QueryState<S>
 where
-    Q: QueryPrepare,
+    S: QueryParamState,
 {
     pub fn new(resources: &mut Resources) -> Self {
         let world_id = resources.init::<WorldInner>();
-        let mut world = resources.remove_id(world_id).unwrap();
-        let result = Self::from_world(resources, &mut world, world_id);
-        resources.insert_again(world);
-        result
+        let world = resources.borrow_res_id(world_id).unwrap();
+        Self::from_world(resources, &world, world_id)
     }
 
     fn from_world(
-        resources: &mut Resources,
-        world: &mut WorldInner,
+        resources: &Resources,
+        world: &WorldInner,
         resource_id: ResourceId<WorldInner>,
     ) -> Self {
-        let prepared = Q::prepare(resources, &mut world.components);
-        let mut shared_access = ComponentSet::new();
-        let mut exclusive_access = ComponentSet::new();
-        Q::update_access(prepared, &mut shared_access, &mut exclusive_access);
+        let state = S::init(resources, &world.components);
+        // TODO: detect if only sparse components are used, and handle this seperately
 
-        let sparse_only = shared_access
-            .iter(&world.components)
-            .chain(exclusive_access.iter(&world.components))
-            .all(ComponentId::is_sparse);
-
-        let mut query = Self {
-            resource_id,
-            prepared,
-            shared_access,
-            exclusive_access,
-            sparse_only,
-            last_archetype_index: 0,
-            matching_archetypes: ArchetypeSet::new(),
+        let query = Self {
+            world_resource_id: resource_id,
+            param_state: state,
+            last_archetype_index: AtomicUsize::new(0),
+            updating_archetypes: Mutex::new(()),
+            matching_archetypes_p: AtomicPtr::new(std::ptr::null_mut()),
         };
         query.update_archetypes(world);
         query
     }
 
-    fn update_archetypes(&mut self, world: &WorldInner) {
+    fn update_archetypes(&self, world: &WorldInner) {
         let archetypes = &world.archetypes;
         let last_archetype_index = archetypes.len();
-        let old_archetype_index =
-            std::mem::replace(&mut self.last_archetype_index, last_archetype_index);
+        let old_archetype_index = self.last_archetype_index.load(Ordering::Relaxed);
+        if old_archetype_index >= last_archetype_index {
+            // no new archetypes
+            return;
+        }
+        let lock = self.updating_archetypes.lock();
+
+        let mut archetypes_scratch: Option<Box<ArchetypeSet>> = None;
 
         for index in old_archetype_index..last_archetype_index {
             let id = ArchetypeId::new(index);
             let archetype = &archetypes[id];
-            if Q::matches_archetype(self.prepared, archetype) {
-                self.matching_archetypes.insert(id);
+            if self.param_state.matches_archetype(archetype) {
+                // init scratch
+                let scratch = archetypes_scratch.get_or_insert_with(|| {
+                    let ptr = self.matching_archetypes_p.load(Ordering::Relaxed);
+                    if ptr.is_null() {
+                        Default::default()
+                    } else {
+                        unsafe { Box::new((*ptr).clone()) }
+                    }
+                });
+                // indert archetype
+                scratch.insert(id);
             }
         }
+
+        if let Some(new) = archetypes_scratch {
+            // replace
+            let old = self
+                .matching_archetypes_p
+                .swap(Box::into_raw(new), Ordering::Relaxed);
+            if !old.is_null() {
+                unsafe { drop(Box::from_raw(old)) }
+            }
+        }
+
+        self.last_archetype_index
+            .store(last_archetype_index, Ordering::Relaxed);
+
+        drop(lock);
     }
 
-    #[inline]
-    pub fn query<'w>(&'w mut self, res: &'w Resources) -> Query<'w, Q> {
-        let world = res.borrow_res_id(self.resource_id).unwrap();
-        self.update_archetypes(&world);
-        Query::new_prepared(self, res)
+    fn matching_archetypes(&self) -> &ArchetypeSet {
+        static EMPTY: ArchetypeSet = ArchetypeSet::new();
+        let ptr = self.matching_archetypes_p.load(Ordering::Relaxed);
+        if ptr.is_null() {
+            &EMPTY
+        } else {
+            unsafe { &*ptr }
+        }
     }
 }
 
-impl<Q> Clone for PreparedQuery<Q>
-where
-    Q: QueryPrepare,
-{
-    #[inline]
-    fn clone(&self) -> Self {
-        Self {
-            resource_id: self.resource_id,
-            prepared: self.prepared,
-            shared_access: self.shared_access.clone(),
-            exclusive_access: self.exclusive_access.clone(),
-            sparse_only: self.sparse_only,
-            last_archetype_index: self.last_archetype_index,
-            matching_archetypes: self.matching_archetypes.clone(),
-        }
+impl<S: QueryParamState> FromResources for QueryState<S> {
+    fn from_resources(resources: &mut Resources) -> Self {
+        Self::new(resources)
     }
 }
 
 #[cfg(test)]
 mod test {
 
+    use std::sync::{Arc, Mutex};
+
     use pulz_schedule::resource::Resources;
 
-    use crate::component::Component;
-    use crate::storage::Storage;
-    use crate::WorldExt;
-
-    use super::PreparedQuery;
+    use crate::{component::Component, prelude::Query, WorldExt};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     struct A(usize);
@@ -190,11 +188,6 @@ mod test {
     struct D(usize);
 
     #[test]
-    fn test_c_is_sparse() {
-        assert_eq!(true, <C as Component>::Storage::SPARSE);
-    }
-
-    #[test]
     fn test_query() {
         let mut resources = Resources::new();
         let mut entities = Vec::new();
@@ -210,25 +203,27 @@ mod test {
             }
         }
 
-        let mut q1 = PreparedQuery::<&A>::new(&mut resources);
+        let mut q1 = Query::<&A>::new(&mut resources);
         //let r = q1.one(&world, entities[1]).map(|mut o| *o.get());
-        let r = q1.query(&resources).get(entities[1]).copied();
+        let r = q1.get(entities[1]).copied();
         assert_eq!(Some(A(1)), r);
 
         let mut counter1 = 0;
         let mut sum1 = 0;
-        for a in q1.query(&resources).iter() {
+        for a in q1.iter() {
             counter1 += 1;
             sum1 += a.0;
         }
+
         assert_eq!(750, counter1);
         assert_eq!(374500, sum1);
+        drop(q1);
 
-        let mut q2 = PreparedQuery::<(&A, &B)>::new(&mut resources);
+        let mut q2 = Query::<(&A, &B)>::new(&mut resources);
         let mut counter2 = 0;
         let mut sum2a = 0;
         let mut sum2b = 0;
-        for (a, b) in q2.query(&resources).iter() {
+        for (a, b) in q2.iter() {
             counter2 += 1;
             sum2a += a.0;
             sum2b += b.0;
@@ -236,24 +231,93 @@ mod test {
         assert_eq!(500, counter2);
         assert_eq!(249750, sum2a);
         assert_eq!(249750, sum2b);
+        drop(q2);
 
-        let mut q3 = PreparedQuery::<(&B,)>::new(&mut resources);
+        let mut q3 = Query::<(&B,)>::new(&mut resources);
         let mut counter3 = 0;
         let mut sum3 = 0;
-        for (b,) in q3.query(&resources).iter() {
+        for (b,) in q3.iter() {
             counter3 += 1;
             sum3 += b.0;
         }
         assert_eq!(750, counter3);
         assert_eq!(374750, sum3);
+        drop(q3);
 
+        let mut q1 = Query::<&A>::new(&mut resources);
         let mut counter4 = 0;
         let mut sum4 = 0;
-        for a in q1.query(&resources).iter() {
+        for a in q1.iter() {
             counter4 += 1;
             sum4 += a.0;
         }
         assert_eq!(750, counter4);
         assert_eq!(374500, sum4);
+    }
+
+    #[test]
+    fn test_query_sys() {
+        let mut resources = Resources::new();
+        let mut entities = Vec::new();
+        {
+            let mut world = resources.world_mut();
+            for i in 0..1000 {
+                let entity = match i % 4 {
+                    1 => world.spawn().insert(A(i)).id(),
+                    2 => world.spawn().insert(B(i)).id(),
+                    _ => world.spawn().insert(A(i)).insert(B(i)).id(),
+                };
+                entities.push(entity);
+            }
+        }
+
+        let data = Arc::new(Mutex::new((0, 0, 0)));
+        let data1 = data.clone();
+        let f1 = move |mut q1: Query<'_, &A>| {
+            let mut counter1 = 0;
+            let mut sum1 = 0;
+            for a in q1.iter() {
+                counter1 += 1;
+                sum1 += a.0;
+            }
+            *data1.lock().unwrap() = (counter1, sum1, 0);
+        };
+        resources.run(f1);
+        let (counter1, sum1, _) = *data.lock().unwrap();
+        assert_eq!(750, counter1);
+        assert_eq!(374500, sum1);
+
+        let data2 = data.clone();
+        let f2 = move |mut q2: Query<'_, (&A, &B)>| {
+            let mut counter2 = 0;
+            let mut sum2a = 0;
+            let mut sum2b = 0;
+            for (a, b) in q2.iter() {
+                counter2 += 1;
+                sum2a += a.0;
+                sum2b += b.0;
+            }
+            *data2.lock().unwrap() = (counter2, sum2a, sum2b);
+        };
+        resources.run(f2);
+        let (counter2, sum2a, sum2b) = *data.lock().unwrap();
+        assert_eq!(500, counter2);
+        assert_eq!(249750, sum2a);
+        assert_eq!(249750, sum2b);
+
+        let data3 = data.clone();
+        let f3 = move |mut q3: Query<'_, (&B,)>| {
+            let mut counter3 = 0;
+            let mut sum3 = 0;
+            for (b,) in q3.iter() {
+                counter3 += 1;
+                sum3 += b.0;
+            }
+            *data3.lock().unwrap() = (counter3, sum3, 0);
+        };
+        resources.run(f3);
+        let (counter3, sum3, _) = *data.lock().unwrap();
+        assert_eq!(750, counter3);
+        assert_eq!(374750, sum3);
     }
 }

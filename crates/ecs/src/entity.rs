@@ -1,6 +1,7 @@
+use slotmap::{new_key_type, SlotMap};
+
 use crate::archetype::ArchetypeId;
 pub use crate::entity_ref::{EntityMut, EntityRef};
-use slotmap::{new_key_type, SlotMap};
 
 new_key_type! {
     pub struct Entity;
@@ -15,10 +16,18 @@ pub struct EntityLocation {
 }
 
 impl EntityLocation {
-    pub const EMPTY: Self = Self {
+    pub const VACANT: Self = Self {
         archetype_id: ArchetypeId::EMPTY,
         index: usize::MAX,
     };
+    #[inline]
+    pub fn is_vacant(&self) -> bool {
+        self.index == usize::MAX
+    }
+    #[inline]
+    pub fn is_occupied(&self) -> bool {
+        self.index != usize::MAX
+    }
 }
 
 #[derive(Clone)]
@@ -31,12 +40,12 @@ impl Entities {
     }
 
     #[inline]
-    pub fn create(&mut self) -> Entity {
-        self.0.insert(EntityLocation::EMPTY)
+    pub(crate) fn create(&mut self) -> Entity {
+        self.0.insert(EntityLocation::VACANT)
     }
 
     #[inline]
-    pub fn remove(&mut self, entity: Entity) -> Option<EntityLocation> {
+    pub(crate) fn remove(&mut self, entity: Entity) -> Option<EntityLocation> {
         self.0.remove(entity)
     }
 
@@ -53,11 +62,6 @@ impl Entities {
     #[inline]
     pub fn reserve(&mut self, additional_capacity: usize) {
         self.0.reserve(additional_capacity)
-    }
-
-    #[inline]
-    pub fn clear(&mut self) {
-        self.0.clear()
     }
 
     #[inline]
@@ -85,12 +89,5 @@ impl std::ops::Index<Entity> for Entities {
     #[inline]
     fn index(&self, entity: Entity) -> &EntityLocation {
         &self.0[entity]
-    }
-}
-
-impl std::ops::IndexMut<Entity> for Entities {
-    #[inline]
-    fn index_mut(&mut self, entity: Entity) -> &mut EntityLocation {
-        &mut self.0[entity]
     }
 }

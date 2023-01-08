@@ -21,14 +21,14 @@ This project is in a _very early_ development stage.
   [![Crates.io](https://img.shields.io/crates/v/pulz-arena.svg?label=pulz-arena)](https://crates.io/crates/pulz-arena)
   [![docs.rs](https://docs.rs/pulz-arena/badge.svg)](https://docs.rs/pulz-arena/)
 
-* **[`pulz-executor`](crates/executor)** -
-  Abstractions of some async runtimes
+* **[`pulz-bitset`](crates/bitset)** -
+  A simple _bitset_ implementation
 
-  [![Crates.io](https://img.shields.io/crates/v/pulz-executor.svg?label=pulz-executor)](https://crates.io/crates/pulz-executor)
-  [![docs.rs](https://docs.rs/pulz-executor/badge.svg)](https://docs.rs/pulz-executor/)
+  [![Crates.io](https://img.shields.io/crates/v/pulz-bitset.svg?label=pulz-bitset)](https://crates.io/crates/pulz-bitset)
+  [![docs.rs](https://docs.rs/pulz-bitset/badge.svg)](https://docs.rs/pulz-bitset/)
 
 * **[`pulz-schedule`](crates/schedule)** -
-  For scheduling systems and managing their resources
+  For scheduling _systems_ and managing their resources
 
   [![Crates.io](https://img.shields.io/crates/v/pulz-schedule.svg?label=pulz-schedule)](https://crates.io/crates/pulz-schedule)
   [![docs.rs](https://docs.rs/pulz-schedule/badge.svg)](https://docs.rs/pulz-schedule/)
@@ -43,12 +43,12 @@ This project is in a _very early_ development stage.
 
 [license]: #license
 
-This repository is licensed under either of
+This project is licensed under either of
 
 * MIT license ([LICENSE-MIT] or <http://opensource.org/licenses/MIT>)
 * Apache License, Version 2.0, ([LICENSE-APACHE] or <http://www.apache.org/licenses/LICENSE-2.0>)
 
-at your option.
+at your option
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be

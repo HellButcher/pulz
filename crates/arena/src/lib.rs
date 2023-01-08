@@ -26,6 +26,7 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 
+use alloc::vec::Vec;
 use core::{
     cmp::max,
     iter::{FromIterator, FusedIterator},
@@ -33,8 +34,6 @@ use core::{
     num::NonZeroU32,
     ops::DerefMut,
 };
-
-use alloc::vec::Vec;
 
 extern crate alloc;
 
@@ -1738,8 +1737,9 @@ impl<T> FromIterator<(Index, T)> for Mirror<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloc::{format, sync::Arc, vec};
+
+    use super::*;
 
     #[test]
     fn test_index_accessors() {
@@ -1755,7 +1755,7 @@ mod tests {
     #[test]
     fn test_index_debug() {
         let index = Index(2, Generation::ONE);
-        assert_eq!("2v1", format!("{:?}", index));
+        assert_eq!("2v1", format!("{index:?}"));
     }
 
     #[test]
@@ -1781,8 +1781,8 @@ mod tests {
     fn test_generation_debug() {
         let gen_one = Generation::ONE;
         let gen_two = gen_one.next();
-        assert_eq!("v1", format!("{:?}", gen_one));
-        assert_eq!("v2", format!("{:?}", gen_two));
+        assert_eq!("v1", format!("{gen_one:?}"));
+        assert_eq!("v2", format!("{gen_two:?}"));
     }
 
     #[test]

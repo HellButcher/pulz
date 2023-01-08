@@ -1,10 +1,6 @@
-use std::{
-    cmp::Ordering,
-    collections::BTreeMap,
-    ops::{Index, IndexMut},
-};
+use std::{collections::BTreeMap, ops::Index};
 
-use pulz_bitset::BitSet;
+use pulz_bitset::{BitSet, BitSetIter};
 
 use crate::{
     component::{ComponentId, ComponentSet},
@@ -120,34 +116,25 @@ impl Archetypes {
     }
 
     #[inline]
-    pub fn empty_mut(&mut self) -> &mut Archetype {
-        // SAFETY: empty archetype always exists
-        unsafe {
-            self.archetypes
-                .get_unchecked_mut(ArchetypeId::EMPTY.index())
-        }
-    }
-
-    #[inline]
     pub fn get(&self, id: ArchetypeId) -> Option<&Archetype> {
         self.archetypes.get(id.index())
     }
 
     #[inline]
-    pub fn get_mut(&mut self, id: ArchetypeId) -> Option<&mut Archetype> {
+    pub(crate) fn get_mut(&mut self, id: ArchetypeId) -> Option<&mut Archetype> {
         self.archetypes.get_mut(id.index())
     }
 
     #[inline]
-    pub fn get_mut2(
+    pub(crate) fn get_disjoint_array_mut<const N: usize>(
         &mut self,
-        id1: ArchetypeId,
-        id2: ArchetypeId,
-    ) -> Option<(&'_ mut Archetype, &'_ mut Archetype)> {
-        slice_get_mut2(&mut self.archetypes, id1.index(), id2.index())
+        ids: [ArchetypeId; N],
+    ) -> Option<[&'_ mut Archetype; N]> {
+        let indices = ids.map(|a| a.index());
+        slice_get_disjoint_array_mut(&mut self.archetypes, indices)
     }
 
-    pub fn get_or_insert(&mut self, dense_ids: ComponentSet) -> ArchetypeId {
+    pub(crate) fn get_or_insert(&mut self, dense_ids: ComponentSet) -> ArchetypeId {
         let archetypes = &mut self.archetypes;
         *self
             .archetype_ids
@@ -167,13 +154,6 @@ impl Index<ArchetypeId> for Archetypes {
     #[inline]
     fn index(&self, index: ArchetypeId) -> &Self::Output {
         &self.archetypes[index.index()]
-    }
-}
-
-impl IndexMut<ArchetypeId> for Archetypes {
-    #[inline]
-    fn index_mut(&mut self, index: ArchetypeId) -> &mut Self::Output {
-        &mut self.archetypes[index.index()]
     }
 }
 
@@ -209,17 +189,17 @@ impl ArchetypeSet {
 
     #[inline]
     pub fn first(&self) -> Option<ArchetypeId> {
-        self.0.first().map(|i| ArchetypeId(i))
+        self.0.first().map(ArchetypeId)
     }
 
     #[inline]
     pub fn find_next(&self, id: ArchetypeId) -> Option<ArchetypeId> {
-        self.0.find_next(id.index()).map(|i| ArchetypeId(i))
+        self.0.find_next(id.index()).map(ArchetypeId)
     }
 
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = ArchetypeId> + '_ {
-        self.0.iter().map(|i| ArchetypeId(i))
+    pub fn iter(&self) -> ArchetypeSetIter<'_> {
+        ArchetypeSetIter(self.0.iter())
     }
 }
 
@@ -249,23 +229,49 @@ where
     }
 }
 
-#[inline]
-fn slice_get_mut2<T>(
-    slice: &mut [T],
-    index1: usize,
-    index2: usize,
-) -> Option<(&'_ mut T, &'_ mut T)> {
-    match index1.cmp(&index2) {
-        Ordering::Less => {
-            let (a, b) = slice.split_at_mut(index2);
-            Some((&mut a[index1], &mut b[0]))
-        }
-        Ordering::Greater => {
-            let (a, b) = slice.split_at_mut(index1);
-            Some((&mut b[0], &mut a[index2]))
-        }
-        Ordering::Equal => None,
+pub struct ArchetypeSetIter<'l>(BitSetIter<'l>);
+
+impl<'l> Iterator for ArchetypeSetIter<'l> {
+    type Item = ArchetypeId;
+    #[inline]
+    fn next(&mut self) -> Option<ArchetypeId> {
+        Some(ArchetypeId(self.0.next()?))
     }
+}
+
+impl<'l> IntoIterator for &'l ArchetypeSet {
+    type Item = ArchetypeId;
+    type IntoIter = ArchetypeSetIter<'l>;
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+#[inline]
+fn slice_get_disjoint_array_mut<const N: usize, T>(
+    slice: &mut [T],
+    indices: [usize; N],
+) -> Option<[&'_ mut T; N]> {
+    // check duplicates & length
+    let len = slice.len();
+    for i in 0..N {
+        let index = indices[i];
+        if index >= len {
+            // out of range
+            return None;
+        }
+        if indices[0..i].contains(&index) {
+            // found duplicate index
+            return None;
+        }
+    }
+
+    let ptr = slice.as_mut_ptr();
+    // SAFETY: we have checked the following preconditions:
+    //  - index range: returned references point to valid locations
+    //  - diplicates: returned mutable references are not overlapping
+    unsafe { Some(indices.map(|i| &mut *ptr.add(i))) }
 }
 
 #[cfg(test)]
@@ -279,6 +285,6 @@ mod tests {
             ArchetypeId::EMPTY,
             archetypes.get_or_insert(ComponentSet::new())
         );
-        assert_eq!(ArchetypeId::EMPTY, archetypes[ArchetypeId::EMPTY].id)
+        assert_eq!(ArchetypeId::EMPTY, archetypes[ArchetypeId::EMPTY].id);
     }
 }

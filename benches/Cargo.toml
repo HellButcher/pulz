@@ -7,10 +7,9 @@ publish = false
 
 [dev-dependencies]
 pulz-ecs = { path = "../crates/ecs" }
-bevy_ecs = "0.8.0"
+bevy_ecs = "0.9"
 
-criterion = { version = "0.3", features = [ "html_reports" ] }
-criterion-cpu-time  = "0.1"
+criterion = { version = "0.4", features = [ "html_reports" ] }
 
 [[bench]]
 name = "ecs_world"

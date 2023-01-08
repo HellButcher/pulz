@@ -1,7 +1,7 @@
 use std::{
     any::TypeId,
     borrow::Cow,
-    collections::{btree_map::Entry, BTreeMap},
+    collections::btree_map::{BTreeMap, Entry},
     hash::Hash,
     marker::PhantomData,
 };
@@ -141,7 +141,7 @@ impl Components {
     }
 
     #[inline]
-    pub fn get_id<T>(&self) -> Option<ComponentId<T>>
+    pub fn id<T>(&self) -> Option<ComponentId<T>>
     where
         T: Component,
     {
@@ -150,6 +150,17 @@ impl Components {
             .get(&type_id)
             .copied()
             .map(ComponentId::typed)
+    }
+
+    #[inline]
+    pub fn expect_id<T>(&self) -> ComponentId<T>
+    where
+        T: Component,
+    {
+        let Some(id) = self.id::<T>() else {
+            panic!("component {} not initialized", std::any::type_name::<T>());
+        };
+        id
     }
 
     pub fn get<T>(&self, component_id: ComponentId<T>) -> Option<&ComponentDetails> {
@@ -285,22 +296,20 @@ impl<T> ComponentMap<T> {
 
     #[inline]
     pub fn get<X>(&self, id: ComponentId<X>) -> Option<&T> {
-        if let Ok(index) = self.search(id) {
-            // SAFETY: index was found by search
-            Some(unsafe { &self.0.get_unchecked(index).1 })
-        } else {
-            None
-        }
+        let Ok(index) = self.search(id) else {
+            return None;
+        };
+        // SAFETY: index was found by search
+        Some(unsafe { &self.0.get_unchecked(index).1 })
     }
 
     #[inline]
     pub fn get_mut<X>(&mut self, id: ComponentId<X>) -> Option<&mut T> {
-        if let Ok(index) = self.search(id) {
-            // SAFETY: index was found by search
-            Some(unsafe { &mut self.0.get_unchecked_mut(index).1 })
-        } else {
-            None
-        }
+        let Ok(index) = self.search(id) else {
+            return None;
+        };
+        // SAFETY: index was found by search
+        Some(unsafe { &mut self.0.get_unchecked_mut(index).1 })
     }
 
     #[inline]
@@ -347,12 +356,12 @@ impl<T> ComponentMap<T> {
     }
 
     #[inline]
-    pub fn entries<'l>(&'l self) -> impl Iterator<Item = (ComponentId, &'l T)> + '_ {
+    pub fn entries(&self) -> impl Iterator<Item = (ComponentId, &'_ T)> + '_ {
         self.0.iter().map(|(id, value)| (*id, value))
     }
 
     #[inline]
-    pub fn entries_mut<'l>(&'l mut self) -> impl Iterator<Item = (ComponentId, &'l mut T)> + '_ {
+    pub fn entries_mut(&mut self) -> impl Iterator<Item = (ComponentId, &'_ mut T)> + '_ {
         self.0.iter_mut().map(|(id, value)| (*id, value))
     }
 

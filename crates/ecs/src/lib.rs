@@ -25,12 +25,6 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-macro_rules! peel {
-    ($macro:tt [$($args:tt)*] ) => ($macro! { $($args)* });
-    ($macro:tt [$($args:tt)*] $name:ident.$index:tt, ) => ($macro! { $($args)* });
-    ($macro:tt [$($args:tt)*] $name:ident.$index:tt, $($other:tt)+) => (peel!{ $macro [$($args)* $name.$index, ] $($other)+ } );
-}
-
 pub use pulz_schedule::*;
 
 #[doc(hidden)]
@@ -50,12 +44,13 @@ pub use entity::{Entity, EntityMut, EntityRef};
 pub use world::WorldExt;
 
 pub mod prelude {
+    pub use pulz_schedule::prelude::*;
+
     pub use crate::{
         component::Component,
         entity::{Entity, EntityMut, EntityRef},
-        resource::{Res, ResMut, Resources},
-        schedule::Schedule,
-        world::WorldExt,
+        query::Query,
+        world::{World, WorldExt},
     };
 }
 
@@ -87,7 +82,7 @@ where
     T: Component,
 {
     use storage::Storage;
-    if let Some(component_id) = comps.get_id::<T>() {
+    if let Some(component_id) = comps.id::<T>() {
         let component = comps.get(component_id).unwrap();
         (component.storage_id.typed(), component_id)
     } else {

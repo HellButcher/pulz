@@ -25,20 +25,22 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-macro_rules! peel {
-    ($macro:tt [$($args:tt)*] ) => ($macro! { $($args)* });
-    ($macro:tt [$($args:tt)*] $name:ident.$index:tt, ) => ($macro! { $($args)* });
-    ($macro:tt [$($args:tt)*] $name:ident.$index:tt, $($other:tt)+) => (peel!{ $macro [$($args)* $name.$index, ] $($other)+ } );
-}
-
-pub use pulz_executor as executor;
-
 #[doc(hidden)]
 pub enum Void {}
 
 pub mod event;
 pub mod label;
+pub mod local;
 pub mod module;
 pub mod resource;
 pub mod schedule;
 pub mod system;
+
+pub mod prelude {
+    pub use crate::{
+        module::{Module, ModuleWithOutput},
+        resource::{FromResources, Res, ResMut, ResourceId, Resources},
+        schedule::Schedule,
+        system::{IntoExclusiveSystem, IntoSystem},
+    };
+}

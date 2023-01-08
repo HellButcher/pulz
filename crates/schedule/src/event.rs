@@ -1,13 +1,10 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
 use crate::{
-    label::CoreSystemLabel,
-    resource::{Res, ResMut, Resources},
+    label::CoreSystemPhase,
+    resource::{Res, ResMut, ResourceAccess, ResourceId, Resources},
     schedule::Schedule,
-    system::{
-        param::{SystemParam, SystemParamFetch},
-        IntoSystem,
-    },
+    system::param::{SystemParam, SystemParamState},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -62,12 +59,15 @@ impl<T> Events<T> {
         events.update()
     }
 
-    pub fn install_into(resources: &mut Resources, schedule: &mut Schedule)
+    pub fn install_into(resources: &mut Resources)
     where
         T: Send + Sync + 'static,
     {
         if resources.try_init::<Self>().is_ok() {
-            schedule.add_system(Self::update_system.with_label(CoreSystemLabel::First));
+            let mut schedule = resources.borrow_res_mut::<Schedule>().unwrap();
+            schedule
+                .add_system(Self::update_system)
+                .into_phase(CoreSystemPhase::First);
         }
     }
 }
@@ -177,57 +177,69 @@ impl<'w, T> Extend<T> for EventWriter<'w, T> {
     }
 }
 
-unsafe impl<'a, T> SystemParam for EventSubscriber<'a, T>
+#[doc(hidden)]
+pub struct FetchEventSubscriber<T>(ResourceId<Events<T>>);
+
+unsafe impl<T> SystemParam for EventSubscriber<'_, T>
 where
     T: Send + Sync + 'static,
 {
-    const IS_SEND: bool = true;
-    type Prepared = <Res<'a, Events<T>> as SystemParam>::Prepared;
-    type Fetch = Self;
-
-    #[inline]
-    fn prepare(resources: &mut Resources) -> Self::Prepared {
-        <Res<'a, Events<T>> as SystemParam>::prepare(resources)
-    }
+    type State = FetchEventSubscriber<T>;
 }
 
-impl<'a, T> SystemParamFetch<'a> for EventSubscriber<'_, T>
+unsafe impl<T> SystemParamState for FetchEventSubscriber<T>
 where
     T: Send + Sync + 'static,
 {
-    type Output = EventSubscriber<'a, T>;
+    type Item<'r> = EventSubscriber<'r, T>;
+
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
+    fn init(resources: &mut Resources) -> Self {
+        Self(resources.init::<Events<T>>())
+    }
+
+    #[inline]
+    fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
+        access.add_shared_checked(self.0);
+    }
+
+    #[inline]
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
         EventSubscriber {
             next_id: 0, // TODO: keep state
-            events: <Res<'a, Events<T>> as SystemParamFetch<'a>>::get(prepared, resources),
+            events: resources.borrow_res_id(self.0).expect("borrow"),
         }
     }
 }
 
-unsafe impl<'a, T> SystemParam for EventWriter<'a, T>
+#[doc(hidden)]
+pub struct FetchEventWriter<T>(ResourceId<Events<T>>);
+
+unsafe impl<T> SystemParam for EventWriter<'_, T>
 where
     T: Send + Sync + 'static,
 {
-    const IS_SEND: bool = true;
-    type Prepared = <ResMut<'a, Events<T>> as SystemParam>::Prepared;
-    type Fetch = Self;
-
-    #[inline]
-    fn prepare(resources: &mut Resources) -> Self::Prepared {
-        <ResMut<'a, Events<T>> as SystemParam>::prepare(resources)
-    }
+    type State = FetchEventWriter<T>;
 }
 
-impl<'a, T> SystemParamFetch<'a> for EventWriter<'_, T>
+unsafe impl<T> SystemParamState for FetchEventWriter<T>
 where
     T: Send + Sync + 'static,
 {
-    type Output = EventWriter<'a, T>;
+    type Item<'r> = EventWriter<'r, T>;
+
     #[inline]
-    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output {
-        EventWriter(<ResMut<'a, Events<T>> as SystemParamFetch<'a>>::get(
-            prepared, resources,
-        ))
+    fn init(resources: &mut Resources) -> Self {
+        Self(resources.init::<Events<T>>())
+    }
+
+    #[inline]
+    fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
+        access.add_exclusive_checked(self.0);
+    }
+
+    #[inline]
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
+        EventWriter(resources.borrow_res_mut_id(self.0).expect("borrow"))
     }
 }

@@ -1,21 +1,20 @@
 [package]
 name = "pulz-ecs"
 description = "An archetype based ECS"
-version = "0.1.0-alpha"
-authors = ["Christoph Hommelsheim <main@chommel.eu>"]
-license = "MIT OR Apache-2.0"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
 keywords = ["ecs", "game"]
 categories = ["data-structures", "game-engines", "game-development"]
-repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
-edition = "2021"
-
 
 [dependencies]
 pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
 pulz-schedule = { version = "0.1.0-alpha", path = "../schedule" }
 pulz-ecs-macros = { version = "0.1.0-alpha", path = "macros" }
+pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
 
-slotmap = "1.0"
-hashbrown = "0.12"
-fnv = "1.0"
+slotmap = { workspace = true }
+fnv = { workspace = true }

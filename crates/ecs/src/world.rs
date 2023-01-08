@@ -1,11 +1,14 @@
-use std::mem::ManuallyDrop;
+use std::{
+    mem::ManuallyDrop,
+    ops::{Deref, DerefMut},
+};
 
 use crate::{
     archetype::Archetypes,
     component::{Component, ComponentId, Components},
     entity::{Entities, Entity},
     get_or_init_component,
-    query::{Query, QueryPrepare},
+    query::{Query, QueryParam},
     resource::{Res, Resources, TakenRes},
     WorldInner,
 };
@@ -13,6 +16,41 @@ use crate::{
 pub struct World<'a> {
     pub(crate) res: &'a Resources,
     pub(crate) world: Res<'a, WorldInner>,
+}
+
+impl World<'_> {
+    #[inline]
+    pub fn archetypes(&self) -> &Archetypes {
+        &self.world.archetypes
+    }
+
+    #[inline]
+    pub fn components(&self) -> &Components {
+        &self.world.components
+    }
+
+    #[inline]
+    pub fn entities(&self) -> &Entities {
+        &self.world.entities
+    }
+}
+
+impl Clone for World<'_> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            res: self.res,
+            world: Res::clone(&self.world),
+        }
+    }
+}
+
+impl Deref for World<'_> {
+    type Target = Resources;
+    #[inline]
+    fn deref(&self) -> &Resources {
+        self.res
+    }
 }
 
 pub struct WorldMut<'a> {
@@ -46,12 +84,11 @@ impl WorldMut<'_> {
 
     /// Removes the entity and all its components from the world.
     pub fn despawn(&mut self, entity: Entity) -> bool {
-        if let Some(ent) = self.entity_mut(entity) {
-            ent.despawn();
-            true
-        } else {
-            false
-        }
+        let Some(ent) = self.entity_mut(entity) else {
+            return false;
+        };
+        ent.despawn();
+        true
     }
 }
 
@@ -63,30 +100,18 @@ impl Drop for WorldMut<'_> {
     }
 }
 
-impl World<'_> {
+impl Deref for WorldMut<'_> {
+    type Target = Resources;
     #[inline]
-    pub fn archetypes(&self) -> &Archetypes {
-        &self.world.archetypes
-    }
-
-    #[inline]
-    pub fn components(&self) -> &Components {
-        &self.world.components
-    }
-
-    #[inline]
-    pub fn entities(&self) -> &Entities {
-        &self.world.entities
+    fn deref(&self) -> &Resources {
+        self.res
     }
 }
 
-impl Clone for World<'_> {
+impl DerefMut for WorldMut<'_> {
     #[inline]
-    fn clone(&self) -> Self {
-        Self {
-            res: self.res,
-            world: Res::clone(&self.world),
-        }
+    fn deref_mut(&mut self) -> &mut Resources {
+        self.res
     }
 }
 
@@ -96,7 +121,7 @@ pub trait WorldExt {
 
     fn query<Q>(&mut self) -> Query<'_, Q>
     where
-        Q: QueryPrepare;
+        Q: QueryParam + 'static;
 }
 
 impl WorldExt for Resources {
@@ -119,7 +144,7 @@ impl WorldExt for Resources {
     #[inline]
     fn query<Q>(&mut self) -> Query<'_, Q>
     where
-        Q: QueryPrepare,
+        Q: QueryParam,
     {
         Query::new(self)
     }

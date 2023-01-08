@@ -1,0 +1,14 @@
+[package]
+name = "pulz-functional-utils"
+description = "traits and macros to work with tuples and functions"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+keywords = ["traits", "functional", "generic programming"]
+categories = ["rust-patterns"]
+readme = "README.md"
+
+[dependencies]
+pulz-functional-utils-macros = { version = "0.1.0-alpha", path = "macros" }

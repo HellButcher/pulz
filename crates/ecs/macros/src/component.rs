@@ -1,4 +1,7 @@
-use darling::{util::SpannedValue, Error, FromDeriveInput, Result};
+use darling::{
+    util::{Flag, SpannedValue},
+    Error, FromDeriveInput, Result,
+};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse_quote, DeriveInput, Path};
@@ -7,7 +10,6 @@ use crate::utils::resolve_crate;
 
 pub fn derive_component(input: DeriveInput) -> Result<TokenStream> {
     let args = ComponentStructArgs::from_derive_input(&input)?;
-    args.validate()?;
 
     let ident = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -20,7 +22,7 @@ pub fn derive_component(input: DeriveInput) -> Result<TokenStream> {
         } else {
             storage.clone()
         }
-    } else if *args.sparse {
+    } else if args.sparse.is_present() {
         parse_quote!(#crate_ecs::storage::HashMapStorage)
     } else {
         parse_quote!(#crate_ecs::storage::DenseStorage)
@@ -33,21 +35,26 @@ pub fn derive_component(input: DeriveInput) -> Result<TokenStream> {
 }
 
 #[derive(Default, FromDeriveInput)]
-#[darling(default, attributes(component), forward_attrs(allow, doc, cfg))]
+#[darling(
+    default,
+    attributes(component),
+    forward_attrs(allow, doc, cfg),
+    and_then = "Self::validate"
+)]
 pub struct ComponentStructArgs {
-    sparse: SpannedValue<bool>,
+    sparse: Flag,
     storage: SpannedValue<Option<Path>>,
 }
 
 impl ComponentStructArgs {
-    fn validate(&self) -> Result<()> {
-        if *self.sparse && self.storage.is_some() {
+    fn validate(self) -> Result<Self> {
+        if self.sparse.is_present() && self.storage.is_some() {
             const MSG: &str = "either provide `sparse` or `storage`, but not both!";
             return Err(Error::multiple(vec![
                 Error::custom(MSG).with_span(&self.sparse),
                 Error::custom(MSG).with_span(&self.storage),
             ]));
         }
-        Ok(())
+        Ok(self)
     }
 }

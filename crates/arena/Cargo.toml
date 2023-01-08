@@ -2,13 +2,12 @@
 name = "pulz-arena"
 description = "A generational arena allocator with compact generational indices"
 version = "0.4.0"
-authors = ["Christoph Hommelsheim <main@chommel.eu>"]
-license = "MIT OR Apache-2.0"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
 keywords = ["arena", "generational", "collection"]
 categories = ["data-structures", "game-development", "no-std"]
-repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
-edition = "2021"
-
 
 [dependencies]

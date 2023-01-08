@@ -1,67 +1,62 @@
-use crate::resource::Resources;
+use crate::resource::{ResourceAccess, Resources};
 
 /// # Safety
 /// The value ov IS_SEND must be correct: when it says true, then the type must be Send!
 pub unsafe trait SystemParam: Sized {
-    const IS_SEND: bool;
-
-    type Prepared: Send + Sync;
-    type Fetch: for<'a> SystemParamFetch<'a, Prepared = Self::Prepared>;
-    fn prepare(resources: &mut Resources) -> Self::Prepared;
+    type State: SystemParamState;
 }
 
-pub trait SystemParamFetch<'a>: SystemParam<Fetch = Self> {
-    type Output;
-    fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output
-    where
-        Self: 'a;
+/// # Safety
+/// update_access should mark all used resources with ther usage.
+pub unsafe trait SystemParamState: Sized + Send + Sync + 'static {
+    type Item<'r>: SystemParam<State = Self>;
+
+    fn init(resources: &mut Resources) -> Self;
+
+    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess);
+
+    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r>;
 }
 
-unsafe impl SystemParam for () {
-    const IS_SEND: bool = true;
+pub type SystemParamItem<'r, P> = <<P as SystemParam>::State as SystemParamState>::Item<'r>;
 
-    type Prepared = ();
-    type Fetch = ();
-    #[inline]
-    fn prepare(_resources: &mut Resources) {}
+macro_rules! impl_system_param {
+    ([$($(($name:ident,$index:tt)),+)?]) => (
+
+        unsafe impl$(<$($name),+>)? SystemParam for ($($($name,)+)?)
+        $(
+            where
+                $($name : SystemParam),+
+        )?
+        {
+            type State = ($($($name::State,)+)?) ;
+        }
+
+        unsafe impl$(<$($name),+>)? SystemParamState for ($($($name,)+)?)
+        $(
+            where
+                $($name : SystemParamState),+
+        )?
+        {
+            type Item<'r> =  ($($($name::Item<'r>,)+)?);
+
+            #[inline]
+            fn init(_resources: &mut Resources) -> Self {
+                $(($($name::init(_resources),)+))?
+            }
+
+            #[inline]
+            fn update_access(&self, _resources: &Resources, _access: &mut ResourceAccess) {
+                $($(self.$index.update_access(_resources, _access);)+)?
+            }
+
+            #[inline]
+            fn fetch<'r>(&'r mut self, _resources: &'r Resources) -> Self::Item<'r> {
+                $(($(self.$index.fetch(_resources),)+))?
+            }
+        }
+
+    )
 }
 
-impl SystemParamFetch<'_> for () {
-    type Output = ();
-    fn get(_prepared: &mut Self::Prepared, _resources: &Resources) -> Self::Output {}
-}
-
-macro_rules! tuple {
-  () => ();
-  ( $($name:ident.$index:tt,)+ ) => (
-
-      unsafe impl<$($name),+> SystemParam for ($($name,)+)
-      where
-          $($name : SystemParam),+
-      {
-          const IS_SEND: bool = $($name::IS_SEND)&&+;
-
-          type Prepared = ($($name::Prepared,)+) ;
-          type Fetch = ($($name::Fetch,)+) ;
-          #[inline]
-          fn prepare(resources: &mut Resources) -> Self::Prepared {
-              ($($name::prepare(resources),)+)
-          }
-      }
-
-      impl<'a $(,$name)+> SystemParamFetch<'a> for ($($name,)+)
-      where
-          $($name : SystemParamFetch<'a>,)+
-      {
-          type Output =  ($($name::Output,)+);
-          #[inline]
-          fn get(prepared: &'a mut Self::Prepared, resources: &'a Resources) -> Self::Output where Self: 'a {
-              ($($name::get(&mut prepared.$index, resources),)+)
-          }
-      }
-
-      peel! { tuple [] $($name.$index,)+ }
-  )
-}
-
-tuple! { T0.0, T1.1, T2.2, T3.3, T4.4, T5.5, T6.6, T7.7, T8.8, T9.9, T10.10, T11.11, }
+pulz_functional_utils::generate_variadic_array! {[T,#] impl_system_param!{}}

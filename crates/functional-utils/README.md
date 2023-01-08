@@ -1,27 +1,19 @@
-# `pulz-executor` 
+# `pulz-functional-utils` 
 
 <img align="right" src="https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo-full.png"/>
 
-[![Crates.io](https://img.shields.io/crates/v/pulz-executor.svg?label=pulz-executor)](https://crates.io/crates/pulz-executor)
-[![docs.rs](https://docs.rs/pulz-executor/badge.svg)](https://docs.rs/pulz-executor/)
+[![Crates.io](https://img.shields.io/crates/v/pulz-functional-utils.svg?label=pulz-functional-utils)](https://crates.io/crates/pulz-functional-utils)
+[![docs.rs](https://docs.rs/pulz-functional-utils/badge.svg)](https://docs.rs/pulz-functional-utils/)
 [![license: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
 [![Rust CI](https://github.com/HellButcher/pulz/actions/workflows/rust.yml/badge.svg)](https://github.com/HellButcher/pulz/actions/workflows/rust.yml)
 
-Abstractions of some async runtimes
-
-## Feature Flags
-
-The implementions for different runtimes are available behind feature-flags.
-The followinf flags are arailable:
-
-* `async-std`
-* `tokio`
+traits and macros to work with tuples and functions.
 
 ## License
 
 [license]: #license
 
-This repository is licensed under either of
+This project is licensed under either of
 
 * MIT license ([LICENSE-MIT] or <http://opensource.org/licenses/MIT>)
 * Apache License, Version 2.0, ([LICENSE-APACHE] or <http://www.apache.org/licenses/LICENSE-2.0>)
