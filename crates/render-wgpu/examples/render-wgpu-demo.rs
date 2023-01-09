@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use pulz_ecs::prelude::*;
 use pulz_render::camera::{Camera, RenderTarget};
-use pulz_render_wgpu::WgpuRendererBuilder;
 use pulz_render_pipeline_core::core_3d::CoreShadingModule;
+use pulz_render_wgpu::WgpuRendererBuilder;
 use pulz_window::{WindowDescriptor, WindowId};
 use pulz_window_winit::{
     winit::{event_loop::EventLoop, window::Window},

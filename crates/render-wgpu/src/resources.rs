@@ -1,9 +1,13 @@
-use crate::convert as c;
-use crate::Result;
-use pulz_render::pipeline::{BindGroupLayout, ComputePipeline, GraphicsPipeline, PipelineLayout};
-use pulz_render::shader::ShaderModule;
-use pulz_render::{backend::GpuResource, buffer::Buffer, texture::Texture};
+use pulz_render::{
+    backend::GpuResource,
+    buffer::Buffer,
+    pipeline::{BindGroupLayout, ComputePipeline, GraphicsPipeline, PipelineLayout},
+    shader::ShaderModule,
+    texture::Texture,
+};
 use slotmap::SlotMap;
+
+use crate::{convert as c, Result};
 
 pub trait WgpuResource: GpuResource {
     type Wgpu;

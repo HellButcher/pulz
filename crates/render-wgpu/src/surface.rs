@@ -55,7 +55,7 @@ impl Surface {
         changed
     }
 
-    pub fn configure(&mut self, adapter: &wgpu::Adapter, device:&wgpu::Device) {
+    pub fn configure(&mut self, adapter: &wgpu::Adapter, device: &wgpu::Device) {
         // TODO: also reconfigure on resize, and when presenting results in `Outdated/Lost`
         self.format = self
             .surface

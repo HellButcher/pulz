@@ -17,8 +17,8 @@ use crate::{
         into_texture_usage_read_access, into_texture_usage_write_access, VkInto,
     },
     device::AshDevice,
-    encoder::{AshCommandPool, SubmissionGroup},
     drop_guard::Guard,
+    encoder::{AshCommandPool, SubmissionGroup},
     Result,
 };
 
