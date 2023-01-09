@@ -25,10 +25,12 @@ impl AssetPathBuf {
         Self(String::with_capacity(capacity))
     }
 
+    #[inline]
     pub fn as_path(&self) -> &AssetPath {
         self
     }
 
+    #[inline]
     pub fn push<P: AsRef<AssetPath>>(&mut self, path: P) {
         self._push(path.as_ref())
     }
@@ -85,6 +87,7 @@ impl AssetPathBuf {
         true
     }
 
+    #[inline]
     pub fn set_file_name<S: AsRef<str>>(&mut self, file_name: S) {
         self._set_file_name(file_name.as_ref())
     }
@@ -97,6 +100,7 @@ impl AssetPathBuf {
         self.push(file_name);
     }
 
+    #[inline]
     pub fn set_fragment<S: AsRef<str>>(&mut self, fragment: S) {
         self._set_fragment(fragment.as_ref())
     }
@@ -192,10 +196,12 @@ impl Default for AssetPathBuf {
 }
 
 impl AssetPath {
+    #[inline]
     fn is_seperator(c: char) -> bool {
         c == '/' || c == '\\'
     }
 
+    #[inline]
     pub fn new<S: AsRef<str> + ?Sized>(s: &S) -> &Self {
         let s: *const str = s.as_ref();
         unsafe { &*(s as *const Self) }
@@ -204,6 +210,16 @@ impl AssetPath {
     #[inline]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     pub fn to_path_buf(&self) -> AssetPathBuf {
@@ -289,21 +305,25 @@ impl AssetPath {
         }
     }
 
+    #[inline]
     pub fn file_stem(&self) -> Option<&str> {
         let (_, stem, _, _) = self.split_parent_file_extension_fragment();
         stem
     }
 
+    #[inline]
     pub fn extension(&self) -> Option<&str> {
         let (_, _, ext, _) = self.split_parent_file_extension_fragment();
         ext
     }
 
+    #[inline]
     pub fn fragment(&self) -> Option<&str> {
         let (_path, frag) = self.split_fragment();
         frag
     }
 
+    #[inline]
     pub fn components(&self) -> Components<'_> {
         Components {
             path: &self.0,

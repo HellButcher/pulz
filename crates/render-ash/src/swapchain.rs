@@ -234,8 +234,8 @@ impl AshInstance {
                 self.create_surface_wayland(d.display, w.surface)
             }
             #[cfg(target_os = "android")]
-            (RawDisplayHandle::Android(_), RawWindowHandle::Android(w)) => {
-                self.create_surface_android(w.a_native_window)?
+            (RawDisplayHandle::Android(_), RawWindowHandle::AndroidNdk(w)) => {
+                self.create_surface_android(w.a_native_window)
             }
             #[cfg(target_os = "windows")]
             (RawDisplayHandle::Windows(_), RawWindowHandle::Windows(w)) => {

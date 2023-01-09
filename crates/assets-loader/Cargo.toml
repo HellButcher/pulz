@@ -22,4 +22,3 @@ web-sys = { workspace = true, features = [ 'Request', 'Response', "Window", ]}
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk = { workspace = true }
-ndk-glue = { workspace = true }

@@ -109,9 +109,23 @@ pub struct AssetServer {
 }
 
 impl AssetServer {
+    #[cfg(not(target_os = "android"))]
     pub fn new() -> Self {
-        Self::with(platform::default_platform_io())
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        let io = platform::fs::FileSystemAssetLoaderIo::new();
+
+        #[cfg(target_arch = "wasm32")]
+        let io = platform::wasm::WasmFetchAssetLoaderIo::new();
+
+        Self::with(io)
     }
+
+    #[cfg(target_os = "android")]
+    pub fn with_asset_manager(manager: ::ndk::asset::AssetManager) -> Self {
+        let io = platform::android::AndroidAssetLoaderIo::with_asset_manager(manager);
+        Self::with(io)
+    }
+
     #[inline]
     pub fn with(io: impl AssetOpen + 'static) -> Self {
         Self { io: Box::new(io) }
