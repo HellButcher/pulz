@@ -51,7 +51,8 @@ mod shader;
 mod swapchain;
 
 use pulz_window::{
-    RawWindow, RawWindowHandles, WindowDescriptor, WindowId, Windows, WindowsMirror,
+    listener::{WindowSystemListener, WindowSystemListeners},
+    RawWindow, Window, WindowId, Windows, WindowsMirror,
 };
 
 #[derive(Error, Debug)]
@@ -122,7 +123,7 @@ impl From<&vk::Result> for Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-pub struct AshRenderer {
+struct AshRendererFull {
     device: Arc<AshDevice>,
     res: AshResources,
     frames: Vec<Frame>,
@@ -131,13 +132,13 @@ pub struct AshRenderer {
     graph: AshRenderGraph,
 }
 
-impl Drop for AshRenderer {
+impl Drop for AshRendererFull {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
         }
         self.frames.clear();
-        self.res.destroy_all(&self.device);
+        self.res.clear_all();
     }
 }
 
@@ -210,45 +211,13 @@ impl Drop for Frame {
     }
 }
 
-impl AshRenderer {
-    pub fn new(flags: AshRendererFlags) -> Result<Self> {
-        let instance = AshInstance::new(flags)?;
-        let device = instance.new_device()?;
-        Ok(Self::from_device(device))
-    }
-
-    pub fn for_window(
-        flags: AshRendererFlags,
-        window_id: WindowId,
-        window_descriptor: &WindowDescriptor,
-        // TODO: link lifetimes of HasRawWindowHandle and Surface!
-        raw_window: &dyn RawWindow,
-    ) -> Result<Self> {
-        let instance = AshInstance::new(flags)?;
-        let surface = instance.new_surface(raw_window)?;
-        let device = instance.new_device_for_surface(&surface)?;
-        let mut renderer = Self::from_device(device);
-
-        let surface_swapchain = renderer.device.new_swapchain(
-            surface,
-            window_descriptor.size,
-            //TODO: ergonomics
-            if window_descriptor.vsync { 3 } else { 2 },
-            if window_descriptor.vsync {
-                vk::PresentModeKHR::MAILBOX
-            } else {
-                vk::PresentModeKHR::IMMEDIATE
-            },
-        )?;
-        renderer.surfaces.insert(window_id, surface_swapchain);
-        Ok(renderer)
-    }
-
+impl AshRendererFull {
     fn from_device(device: Arc<AshDevice>) -> Self {
-        let graph = AshRenderGraph::create(&device);
+        let res = AshResources::new(&device);
+        let graph = AshRenderGraph::new(&device);
         Self {
             device,
-            res: AshResources::new(),
+            res,
             frames: Vec::with_capacity(Frame::NUM_FRAMES_IN_FLIGHT),
             current_frame: 0,
             surfaces: WindowsMirror::new(),
@@ -453,22 +422,119 @@ impl AshRenderer {
         Ok(())
     }
 
-    fn run_render_system(
-        mut renderer: ResMut<'_, Self>,
-        mut windows: ResMut<'_, Windows>,
-        src_graph: Res<'_, RenderGraph>,
-        draw_phases: Res<'_, DrawPhases>,
-    ) {
-        renderer.reconfigure_swapchains(&mut windows);
+    fn run(&mut self, windows: &mut Windows, src_graph: &RenderGraph, draw_phases: &DrawPhases) {
+        self.reconfigure_swapchains(windows);
         // TODO: maybe graph needs to consider updated swapchain format & dimensions?
 
-        renderer.graph.update(&src_graph);
+        self.graph.update(src_graph, &mut self.res).unwrap();
 
-        let mut submission_group = renderer.begin_frame().unwrap();
-        renderer
-            .render_frame(&mut submission_group, &src_graph, &draw_phases)
+        let mut submission_group = self.begin_frame().unwrap();
+        self.render_frame(&mut submission_group, src_graph, draw_phases)
             .unwrap();
-        renderer.end_frame(submission_group).unwrap();
+        self.end_frame(submission_group).unwrap();
+    }
+}
+
+#[allow(clippy::large_enum_variant)]
+enum AshRendererInner {
+    Early {
+        instance: Arc<AshInstance>,
+        flags: AshRendererFlags,
+    },
+    Full(AshRendererFull),
+}
+
+pub struct AshRenderer(AshRendererInner);
+
+impl AshRenderer {
+    #[inline]
+    pub fn new() -> Result<Self> {
+        Self::with_flags(AshRendererFlags::DEBUG)
+    }
+
+    #[inline]
+    pub fn with_flags(flags: AshRendererFlags) -> Result<Self> {
+        let instance = AshInstance::new(flags)?;
+        Ok(Self(AshRendererInner::Early { instance, flags }))
+    }
+
+    fn init(&mut self) -> Result<&mut AshRendererFull> {
+        if let AshRendererInner::Early { instance, .. } = &self.0 {
+            let device = instance.new_device(vk::SurfaceKHR::null())?;
+            let renderer = AshRendererFull::from_device(device);
+            self.0 = AshRendererInner::Full(renderer);
+        }
+        let AshRendererInner::Full(renderer) = &mut self.0 else {
+            unreachable!()
+        };
+        Ok(renderer)
+    }
+
+    fn init_window(
+        &mut self,
+        window_id: WindowId,
+        window_descriptor: &Window,
+        window_raw: &dyn RawWindow,
+    ) -> Result<&mut AshRendererFull> {
+        if let AshRendererInner::Full(renderer) = &mut self.0 {
+            renderer.surfaces.remove(window_id); // replaces old surface
+            let surface = renderer.device.instance().new_surface(window_raw)?;
+            let swapchain = renderer.device.new_swapchain(surface, window_descriptor)?;
+            renderer.surfaces.insert(window_id, swapchain);
+        } else {
+            let AshRendererInner::Early { instance, .. } = &self.0 else {
+                unreachable!()
+            };
+            let surface = instance.new_surface(&window_raw)?;
+            let device = instance.new_device(surface.raw())?;
+            let swapchain = device.new_swapchain(surface, window_descriptor)?;
+            let mut renderer = AshRendererFull::from_device(device);
+            renderer.surfaces.insert(window_id, swapchain);
+            self.0 = AshRendererInner::Full(renderer);
+        }
+        let AshRendererInner::Full(renderer) = &mut self.0 else {
+            unreachable!()
+        };
+        Ok(renderer)
+    }
+
+    fn run(&mut self, windows: &mut Windows, src_graph: &RenderGraph, draw_phases: &DrawPhases) {
+        if let AshRendererInner::Full(renderer) = &mut self.0 {
+            renderer.run(windows, src_graph, draw_phases);
+        } else {
+            panic!("renderer uninitialized");
+        }
+    }
+}
+
+struct AshRendererInitWindowSystemListener(ResourceId<AshRenderer>);
+
+impl WindowSystemListener for AshRendererInitWindowSystemListener {
+    fn on_created(
+        &self,
+        res: &Resources,
+        window_id: WindowId,
+        window_desc: &Window,
+        window_raw: &dyn RawWindow,
+    ) {
+        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
+        renderer
+            .init_window(window_id, window_desc, window_raw)
+            .unwrap();
+    }
+    fn on_resumed(&self, res: &Resources) {
+        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
+        renderer.init().unwrap();
+    }
+    fn on_closed(&self, res: &Resources, window_id: WindowId) {
+        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
+        let AshRendererInner::Full(renderer) = &mut renderer.0 else { return };
+        renderer.surfaces.remove(window_id);
+    }
+    fn on_suspended(&self, res: &Resources) {
+        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
+        let AshRendererInner::Full(renderer) = &mut renderer.0 else { return };
+        renderer.surfaces.clear();
     }
 }
 
@@ -480,61 +546,17 @@ impl ModuleWithOutput for AshRenderer {
     }
 
     fn install_resources(self, res: &mut Resources) -> &mut Self {
-        let resource_id = res.insert(self);
+        let listeners_id = res.init_unsend::<WindowSystemListeners>();
+        let resource_id = res.insert_unsend(self);
+        res.get_mut_id(listeners_id)
+            .unwrap()
+            .insert(AshRendererInitWindowSystemListener(resource_id));
         res.get_mut_id(resource_id).unwrap()
     }
 
     fn install_systems(schedule: &mut Schedule) {
         schedule
-            .add_system(Self::run_render_system)
+            .add_system(Self::run)
             .into_phase(RenderSystemPhase::Render);
-    }
-}
-
-pub struct AshRendererBuilder {
-    flags: AshRendererFlags,
-    window: Option<WindowId>,
-}
-
-impl AshRendererBuilder {
-    #[inline]
-    pub const fn new() -> Self {
-        Self {
-            flags: AshRendererFlags::DEBUG,
-            window: None,
-        }
-    }
-
-    #[inline]
-    pub const fn with_flags(mut self, flags: AshRendererFlags) -> Self {
-        self.flags = flags;
-        self
-    }
-
-    /// # Unsafe
-    /// Raw Window Handle must be a valid object to create a surface
-    /// upon and must remain valid for the lifetime of the surface.
-    #[inline]
-    pub unsafe fn with_window(mut self, window_id: WindowId) -> Self {
-        self.window = Some(window_id);
-        self
-    }
-
-    pub fn install(self, res: &mut Resources) -> Result<&mut AshRenderer> {
-        let renderer = if let Some(window_id) = self.window {
-            let windows = res.borrow_res::<Windows>().unwrap();
-            // TODO: make not dependent on descriptor.
-            // add size-method to RawWindow
-            let descriptor = &windows[window_id];
-            let raw_window_handles = res.borrow_res::<RawWindowHandles>().unwrap();
-            let handle = raw_window_handles
-                .get(window_id)
-                .and_then(|h| h.upgrade())
-                .ok_or(Error::WindowNotAvailable)?;
-            AshRenderer::for_window(self.flags, window_id, descriptor, handle.as_ref())?
-        } else {
-            AshRenderer::new(self.flags)?
-        };
-        Ok(res.install(renderer))
     }
 }

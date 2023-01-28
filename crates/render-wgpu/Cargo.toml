@@ -18,6 +18,9 @@ slotmap = { workspace = true }
 wgpu = "0.14"
 raw-window-handle = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "0.2"
+
 [dev-dependencies]
 anyhow = { workspace = true }
 naga = "0.10"

@@ -3,7 +3,7 @@ use std::rc::Rc;
 use pulz_ecs::prelude::*;
 use pulz_render::camera::{Camera, RenderTarget};
 use pulz_render_pipeline_core::core_3d::CoreShadingModule;
-use pulz_render_wgpu::WgpuRendererBuilder;
+use pulz_render_wgpu::WgpuRenderer;
 use pulz_window::{WindowDescriptor, WindowId};
 use pulz_window_winit::{
     winit::{event_loop::EventLoop, window::Window},
@@ -15,21 +15,13 @@ async fn init() -> (Resources, EventLoop<()>, Rc<Window>, WinitWindowSystem) {
     info!("Initializing...");
     let mut resources = Resources::new();
     resources.install(CoreShadingModule);
+    resources.install(WgpuRenderer::new().await.unwrap());
 
     let event_loop = EventLoop::new();
     let (window_system, window_id, window) =
         WinitWindowModule::new(WindowDescriptor::default(), &event_loop)
             .unwrap()
             .install(&mut resources);
-
-    // TODO: SAFETY
-    unsafe {
-        WgpuRendererBuilder::new()
-            .with_window(window_id)
-            .install(&mut resources)
-            .await
-            .unwrap()
-    };
 
     // let mut schedule = resources.remove::<Schedule>().unwrap();
     // schedule.init(&mut resources);

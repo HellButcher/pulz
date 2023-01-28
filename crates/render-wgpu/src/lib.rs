@@ -31,6 +31,10 @@ use convert::ConversionError;
 use graph::WgpuRenderGraph;
 use pulz_ecs::prelude::*;
 use pulz_render::{draw::DrawPhases, graph::RenderGraph, RenderModule, RenderSystemPhase};
+use pulz_window::{
+    listener::{WindowSystemListener, WindowSystemListeners},
+    RawWindow, Window, WindowId, Windows, WindowsMirror,
+};
 use resources::WgpuResources;
 use surface::Surface;
 use thiserror::Error;
@@ -69,7 +73,7 @@ impl From<wgpu::RequestDeviceError> for Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-pub struct WgpuRenderer {
+struct WgpuRendererFull {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
     device: wgpu::Device,
@@ -104,36 +108,8 @@ async fn initialize_adapter_from_env_or_default(
     }
 }
 
-impl WgpuRenderer {
-    pub async fn new() -> Result<Self> {
-        let backends = backend_bits_from_env_or_default();
-        let instance = wgpu::Instance::new(backends);
-        let adapter = initialize_adapter_from_env_or_default(&instance, backends, None)
-            .await
-            .ok_or(Error::NoAdapter)?;
-        Self::for_adapter(instance, adapter).await
-    }
-
-    /// # Unsafe
-    /// Raw Window Handle must be a valid object to create a surface
-    /// upon and must remain valid for the lifetime of the surface.
-    pub async fn for_window(
-        window_id: WindowId,
-        window: &Window,
-        window_handle: Rc<dyn RawWindow>,
-    ) -> Result<Self> {
-        let backends = backend_bits_from_env_or_default();
-        let instance = wgpu::Instance::new(backends);
-        let surface = Surface::create(&instance, window, window_handle);
-        let adapter = initialize_adapter_from_env_or_default(&instance, backends, Some(&surface))
-            .await
-            .ok_or(Error::NoAdapter)?;
-        let mut renderer = Self::for_adapter(instance, adapter).await?;
-        renderer.surfaces.insert(window_id, surface);
-        Ok(renderer)
-    }
-
-    pub async fn for_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Result<Self> {
+impl WgpuRendererFull {
+    async fn for_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Result<Self> {
         let trace_dir = std::env::var("WGPU_TRACE");
         let (device, queue) = adapter
             .request_device(
@@ -214,16 +190,149 @@ impl WgpuRenderer {
         self.queue.submit(cmds);
     }
 
-    fn run(
-        &mut self,
-        windows: &Windows,
-        src_graph: &RenderGraph,
-    ) {
+    fn run(&mut self, windows: &Windows, src_graph: &RenderGraph, _draw_phases: &DrawPhases) {
         self.reconfigure_surfaces(&windows);
         self.graph.update(&src_graph);
         self.aquire_swapchain_images();
         self.run_graph(&src_graph);
         self.present_swapchain_images();
+    }
+}
+
+#[allow(clippy::large_enum_variant)]
+enum WgpuRendererInner {
+    #[cfg(not(target_arch = "wasm32"))]
+    Early {
+        instance: wgpu::Instance,
+    },
+    #[cfg(not(target_arch = "wasm32"))]
+    Tmp,
+    Full(WgpuRendererFull),
+}
+
+pub struct WgpuRenderer(WgpuRendererInner);
+
+impl WgpuRenderer {
+    pub async fn new() -> Result<Self> {
+        let backends = backend_bits_from_env_or_default();
+        let instance = wgpu::Instance::new(backends);
+        if let Some(adapter) = wgpu::util::initialize_adapter_from_env(&instance, backends) {
+            let renderer = WgpuRendererFull::for_adapter(instance, adapter).await?;
+            return Ok(Self(WgpuRendererInner::Full(renderer)));
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let adapter = Self::default_adapter(&instance, None).await?;
+            let renderer = Self::for_adapter(instance, adapter).await?;
+            return Ok(Self(WgpuRendererInner::Full(renderer)));
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        Ok(Self(WgpuRendererInner::Early { instance }))
+    }
+
+    async fn default_adapter(
+        instance: &wgpu::Instance,
+        compatible_surface: Option<&wgpu::Surface>,
+    ) -> Result<wgpu::Adapter> {
+        let power_preference = wgpu::util::power_preference_from_env().unwrap_or_default();
+        instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference,
+                force_fallback_adapter: false,
+                compatible_surface,
+            })
+            .await
+            .ok_or(Error::NoAdapter)
+    }
+
+    fn init_window(
+        &mut self,
+        window_id: WindowId,
+        window_descriptor: &Window,
+        window_raw: &dyn RawWindow,
+    ) -> Result<&mut WgpuRendererFull> {
+        if let WgpuRendererInner::Full(renderer) = &mut self.0 {
+            renderer.surfaces.remove(window_id); // replaces old surface
+            let surface = Surface::create(&renderer.instance, window_descriptor, window_raw);
+            renderer.surfaces.insert(window_id, surface);
+        } else {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let WgpuRendererInner::Early { instance } = std::mem::replace(&mut self.0, WgpuRendererInner::Tmp) else {
+                    panic!("unexpected state");
+                };
+                let surface = Surface::create(&instance, window_descriptor, window_raw);
+                let mut renderer = pollster::block_on(async {
+                    let adapter = Self::default_adapter(&instance, Some(&surface)).await?;
+                    WgpuRendererFull::for_adapter(instance, adapter).await
+                })?;
+                renderer.surfaces.insert(window_id, surface);
+                self.0 = WgpuRendererInner::Full(renderer);
+            }
+        }
+        let WgpuRendererInner::Full(renderer) = &mut self.0 else {
+            unreachable!()
+        };
+        Ok(renderer)
+    }
+
+    fn init(&mut self) -> Result<&mut WgpuRendererFull> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if !matches!(self.0, WgpuRendererInner::Full { .. }) {
+            let WgpuRendererInner::Early { instance } = std::mem::replace(&mut self.0, WgpuRendererInner::Tmp) else {
+                panic!("unexpected state");
+            };
+            let renderer = pollster::block_on(async {
+                let adapter = Self::default_adapter(&instance, None).await?;
+                WgpuRendererFull::for_adapter(instance, adapter).await
+            })?;
+            self.0 = WgpuRendererInner::Full(renderer);
+        }
+        let WgpuRendererInner::Full(renderer) = &mut self.0 else {
+            unreachable!()
+        };
+        Ok(renderer)
+    }
+
+    fn run(&mut self, windows: &mut Windows, src_graph: &RenderGraph, draw_phases: &DrawPhases) {
+        if let WgpuRendererInner::Full(renderer) = &mut self.0 {
+            renderer.run(windows, src_graph, draw_phases);
+        } else {
+            panic!("renderer uninitialized");
+        }
+    }
+}
+
+struct WgpuRendererInitWindowSystemListener(ResourceId<WgpuRenderer>);
+
+impl WindowSystemListener for WgpuRendererInitWindowSystemListener {
+    fn on_created(
+        &self,
+        res: &Resources,
+        window_id: WindowId,
+        window_desc: &Window,
+        window_raw: &dyn RawWindow,
+    ) {
+        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
+        renderer
+            .init_window(window_id, window_desc, window_raw)
+            .unwrap();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn on_resumed(&self, res: &Resources) {
+        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
+        renderer.init().unwrap();
+    }
+    fn on_closed(&self, res: &Resources, window_id: WindowId) {
+        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
+        let WgpuRendererInner::Full(renderer) = &mut renderer.0 else { return };
+        renderer.surfaces.remove(window_id);
+    }
+    fn on_suspended(&self, res: &Resources) {
+        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
+        let WgpuRendererInner::Full(renderer) = &mut renderer.0 else { return };
+        renderer.surfaces.clear();
     }
 }
 
@@ -235,7 +344,11 @@ impl ModuleWithOutput for WgpuRenderer {
     }
 
     fn install_resources(self, res: &mut Resources) -> &mut Self {
+        let listeners_id = res.init_unsend::<WindowSystemListeners>();
         let resource_id = res.insert_unsend(self);
+        res.get_mut_id(listeners_id)
+            .unwrap()
+            .insert(WgpuRendererInitWindowSystemListener(resource_id));
         res.get_mut_id(resource_id).unwrap()
     }
 
@@ -243,43 +356,5 @@ impl ModuleWithOutput for WgpuRenderer {
         schedule
             .add_system(Self::run)
             .into_phase(RenderSystemPhase::Render);
-    }
-}
-
-pub struct WgpuRendererBuilder {
-    window: Option<WindowId>,
-}
-
-impl WgpuRendererBuilder {
-    #[inline]
-    pub const fn new() -> Self {
-        Self { window: None }
-    }
-
-    /// # Unsafe
-    /// Raw Window Handle must be a valid object to create a surface
-    /// upon and must remain valid for the lifetime of the surface.
-    #[inline]
-    pub unsafe fn with_window(mut self, window_id: WindowId) -> Self {
-        self.window = Some(window_id);
-        self
-    }
-
-    pub async fn install(self, res: &mut Resources) -> Result<&mut WgpuRenderer> {
-        let renderer = if let Some(window_id) = self.window {
-            let windows = res.borrow_res::<Windows>().unwrap();
-            // TODO: make not dependent on descriptor.
-            // add size-method to RawWindow
-            let descriptor = &windows[window_id];
-            let raw_window_handles = res.borrow_res::<RawWindowHandles>().unwrap();
-            let handle = raw_window_handles
-                .get(window_id)
-                .and_then(|h| h.upgrade())
-                .ok_or(Error::WindowNotAvailable)?;
-            WgpuRenderer::for_window(window_id, descriptor, handle).await?
-        } else {
-            WgpuRenderer::new().await?
-        };
-        Ok(res.install(renderer))
     }
 }

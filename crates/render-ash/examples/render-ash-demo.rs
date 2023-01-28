@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use pulz_ecs::prelude::*;
 use pulz_render::camera::{Camera, RenderTarget};
-use pulz_render_ash::AshRendererBuilder;
+use pulz_render_ash::AshRenderer;
 use pulz_render_pipeline_core::core_3d::CoreShadingModule;
 use pulz_window::{WindowDescriptor, WindowId};
 use pulz_window_winit::{
@@ -15,19 +15,13 @@ fn init() -> (Resources, EventLoop<()>, Rc<Window>, WinitWindowSystem) {
     info!("Initializing...");
     let mut resources = Resources::new();
     resources.install(CoreShadingModule);
+    resources.install(AshRenderer::new().unwrap());
 
     let event_loop = EventLoop::new();
     let (window_system, window_id, window) =
         WinitWindowModule::new(WindowDescriptor::default(), &event_loop)
             .unwrap()
             .install(&mut resources);
-
-    unsafe {
-        AshRendererBuilder::new()
-            .with_window(window_id)
-            .install(&mut resources)
-            .unwrap();
-    };
 
     // let mut schedule = resources.remove::<Schedule>().unwrap();
     // schedule.init(&mut resources);

@@ -30,7 +30,7 @@ use std::{ops::Deref, rc::Rc};
 use fnv::FnvHashMap;
 use pulz_ecs::prelude::*;
 use pulz_window::{
-    RawWindow, RawWindowHandles, Size2, WindowDescriptor, WindowId, Windows, WindowsMirror,
+    listener::WindowSystemListeners, Size2, WindowDescriptor, WindowId, Windows, WindowsMirror,
 };
 use tracing::{debug, info, warn};
 pub use winit;
@@ -49,48 +49,9 @@ pub struct WinitWindows {
 }
 
 impl WinitWindows {
-    fn builder_for_descriptor(descriptor: &WindowDescriptor) -> winit::window::WindowBuilder {
-        let mut builder =
-            winit::window::WindowBuilder::new().with_title(descriptor.title.to_owned());
-
-        #[cfg(target_os = "windows")]
-        {
-            use winit::platform::windows::WindowBuilderExtWindows;
-            builder = builder.with_drag_and_drop(false);
-        }
-
-        if descriptor.size != Size2::ZERO {
-            builder =
-                builder.with_inner_size(PhysicalSize::new(descriptor.size.x, descriptor.size.y));
-        }
-
-        builder
-    }
-
-    fn create<T>(
-        &mut self,
-        window_id: WindowId,
-        window: &mut WindowDescriptor,
-        event_loop: &EventLoopWindowTarget<T>,
-    ) -> Result<Rc<WinitWindow>, OsError> {
-        let builder = Self::builder_for_descriptor(window);
-        let winit_window = builder.build(event_loop)?;
-        Self::update_window_descriptor(window, &winit_window);
-        debug!(
-            "created window {:?} with {:?}, {:?}",
-            window_id,
-            winit_window.id(),
-            winit_window.inner_size(),
-        );
-
-        Ok(self.insert(window_id, winit_window))
-    }
-
-    fn insert(&mut self, window_id: WindowId, winit_window: WinitWindow) -> Rc<WinitWindow> {
-        let winit_window = Rc::new(winit_window);
+    fn insert(&mut self, window_id: WindowId, winit_window: Rc<WinitWindow>) {
         self.windows.insert(window_id, winit_window.clone());
         self.window_id_map.insert(winit_window.id(), window_id);
-        winit_window
     }
 
     #[inline]
@@ -123,7 +84,6 @@ impl WinitWindows {
         };
         self.window_id_map.remove(&window.id());
         window.set_visible(false);
-        drop(window);
         true
     }
 }
@@ -136,22 +96,38 @@ impl std::ops::Index<WindowId> for WinitWindows {
     }
 }
 
+fn builder_for_descriptor(descriptor: &WindowDescriptor) -> winit::window::WindowBuilder {
+    let mut builder = winit::window::WindowBuilder::new().with_title(descriptor.title.to_owned());
+
+    #[cfg(target_os = "windows")]
+    {
+        use winit::platform::windows::WindowBuilderExtWindows;
+        builder = builder.with_drag_and_drop(false);
+    }
+
+    if descriptor.size != Size2::ZERO {
+        builder = builder.with_inner_size(PhysicalSize::new(descriptor.size.x, descriptor.size.y));
+    }
+
+    builder
+}
+
 pub struct WinitWindowSystem {
     windows_id: ResourceId<Windows>,
+    listeners_id: ResourceId<WindowSystemListeners>,
     winit_windows_id: ResourceId<WinitWindows>,
-    raw_window_handles_id: ResourceId<RawWindowHandles>,
     active: bool,
 }
 
 pub struct WinitWindowSystemMut<'l> {
     windows: ResMut<'l, Windows>,
+    listeners: ResMut<'l, WindowSystemListeners>,
     winit_windows: ResMut<'l, WinitWindows>,
-    raw_window_handles: ResMut<'l, RawWindowHandles>,
 }
 
 pub struct WinitWindowModule {
     descriptor: WindowDescriptor,
-    window: WinitWindow,
+    window: Rc<WinitWindow>,
 }
 
 impl WinitWindowModule {
@@ -159,13 +135,14 @@ impl WinitWindowModule {
         mut descriptor: WindowDescriptor,
         event_loop: &EventLoopWindowTarget<T>,
     ) -> Result<Self, OsError> {
-        let builder = WinitWindows::builder_for_descriptor(&descriptor);
-        let window = builder.build(event_loop)?;
+        let builder = builder_for_descriptor(&descriptor);
+        let window = Rc::new(builder.build(event_loop)?);
         WinitWindows::update_window_descriptor(&mut descriptor, &window);
         Ok(Self { descriptor, window })
     }
 
-    pub fn from_window(window: WinitWindow) -> Self {
+    pub fn from_window(window: impl Into<Rc<WinitWindow>>) -> Self {
+        let window: Rc<WinitWindow> = window.into();
         let mut descriptor = WindowDescriptor::default();
         WinitWindows::update_window_descriptor(&mut descriptor, &window);
         Self { descriptor, window }
@@ -177,8 +154,8 @@ impl ModuleWithOutput for WinitWindowModule {
     fn install_resources(self, resources: &mut Resources) -> Self::Output<'_> {
         let sys = WinitWindowSystem::install(resources);
         let mut sys_mut = sys.as_mut(resources);
-        let (window_id, window) =
-            sys_mut.add_winit_window_with_descriptor(self.descriptor, self.window);
+        let Self { descriptor, window } = self;
+        let window_id = sys_mut.add_winit_window_with_descriptor(descriptor, window.clone());
         (sys, window_id, window)
     }
 }
@@ -186,69 +163,47 @@ impl ModuleWithOutput for WinitWindowModule {
 impl WinitWindowSystemMut<'_> {
     pub fn add_window<T>(
         &mut self,
-        descriptor: WindowDescriptor,
+        mut descriptor: WindowDescriptor,
         event_loop: &EventLoopWindowTarget<T>,
     ) -> Result<(WindowId, Rc<WinitWindow>), OsError> {
-        let window_id = self.windows.create(descriptor);
-        let winit_window =
-            self.winit_windows
-                .create(window_id, &mut self.windows[window_id], event_loop)?;
-        let raw_window: Rc<dyn RawWindow> = winit_window.clone();
-        self.raw_window_handles
-            .insert(window_id, Rc::downgrade(&raw_window));
-        Ok((window_id, winit_window))
+        let builder = builder_for_descriptor(&descriptor);
+        let window = Rc::new(builder.build(event_loop)?);
+        WinitWindows::update_window_descriptor(&mut descriptor, &window);
+        let window_id = self.add_winit_window_with_descriptor(descriptor, window.clone());
+        Ok((window_id, window))
     }
 
-    pub fn add_winit_window(&mut self, window: WinitWindow) -> WindowId {
+    pub fn add_winit_window(&mut self, window: Rc<WinitWindow>) -> WindowId {
         let mut descriptor = WindowDescriptor::default();
         WinitWindows::update_window_descriptor(&mut descriptor, &window);
-        self.add_winit_window_with_descriptor(descriptor, window).0
+        self.add_winit_window_with_descriptor(descriptor, window)
     }
 
     fn add_winit_window_with_descriptor(
         &mut self,
         descriptor: WindowDescriptor,
-        window: WinitWindow,
-    ) -> (WindowId, Rc<WinitWindow>) {
+        window: Rc<WinitWindow>,
+    ) -> WindowId {
         let window_id = self.windows.create(descriptor);
-        let window = self.winit_windows.insert(window_id, window);
-        let raw_window: Rc<dyn RawWindow> = window.clone();
-        self.raw_window_handles
-            .insert(window_id, Rc::downgrade(&raw_window));
         debug!(
             "Added window {:?} with {:?}, {:?}",
             window_id,
             window.id(),
             window.inner_size()
         );
-        (window_id, window)
+        self.winit_windows.insert(window_id, window);
+        window_id
     }
 
-    pub fn update_windows<T>(
+    fn handle_window_event(
         &mut self,
-        event_loop: &EventLoopWindowTarget<T>,
-    ) -> Result<(), OsError> {
-        for (window_id, window) in self.windows.iter_mut() {
-            if self.winit_windows.windows.get(window_id).is_none() {
-                // create missing window
-                let winit_window: Rc<dyn RawWindow> =
-                    self.winit_windows.create(window_id, window, event_loop)?;
-                self.raw_window_handles
-                    .insert(window_id, Rc::downgrade(&winit_window));
-            }
-
-            // handle commands
-            // TODO
-        }
-        Ok(())
-    }
-
-    fn handle_window_event(&mut self, window_id: WinitWindowId, event: WindowEvent<'_>) {
-        if let Some(&window_id) = self.winit_windows.window_id_map.get(&window_id) {
+        res: &Resources,
+        window_id: WinitWindowId,
+        event: WindowEvent<'_>,
+    ) {
+        if let Some(window_id) = self.winit_windows.window_id_map.get(&window_id).copied() {
             if matches!(event, WindowEvent::Destroyed) {
-                self.windows.close(window_id);
-                self.winit_windows.close(window_id);
-                self.raw_window_handles.remove(window_id);
+                self.close(res, window_id);
             } else if let Some(window) = self.windows.get_mut(window_id) {
                 match event {
                     WindowEvent::CloseRequested => {
@@ -272,7 +227,29 @@ impl WinitWindowSystemMut<'_> {
         }
     }
 
-    fn handle_close(&mut self) -> bool {
+    fn handle_created<T>(
+        &mut self,
+        res: &Resources,
+        event_loop: &EventLoopWindowTarget<T>,
+    ) -> Result<(), OsError> {
+        while let Some((window_id, window_descr)) = self.windows.pop_next_created_window() {
+            if let Some(winit_window) = self.winit_windows.get(window_id) {
+                self.listeners
+                    .call_on_created(res, window_id, window_descr, winit_window);
+            } else {
+                let builder = builder_for_descriptor(window_descr);
+                let winit_window = Rc::new(builder.build(event_loop)?);
+                WinitWindows::update_window_descriptor(window_descr, &winit_window);
+                self.winit_windows.insert(window_id, winit_window.clone());
+                self.listeners
+                    .call_on_created(res, window_id, window_descr, &winit_window);
+            };
+        }
+        Ok(())
+    }
+
+    // close all windows where the close_requested flag is not cleared
+    fn handle_close(&mut self, res: &Resources) -> bool {
         let mut to_close = Vec::new();
         for (window_id, _) in self.winit_windows.windows.iter() {
             match self.windows.get(window_id) {
@@ -284,34 +261,47 @@ impl WinitWindowSystemMut<'_> {
         if !to_close.is_empty() {
             debug!("Closing {} windows", to_close.len());
             for window_id in to_close {
-                self.windows.close(window_id);
-                self.raw_window_handles.remove(window_id);
-                self.winit_windows.close(window_id);
+                self.close(res, window_id);
             }
         }
         self.winit_windows.windows.is_empty() // all windows closed
+    }
+
+    fn close(&mut self, res: &Resources, window_id: WindowId) -> bool {
+        if self.winit_windows.get(window_id).is_some() {
+            self.listeners.call_on_closed(res, window_id);
+            self.windows.close(window_id);
+            self.winit_windows.close(window_id);
+            true
+        } else {
+            false
+        }
     }
 }
 
 impl WinitWindowSystem {
     fn install(res: &mut Resources) -> Self {
         let windows_id = res.init::<Windows>();
+        let listeners_id = res.init_unsend::<WindowSystemListeners>();
         let winit_windows_id = res.init_unsend::<WinitWindows>();
-        let raw_window_handles_id = res.init_unsend::<RawWindowHandles>();
         Self {
             windows_id,
+            listeners_id,
             winit_windows_id,
-            raw_window_handles_id,
             active: false,
         }
     }
 
-    fn as_mut<'l>(&self, res: &'l mut Resources) -> WinitWindowSystemMut<'l> {
+    fn as_mut<'l>(&self, res: &'l Resources) -> WinitWindowSystemMut<'l> {
         WinitWindowSystemMut {
             windows: res.borrow_res_mut_id(self.windows_id).unwrap(),
+            listeners: res.borrow_res_mut_id(self.listeners_id).unwrap(),
             winit_windows: res.borrow_res_mut_id(self.winit_windows_id).unwrap(),
-            raw_window_handles: res.borrow_res_mut_id(self.raw_window_handles_id).unwrap(),
         }
+    }
+
+    fn listeners_mut<'l>(&self, res: &'l Resources) -> ResMut<'l, WindowSystemListeners> {
+        res.borrow_res_mut_id(self.listeners_id).unwrap()
     }
 
     pub fn handle_event<T>(
@@ -327,38 +317,43 @@ impl WinitWindowSystem {
         match event {
             Event::NewEvents(StartCause::Init) => {
                 info!("event loop started...");
-                self.as_mut(resources).update_windows(event_loop).unwrap();
-                self.active = true;
-            }
-            Event::WindowEvent { window_id, event } => {
-                self.as_mut(resources).handle_window_event(window_id, event);
-            }
-            Event::Suspended => {
-                info!("suspended");
-                self.active = false;
-                // TODO: ON ANDROID: all surfaces need to be destroyed, and re-created on RESUME
-                *control_flow = winit::event_loop::ControlFlow::Wait;
             }
             Event::Resumed => {
                 info!("resumed");
                 self.active = true;
-                // TODO: ON ANDROID: surface-creation needs to be delayed until this Event
-                // TODO: clever way how to link that to the render-system, and delay creation of device
+                let mut s = self.as_mut(resources);
+                s.handle_created(resources, event_loop).unwrap();
+                s.listeners.call_on_resumed(resources);
                 *control_flow = winit::event_loop::ControlFlow::Poll;
             }
+            Event::WindowEvent { window_id, event } => {
+                self.as_mut(resources)
+                    .handle_window_event(resources, window_id, event);
+            }
+            Event::Suspended => {
+                info!("suspended");
+                self.active = false;
+                self.listeners_mut(resources).call_on_suspended(resources);
+                *control_flow = winit::event_loop::ControlFlow::Wait;
+            }
             Event::MainEventsCleared => {
-                self.as_mut(resources).update_windows(event_loop).unwrap();
                 if self.active {
+                    self.as_mut(resources)
+                        .handle_created(resources, event_loop)
+                        .unwrap();
                     schedule.run(resources);
-                }
-                if self.as_mut(resources).handle_close() {
-                    // all windows closed
-                    *control_flow = winit::event_loop::ControlFlow::Exit;
+                    if self.as_mut(resources).handle_close(resources) {
+                        // all windows closed
+                        *control_flow = winit::event_loop::ControlFlow::Exit;
+                    }
                 }
             }
             Event::LoopDestroyed => {
                 info!("event loop ended");
-                self.active = false;
+                if self.active {
+                    self.active = false;
+                    self.listeners_mut(resources).call_on_suspended(resources);
+                }
             }
             _ => {}
         }

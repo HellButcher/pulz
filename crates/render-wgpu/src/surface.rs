@@ -1,14 +1,10 @@
-use std::{
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+use std::ops::{Deref, DerefMut};
 
 use pulz_window::{RawWindow, Size2, Window};
 use tracing::info;
 
 pub struct Surface {
     surface: wgpu::Surface,
-    window_handle: Rc<dyn RawWindow>, // holds reference to window to ensure sufface is still valid until destruction
     size: Size2,
     vsync: bool,
     format: wgpu::TextureFormat,
@@ -18,12 +14,11 @@ impl Surface {
     pub fn create(
         instance: &wgpu::Instance,
         window: &Window,
-        window_handle: Rc<dyn RawWindow>,
+        window_handle: &dyn RawWindow,
     ) -> Self {
         let surface = unsafe { instance.create_surface(&window_handle) };
         Self {
             surface,
-            window_handle,
             size: window.size,
             vsync: window.vsync,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,

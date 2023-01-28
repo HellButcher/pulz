@@ -2,7 +2,6 @@ use std::{
     borrow::Cow,
     collections::VecDeque,
     ops::{Deref, DerefMut},
-    rc::Weak,
 };
 
 use pulz_ecs::Component;
@@ -34,7 +33,10 @@ pub struct Window {
     command_queue: VecDeque<WindowCommand>,
 }
 
-pub struct Windows(SlotMap<WindowId, Window>);
+pub struct Windows {
+    windows: SlotMap<WindowId, Window>,
+    created: VecDeque<WindowId>,
+}
 
 impl WindowDescriptor {
     pub const DEFAULT_TITLE: &'static str =
@@ -72,7 +74,10 @@ impl DerefMut for Window {
 
 impl Windows {
     pub fn new() -> Self {
-        Self(SlotMap::with_key())
+        Self {
+            windows: SlotMap::with_key(),
+            created: VecDeque::new(),
+        }
     }
 
     #[inline]
@@ -83,43 +88,54 @@ impl Windows {
             command_queue: VecDeque::new(),
         };
 
-        //self.new_windows.push_back(id);
-        self.0.insert(window)
+        let id = self.windows.insert(window);
+        self.created.push_back(id);
+        id
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.windows.len()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.windows.is_empty()
     }
 
     #[inline]
     pub fn get(&self, id: WindowId) -> Option<&Window> {
-        self.0.get(id)
+        self.windows.get(id)
     }
 
     #[inline]
     pub fn get_mut(&mut self, id: WindowId) -> Option<&mut Window> {
-        self.0.get_mut(id)
+        self.windows.get_mut(id)
     }
 
     #[inline]
     pub fn close(&mut self, id: WindowId) -> bool {
-        self.0.remove(id).is_some()
+        self.windows.remove(id).is_some()
+    }
+
+    pub fn pop_next_created_window(&mut self) -> Option<(WindowId, &mut Window)> {
+        let id = loop {
+            let id = self.created.pop_front()?;
+            if self.windows.contains_key(id) {
+                break id;
+            }
+        };
+        Some((id, &mut self.windows[id]))
     }
 
     #[inline]
     pub fn iter(&self) -> Iter<'_> {
-        self.0.iter()
+        self.windows.iter()
     }
 
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_> {
-        self.0.iter_mut()
+        self.windows.iter_mut()
     }
 }
 
@@ -134,14 +150,14 @@ impl std::ops::Index<WindowId> for Windows {
     type Output = Window;
     #[inline]
     fn index(&self, id: WindowId) -> &Self::Output {
-        &self.0[id]
+        &self.windows[id]
     }
 }
 
 impl std::ops::IndexMut<WindowId> for Windows {
     #[inline]
     fn index_mut(&mut self, id: WindowId) -> &mut Self::Output {
-        &mut self.0[id]
+        &mut self.windows[id]
     }
 }
 
@@ -155,5 +171,3 @@ pub enum WindowCommand {
 pub trait RawWindow: HasRawWindowHandle + HasRawDisplayHandle {}
 
 impl<W> RawWindow for W where W: HasRawWindowHandle + HasRawDisplayHandle {}
-
-pub type RawWindowHandles = WindowsMirror<Weak<dyn RawWindow>>;

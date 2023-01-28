@@ -2,12 +2,15 @@ use std::sync::Arc;
 
 use ash::{extensions::khr, vk};
 use pulz_render::{math::uvec2, texture::Texture};
-use pulz_window::{RawWindow, Size2, WindowId};
+use pulz_window::{RawWindow, Size2, Window, WindowId};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use slotmap::Key;
 
 use crate::{
-    device::AshDevice, drop_guard::Destroy, instance::AshInstance, AshRenderer, Error, Result,
+    device::AshDevice,
+    drop_guard::{Destroy, Guard},
+    instance::AshInstance,
+    AshRendererFull, Error, Result,
 };
 
 pub struct Surface {
@@ -255,70 +258,59 @@ impl AshInstance {
     }
 
     /// SAFETY: display and window handles must be valid for the complete lifetime of surface
-    pub(crate) fn new_surface(self: &Arc<Self>, window: &dyn RawWindow) -> Result<Surface> {
+    pub(crate) fn new_surface(&self, window: &dyn RawWindow) -> Result<Guard<'_, vk::SurfaceKHR>> {
         let surface_raw = unsafe {
             self.create_surface_raw(window.raw_display_handle(), window.raw_window_handle())?
         };
-        Ok(Surface {
-            instance: self.clone(),
-            surface_raw,
-        })
+        Ok(Guard::new(self, surface_raw))
     }
 }
 
-impl Surface {
+impl AshInstance {
     pub fn get_physical_device_surface_support(
         &self,
         physical_device: vk::PhysicalDevice,
         queue_family_index: u32,
+        surface: vk::SurfaceKHR,
     ) -> bool {
-        let Ok(ext_surface) = self.instance.ext_surface() else {
+        let Ok(ext_surface) = self.ext_surface() else {
             return false;
         };
 
         unsafe {
             ext_surface
-                .get_physical_device_surface_support(
-                    physical_device,
-                    queue_family_index,
-                    self.surface_raw,
-                )
+                .get_physical_device_surface_support(physical_device, queue_family_index, surface)
                 .unwrap_or(false)
         }
     }
 
     pub fn query_swapchain_support(
         &self,
+        surface: vk::SurfaceKHR,
         physical_device: vk::PhysicalDevice,
     ) -> Option<SwapchainSupportDetail> {
-        let ext_surface = self.instance.ext_surface().ok()?;
-        query_swapchain_support(ext_surface, self.surface_raw, physical_device)
-    }
-}
-
-fn query_swapchain_support(
-    ext_surface: &khr::Surface,
-    surface_raw: vk::SurfaceKHR,
-    physical_device: vk::PhysicalDevice,
-) -> Option<SwapchainSupportDetail> {
-    unsafe {
-        let capabilities = ext_surface
-            .get_physical_device_surface_capabilities(physical_device, surface_raw)
-            .ok()?;
-        let formats = ext_surface
-            .get_physical_device_surface_formats(physical_device, surface_raw)
-            .ok()?;
-        let present_modes = ext_surface
-            .get_physical_device_surface_present_modes(physical_device, surface_raw)
-            .ok()?;
-        if formats.is_empty() || present_modes.is_empty() {
-            None
-        } else {
-            Some(SwapchainSupportDetail {
-                capabilities,
-                formats,
-                present_modes,
-            })
+        let Ok(ext_surface) = self.ext_surface() else {
+            return None;
+        };
+        unsafe {
+            let capabilities = ext_surface
+                .get_physical_device_surface_capabilities(physical_device, surface)
+                .ok()?;
+            let formats = ext_surface
+                .get_physical_device_surface_formats(physical_device, surface)
+                .ok()?;
+            let present_modes = ext_surface
+                .get_physical_device_surface_present_modes(physical_device, surface)
+                .ok()?;
+            if formats.is_empty() || present_modes.is_empty() {
+                None
+            } else {
+                Some(SwapchainSupportDetail {
+                    capabilities,
+                    formats,
+                    present_modes,
+                })
+            }
         }
     }
 }
@@ -385,22 +377,24 @@ pub struct SurfaceSwapchain {
 }
 
 impl AshDevice {
-    pub fn new_swapchain(
+    pub(crate) fn new_swapchain(
         self: &Arc<Self>,
-        mut surface: Surface,
-        suggested_size: Size2,
-        suggested_image_count: u32,
-        suggested_present_mode: vk::PresentModeKHR,
+        surface: Guard<'_, vk::SurfaceKHR>,
+        window_descriptor: &Window,
     ) -> Result<SurfaceSwapchain> {
-        assert_eq!(self.instance().handle(), surface.instance.handle());
+        let (image_count, present_mode) = if window_descriptor.vsync {
+            (3, vk::PresentModeKHR::MAILBOX)
+        } else {
+            (2, vk::PresentModeKHR::IMMEDIATE)
+        };
         let mut swapchain = SurfaceSwapchain {
             device: self.clone(),
-            surface_raw: std::mem::take(&mut surface.surface_raw),
+            surface_raw: surface.take(),
             swapchain_raw: vk::SwapchainKHR::null(),
-            size: suggested_size,
-            image_count: suggested_image_count,
+            size: window_descriptor.size,
+            image_count,
             surface_format: Default::default(),
-            present_mode: suggested_present_mode,
+            present_mode,
             // TODO: custom usage
             image_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST,
             images: Vec::new(),
@@ -516,11 +510,12 @@ impl SurfaceSwapchain {
         // TODO: pass swapchain format to graph
 
         let ext_swapchain = self.device.ext_swapchain()?;
-        let ext_surface = self.device.instance().ext_surface()?;
 
-        let swapchain_support_info =
-            query_swapchain_support(ext_surface, self.surface_raw, self.device.physical_device())
-                .ok_or(Error::NoSwapchainSupport)?;
+        let swapchain_support_info = self
+            .device
+            .instance()
+            .query_swapchain_support(self.surface_raw, self.device.physical_device())
+            .ok_or(Error::NoSwapchainSupport)?;
 
         if !swapchain_support_info
             .capabilities
@@ -670,6 +665,24 @@ impl SurfaceSwapchain {
 
 impl Drop for SurfaceSwapchain {
     fn drop(&mut self) {
+        if self.swapchain_raw != vk::SwapchainKHR::null()
+            || self.surface_raw != vk::SurfaceKHR::null()
+            || !self.retired_swapchains.is_empty()
+        {
+            unsafe {
+                self.device.device_wait_idle();
+            }
+        }
+
+        if !self.retired_swapchains.is_empty() {
+            let ext_swapchain = self.device.ext_swapchain().unwrap();
+            for r in self.retired_swapchains.drain(..) {
+                unsafe {
+                    ext_swapchain.destroy_swapchain(r, None);
+                }
+            }
+        }
+
         // for image_view in self.image_views.drain(..) {
         //     unsafe {
         //         self.device.destroy_image_view(image_view, None);
@@ -693,7 +706,7 @@ impl Drop for SurfaceSwapchain {
     }
 }
 
-impl AshRenderer {
+impl AshRendererFull {
     pub(crate) fn acquire_swapchain_image(
         &mut self,
         window_id: WindowId,
