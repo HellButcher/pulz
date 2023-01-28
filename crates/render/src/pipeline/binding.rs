@@ -1,9 +1,16 @@
+use std::borrow::Cow;
+
+pub use pulz_render_macros::AsBindingLayout;
+
+crate::backend::define_gpu_resource!(BindGroupLayout, BindGroupLayoutDescriptor<'l>);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BindGroupLayoutDescriptor<'a> {
     pub label: Option<&'a str>,
-    pub entries: &'a [BindGroupLayoutEntry],
+    pub entries: Cow<'a, [BindGroupLayoutEntry]>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct BindGroupLayoutEntry {
     pub binding: u32,
     // pub visibility: ShaderStages,
@@ -11,8 +18,6 @@ pub struct BindGroupLayoutEntry {
     // TODO:
     pub count: u32,
 }
-
-pub use pulz_render_macros::AsBindingLayout;
 
 pub trait AsBindingLayout {
     // TODO (also macro)

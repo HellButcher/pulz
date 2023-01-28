@@ -1,12 +1,13 @@
 use bitflags::bitflags;
+use pulz_transform::math::{usize2, usize3};
 
-use crate::math::{uvec2, uvec3, USize2, USize3};
+use crate::math::{USize2, USize3};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TextureDescriptor {
     pub dimensions: TextureDimensions,
     pub mip_level_count: u32,
-    pub sample_count: u32,
+    pub sample_count: u8,
     pub format: TextureFormat,
     pub aspects: TextureAspects,
     pub usage: TextureUsage,
@@ -58,11 +59,11 @@ impl TextureDimensions {
     #[inline]
     pub fn extents(&self) -> USize3 {
         match *self {
-            Self::D1(len) => uvec3(len, 1, 1),
-            Self::D2(size) => uvec3(size.x, size.y, 1),
-            Self::D2Array { size, array_len } => uvec3(size.x, size.y, array_len),
-            Self::Cube(size) => uvec3(size.x, size.y, 6),
-            Self::CubeArray { size, array_len } => uvec3(size.x, size.y, array_len * 6),
+            Self::D1(len) => usize3(len, 1, 1),
+            Self::D2(size) => usize3(size.x, size.y, 1),
+            Self::D2Array { size, array_len } => usize3(size.x, size.y, array_len),
+            Self::Cube(size) => usize3(size.x, size.y, 6),
+            Self::CubeArray { size, array_len } => usize3(size.x, size.y, array_len * 6),
             Self::D3(size) => size,
         }
     }
@@ -70,12 +71,12 @@ impl TextureDimensions {
     #[inline]
     pub fn subimage_extents(&self) -> USize2 {
         match *self {
-            Self::D1(len) => uvec2(len, 1),
+            Self::D1(len) => usize2(len, 1),
             Self::D2(size) => size,
             Self::D2Array { size, .. } => size,
             Self::Cube(size) => size,
             Self::CubeArray { size, .. } => size,
-            Self::D3(size) => uvec2(size.x, size.y),
+            Self::D3(size) => usize2(size.x, size.y),
         }
     }
 }
@@ -220,9 +221,7 @@ impl TextureFormat {
             }
         })
     }
-}
 
-impl TextureFormat {
     pub fn aspects(self) -> TextureAspects {
         match self {
             Self::Stencil8 => TextureAspects::STENCIL,
@@ -262,8 +261,8 @@ bitflags! {
   pub struct TextureUsage: u32 {
       const TRANSFER_SRC = 1;
       const TRANSFER_DST = 2;
-      const TEXTURE_BINDING = 4;
-      const STORAGE_BINDING = 8;
+      const SAMPLED = 4;
+      const STORAGE = 8;
       const COLOR_ATTACHMENT = 16;
       const DEPTH_STENCIL_ATTACHMENT = 32;
       const INPUT_ATTACHMENT = 64;
@@ -272,9 +271,22 @@ bitflags! {
       const BY_REGION = 128;
 
       const NONE = 0;
-      const ALL_READ = Self::TRANSFER_SRC.bits | Self::TEXTURE_BINDING.bits | Self::INPUT_ATTACHMENT.bits;
-      const ALL_WRITE = Self::TRANSFER_DST.bits | Self::STORAGE_BINDING.bits | Self::COLOR_ATTACHMENT.bits | Self::DEPTH_STENCIL_ATTACHMENT.bits;
+      const ALL_READ = Self::TRANSFER_SRC.bits | Self::SAMPLED.bits | Self::INPUT_ATTACHMENT.bits;
+      const ALL_WRITE = Self::TRANSFER_DST.bits | Self::STORAGE.bits | Self::COLOR_ATTACHMENT.bits | Self::DEPTH_STENCIL_ATTACHMENT.bits;
+      const ALL_ATTACHMENTS = Self::COLOR_ATTACHMENT.bits | Self::DEPTH_STENCIL_ATTACHMENT.bits | Self::INPUT_ATTACHMENT.bits;
   }
+}
+
+impl TextureUsage {
+    #[inline]
+    pub const fn is_attachment(self) -> bool {
+        self.intersects(Self::ALL_ATTACHMENTS)
+    }
+
+    #[inline]
+    pub const fn is_non_attachment(self) -> bool {
+        self.intersects(Self::ALL_ATTACHMENTS.complement())
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Default)]

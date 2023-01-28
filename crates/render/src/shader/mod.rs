@@ -4,14 +4,17 @@ mod preprocessor;
 
 pub use ::encase::*;
 pub use ::pulz_render_macros::ShaderType;
+use serde::{Deserialize, Serialize};
 
 crate::backend::define_gpu_resource!(ShaderModule, ShaderModuleDescriptor<'l>);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ShaderModuleDescriptor<'a> {
     pub label: Option<&'a str>,
     pub source: ShaderSource<'a>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ShaderSource<'a> {
     Wgsl(Cow<'a, str>),

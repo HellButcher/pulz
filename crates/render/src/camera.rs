@@ -1,6 +1,6 @@
 use pulz_assets::{Assets, Handle};
 use pulz_ecs::prelude::*;
-use pulz_transform::math::{vec2, Mat4, Size2, USize2};
+use pulz_transform::math::{size2, Mat4, Size2, USize2};
 use pulz_window::{Window, WindowId, Windows};
 
 use crate::texture::Image;
@@ -141,9 +141,9 @@ impl AsProjectionMatrix for OrthographicProjection {
             OrthographicScalingMode::WindowSize => size,
             OrthographicScalingMode::AutoFit(min) => {
                 if size.x * min.y > min.x * size.y {
-                    vec2(size.x * min.y / size.y, min.y)
+                    size2(size.x * min.y / size.y, min.y)
                 } else {
-                    vec2(min.x, size.y * min.x / size.x)
+                    size2(min.x, size.y * min.x / size.x)
                 }
             }
         };

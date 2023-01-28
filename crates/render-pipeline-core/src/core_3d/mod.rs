@@ -3,10 +3,11 @@ use pulz_render::{
     camera::{Camera, RenderTarget},
     graph::{
         pass::{builder::PassBuilder, run::PassExec, Graphics, Pass},
-        resources::{Texture, WriteSlot},
+        resources::WriteSlot,
         RenderGraphBuilder,
     },
     math::Mat4,
+    texture::Texture,
     RenderSystemPhase,
 };
 

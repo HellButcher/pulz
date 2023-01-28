@@ -9,35 +9,52 @@ use pulz_window::WindowId;
 
 use super::{
     access::{ResourceAccess, Stage},
-    builder::{GraphExport, GraphImport},
+    builder::{GetExternalResource, GraphExport, GraphImport},
     deps::DependencyMatrix,
-    PassDescription,
+    PassIndex, ResourceIndex, SubPassIndex, PASS_UNDEFINED, SUBPASS_UNDEFINED,
 };
-pub use crate::{
-    buffer::{Buffer, BufferUsage},
-    texture::{Texture, TextureUsage},
+use crate::{
+    camera::RenderTarget,
+    texture::{Image, Texture},
 };
-use crate::{camera::RenderTarget, texture::Image};
 
 #[derive(Copy, Clone)]
 pub struct Slot<R> {
-    pub(crate) index: u16,
-    pub(crate) last_written_by_pass: u16,
+    pub(crate) index: ResourceIndex,
+    pub(crate) last_written_by: SubPassIndex,
     _phantom: PhantomData<fn() -> R>,
+}
+
+impl<R> std::fmt::Debug for Slot<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let typename = std::any::type_name::<R>();
+        f.debug_tuple(&format!("Slot<{typename}>"))
+            .field(&self.index)
+            .finish()
+    }
 }
 
 // Not Copy by intention!
 pub struct WriteSlot<R>(Slot<R>);
 
+impl<R> std::fmt::Debug for WriteSlot<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let typename = std::any::type_name::<R>();
+        f.debug_tuple(&format!("WriteSlot<{typename}>"))
+            .field(&self.0.index)
+            .finish()
+    }
+}
+
 pub trait SlotAccess {
     const WRITE: bool;
-    fn index(&self) -> u16;
+    fn index(&self) -> ResourceIndex;
 }
 
 impl<R> SlotAccess for Slot<R> {
     const WRITE: bool = false;
     #[inline]
-    fn index(&self) -> u16 {
+    fn index(&self) -> ResourceIndex {
         self.index
     }
 }
@@ -45,7 +62,7 @@ impl<R> SlotAccess for Slot<R> {
 impl<R> SlotAccess for WriteSlot<R> {
     const WRITE: bool = true;
     #[inline]
-    fn index(&self) -> u16 {
+    fn index(&self) -> ResourceIndex {
         self.0.index
     }
 }
@@ -59,10 +76,10 @@ impl<R> Deref for WriteSlot<R> {
 }
 
 impl<R> Slot<R> {
-    const fn new(index: usize, last_written_by_pass: u16) -> Self {
+    const fn new(index: ResourceIndex, last_written_by: SubPassIndex) -> Self {
         Self {
-            index: index as u16,
-            last_written_by_pass,
+            index,
+            last_written_by,
             _phantom: PhantomData,
         }
     }
@@ -70,8 +87,8 @@ impl<R> Slot<R> {
 
 impl<R> WriteSlot<R> {
     #[inline]
-    const fn new(index: usize, last_writing_pass: u16) -> Self {
-        Self(Slot::new(index, last_writing_pass))
+    const fn new(index: ResourceIndex, last_written_by: SubPassIndex) -> Self {
+        Self(Slot::new(index, last_written_by))
     }
     #[inline]
     pub const fn read(self) -> Slot<R> {
@@ -86,128 +103,129 @@ enum ResourceVariant {
     Export,
 }
 
-pub(super) struct ResourceSet<R> {
-    last_written: Vec<u16>,
-    first_written: Vec<u16>,
-    variant: Vec<ResourceVariant>,
-    _phantom: PhantomData<fn() -> R>,
+struct Resource<R> {
+    first_written: SubPassIndex,
+    last_written: SubPassIndex,
+    variant: ResourceVariant,
+    extern_res: Option<Box<dyn GetExternalResource<R>>>,
 }
+
+#[derive(Hash)]
+pub(super) struct ResourceSet<R>(Vec<Resource<R>>);
 
 impl<R> ResourceSet<R> {
     pub fn len(&self) -> usize {
-        self.last_written.len()
+        self.0.len()
     }
 }
 
-impl<R> Hash for ResourceSet<R> {
+impl<R> Hash for Resource<R> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        Hash::hash_slice(&self.last_written, state);
-        Hash::hash_slice(&self.first_written, state);
-        Hash::hash_slice(&self.variant, state);
+        self.first_written.hash(state);
+        self.last_written.hash(state);
+        self.variant.hash(state);
+        // ignore extern_res!
     }
 }
 
-pub struct ResourceDeps<R: ResourceAccess> {
-    deps: Vec<ResourceDep<R::Usage>>,
-}
+pub struct ResourceDeps<R: ResourceAccess>(Vec<ResourceDep<R>>);
 
 impl<R: ResourceAccess> Hash for ResourceDeps<R> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        Hash::hash_slice(&self.deps, state);
+        Hash::hash_slice(&self.0, state);
     }
 }
 
 #[derive(Hash)]
-pub struct ResourceDep<U> {
-    index: u16,
-    last_written_by_pass: u16,
+pub struct ResourceDep<R: ResourceAccess> {
+    index: ResourceIndex,
+    last_written_by_pass: PassIndex,
     write_access: bool,
     stages: Stage,
-    usage: U,
+    usage: R::Usage,
 }
 
 impl<R> ResourceSet<R> {
     #[inline]
     pub(super) const fn new() -> Self {
-        Self {
-            last_written: Vec::new(),
-            first_written: Vec::new(),
-            variant: Vec::new(),
-            _phantom: PhantomData,
-        }
+        Self(Vec::new())
     }
 
     pub(super) fn reset(&mut self) {
-        self.last_written.clear();
-        self.first_written.clear();
-        self.variant.clear();
+        self.0.clear();
     }
 
     pub(super) fn create(&mut self) -> WriteSlot<R> {
-        let index = self.last_written.len();
-        self.last_written.push(!0);
-        self.first_written.push(!0);
-        self.variant.push(ResourceVariant::Transient);
-        WriteSlot::new(index, !0)
+        let index = self.0.len() as ResourceIndex;
+        self.0.push(Resource {
+            first_written: SUBPASS_UNDEFINED,
+            last_written: SUBPASS_UNDEFINED,
+            variant: ResourceVariant::Transient,
+            extern_res: None,
+        });
+        WriteSlot::new(index, SUBPASS_UNDEFINED)
     }
 
-    pub(super) fn writes(&mut self, slot: WriteSlot<R>, new_pass: usize) -> WriteSlot<R> {
-        let new_pass = new_pass as u16;
-        let index = slot.0.index as usize;
-        let last_written_by_pass = self.last_written[index];
+    pub(super) fn writes(&mut self, slot: WriteSlot<R>, new_pass: SubPassIndex) -> WriteSlot<R> {
+        let r = &mut self.0[slot.0.index as usize];
+        let last_written_by_pass = r.last_written;
         assert_eq!(
-            last_written_by_pass, slot.0.last_written_by_pass,
+            last_written_by_pass, slot.0.last_written_by,
             "resource also written by an other pass (slot out of sync)"
         );
         if new_pass != last_written_by_pass {
-            self.last_written[index] = new_pass;
-            if self.first_written[index] == !0 {
-                self.first_written[index] = new_pass
+            r.last_written = new_pass;
+            if r.first_written.0 == PASS_UNDEFINED {
+                r.first_written = new_pass
             }
         }
-        WriteSlot::new(index, new_pass)
+        WriteSlot::new(slot.0.index, new_pass)
     }
 
     pub(super) fn reads(&mut self, slot: Slot<R>) {
         assert_ne!(
-            slot.last_written_by_pass, !0,
+            slot.last_written_by.0, PASS_UNDEFINED,
             "resource was not yet written!"
         );
-        let index = slot.index as usize;
-        let last_written_by_pass = self.last_written[index];
-        // TODO: allow usage of older slots for reading
+        let r = &self.0[slot.index as usize];
+        let last_written_by_pass = r.last_written;
+        // TODO: allow usage of older slots for reading (Write>Read>Write)
         assert_eq!(
-            last_written_by_pass, slot.last_written_by_pass,
-            "resource also written by an other pass (slot out of sync), TODO!"
+            last_written_by_pass, slot.last_written_by,
+            "resource also written by an other pass (slot out of sync)"
         );
     }
 
-    pub(super) fn import(&mut self) -> Slot<R> {
-        let s = self.create();
-        let index = s.index as usize;
-        self.variant[index] = ResourceVariant::Import;
-        s.read()
+    pub(super) fn import(&mut self, f: Box<dyn GetExternalResource<R>>) -> Slot<R> {
+        let slot = self.create();
+        let r = &mut self.0[slot.index as usize];
+        r.variant = ResourceVariant::Import;
+        r.extern_res = Some(f);
+        slot.read()
     }
 
-    pub(super) fn export(&mut self, slot: Slot<R>) {
-        let index = slot.index as usize;
-        assert_eq!(ResourceVariant::Transient, self.variant[index]);
-        self.variant[index] = ResourceVariant::Export;
+    pub(super) fn export(&mut self, slot: Slot<R>, f: Box<dyn GetExternalResource<R>>) {
+        let r = &mut self.0[slot.index as usize];
+        assert_eq!(
+            ResourceVariant::Transient,
+            r.variant,
+            "resource can be exported only once"
+        );
+        // TODO: allow multiple exports by copying resource?
+        r.variant = ResourceVariant::Export;
+        r.extern_res = Some(f);
     }
 }
 
 impl<R: ResourceAccess> ResourceDeps<R> {
     #[inline]
-    pub fn deps(&self) -> &[ResourceDep<R::Usage>] {
-        &self.deps
+    pub fn deps(&self) -> &[ResourceDep<R>] {
+        &self.0
     }
 
-    pub fn find_by_resource_index(&self, resource_index: usize) -> Option<&ResourceDep<R::Usage>> {
-        if let Ok(i) = self
-            .deps
-            .binary_search_by_key(&resource_index, |d| d.index as usize)
-        {
-            Some(&self.deps[i])
+    pub fn find_by_resource_index(&self, resource_index: ResourceIndex) -> Option<&ResourceDep<R>> {
+        if let Ok(i) = self.0.binary_search_by_key(&resource_index, |d| d.index) {
+            Some(&self.0[i])
         } else {
             None
         }
@@ -215,28 +233,14 @@ impl<R: ResourceAccess> ResourceDeps<R> {
 
     #[inline]
     pub(super) const fn new() -> Self {
-        Self { deps: Vec::new() }
+        Self(Vec::new())
     }
 
-    pub(super) fn mark_pass_dependency_matrix(&self, m: &mut DependencyMatrix, to_pass: usize) {
-        for dep in &self.deps {
+    pub(super) fn mark_pass_dependency_matrix(&self, m: &mut DependencyMatrix, to_pass: PassIndex) {
+        for dep in &self.0 {
             let pass_index = dep.src_pass();
             if pass_index != !0 {
-                m.insert(pass_index, to_pass);
-            }
-        }
-    }
-
-    pub(super) fn mark_group_dependency_matrix(
-        &self,
-        m: &mut DependencyMatrix,
-        passes: &[PassDescription],
-        to_group: usize,
-    ) {
-        for dep in &self.deps {
-            let pass_index = dep.src_pass();
-            if pass_index != !0 {
-                m.insert(passes[pass_index].group_index, to_group);
+                m.insert(pass_index as usize, to_pass as usize);
             }
         }
     }
@@ -247,44 +251,53 @@ impl<R: ResourceAccess> ResourceDeps<R> {
         write_access: bool,
         stages: Stage,
         usage: R::Usage,
-    ) {
-        match self.deps.binary_search_by_key(&slot.index, |e| e.index) {
+    ) -> bool {
+        match self.0.binary_search_by_key(&slot.index, |e| e.index) {
             Ok(i) => {
-                let entry = &mut self.deps[i];
-                assert_eq!(entry.last_written_by_pass, slot.last_written_by_pass);
+                let entry = &mut self.0[i];
+                assert_eq!(entry.last_written_by_pass, slot.last_written_by.0);
                 entry.write_access |= write_access;
                 entry.stages |= stages;
                 entry.usage |= usage;
+                if entry.write_access {
+                    R::check_usage_is_pass_compatible(entry.usage);
+                }
+                false
             }
             Err(i) => {
-                self.deps.insert(
+                self.0.insert(
                     i,
                     ResourceDep {
                         index: slot.index,
-                        last_written_by_pass: slot.last_written_by_pass,
+                        last_written_by_pass: slot.last_written_by.0,
                         write_access,
                         stages,
                         usage,
                     },
                 );
+                true
             }
         }
     }
 }
 
-impl<U: Copy> ResourceDep<U> {
+impl<R: ResourceAccess> Deref for ResourceDeps<R> {
+    type Target = [ResourceDep<R>];
     #[inline]
-    pub fn resource_index(&self) -> usize {
-        self.index as usize
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<R: ResourceAccess> ResourceDep<R> {
+    #[inline]
+    pub fn resource_index(&self) -> ResourceIndex {
+        self.index
     }
 
     #[inline]
-    pub fn src_pass(&self) -> usize {
-        if self.last_written_by_pass == !0 {
-            !0
-        } else {
-            self.last_written_by_pass as usize
-        }
+    pub fn src_pass(&self) -> PassIndex {
+        self.last_written_by_pass
     }
 
     #[inline]
@@ -293,28 +306,79 @@ impl<U: Copy> ResourceDep<U> {
     }
 
     #[inline]
-    pub fn usage(&self) -> U {
+    pub fn usage(&self) -> R::Usage {
         self.usage
     }
 
     #[inline]
-    pub fn write_access(&self) -> bool {
+    pub fn is_read(&self) -> bool {
+        self.last_written_by_pass != !0
+    }
+
+    #[inline]
+    pub fn is_write(&self) -> bool {
         self.write_access
+    }
+}
+
+pub struct ResourceAssignments<R: ResourceAccess>(Vec<Option<(R, R::Meta)>>);
+
+impl<R: ResourceAccess + Copy> ResourceAssignments<R> {
+    #[inline]
+    pub const fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    #[inline]
+    pub fn get(&self, resource_index: ResourceIndex) -> Option<(R, &R::Meta)> {
+        if let Some(Some((r, m))) = self.0.get(resource_index as usize) {
+            Some((*r, m))
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn assign_external_resources(&mut self, res: &ResourceSet<R>) {
+        assert_eq!(res.0.len(), self.0.len());
+        for (i, r) in res.0.iter().enumerate() {
+            if let Some(ext_res) = &r.extern_res {
+                self.0[i] = Some(ext_res.get_external_resource());
+            }
+        }
     }
 }
 
 impl GraphImport for Handle<Image> {
     type Resource = Texture;
+
+    fn import(&self) -> Box<dyn GetExternalResource<Texture>> {
+        todo!("import image handle")
+    }
 }
 
 impl GraphExport for Handle<Image> {
     type Resource = Texture;
+
+    fn export(&self) -> Box<dyn GetExternalResource<Texture>> {
+        todo!("export image handle")
+    }
 }
 
 impl GraphExport for WindowId {
     type Resource = Texture;
+
+    fn export(&self) -> Box<dyn GetExternalResource<Texture>> {
+        todo!("export swapchain image")
+    }
 }
 
 impl GraphExport for RenderTarget {
     type Resource = Texture;
+
+    fn export(&self) -> Box<dyn GetExternalResource<Texture>> {
+        match self {
+            Self::Image(i) => i.export(),
+            Self::Window(w) => w.export(),
+        }
+    }
 }

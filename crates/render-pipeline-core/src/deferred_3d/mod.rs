@@ -7,9 +7,10 @@ use pulz_render::{
             run::PassExec,
             Graphics, Pass, PassGroup,
         },
-        resources::{Slot, Texture, WriteSlot},
+        resources::{Slot, WriteSlot},
         RenderGraphBuilder,
     },
+    texture::Texture,
     RenderSystemPhase,
 };
 

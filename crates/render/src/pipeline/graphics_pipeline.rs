@@ -1,18 +1,19 @@
+use std::{
+    borrow::Cow,
+    hash::{Hash, Hasher},
+};
+
 use bitflags::bitflags;
 
-use super::PipelineLayout;
-use crate::{shader::ShaderModule, texture::TextureFormat};
+use crate::{
+    pipeline::{GraphicsPass, PipelineLayout, SpecializationInfo},
+    shader::ShaderModule,
+    texture::TextureFormat,
+};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ComputePipelineDescriptor<'a> {
-    pub label: Option<&'a str>,
-    pub layout: Option<PipelineLayout>,
-    pub module: ShaderModule,
-    pub entry_point: &'a str,
-    pub specialization: SpecializationInfo<'a>,
-}
+crate::backend::define_gpu_resource!(GraphicsPipeline, GraphicsPipelineDescriptor<'l>);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GraphicsPipelineDescriptor<'a> {
     pub label: Option<&'a str>,
     pub layout: Option<PipelineLayout>,
@@ -22,55 +23,29 @@ pub struct GraphicsPipelineDescriptor<'a> {
     pub fragment: Option<FragmentState<'a>>,
     pub samples: u32,
     pub specialization: SpecializationInfo<'a>,
+    pub graphics_pass: GraphicsPass,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct RayTracingPipelineDescriptor<'a> {
-    pub label: Option<&'a str>,
-    pub layout: Option<PipelineLayout>,
-    pub modules: Vec<RayTracingShaderModule<'a>>,
-    pub groups: Vec<RayTracingShaderGroup>,
-    pub max_recursion_depth: u32,
-    pub specialization: SpecializationInfo<'a>,
-}
-
-pub type SpecializationInfo<'a> = Vec<SpecializationMapEntry<'a>>;
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct SpecializationMapEntry<'a> {
-    pub constant_id: u32,
-    pub name: &'a str,
-    pub value: PipelineConstantValue,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum PipelineConstantValue {
-    Bool(bool),
-    Float(f32),
-    Sint(i32),
-    Uint(u32),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VertexState<'a> {
     pub module: ShaderModule,
     pub entry_point: &'a str,
-    pub buffers: &'a [VertexBufferLayout<'a>],
+    pub buffers: Cow<'a, [VertexBufferLayout<'a>]>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VertexBufferLayout<'a> {
     pub array_stride: usize,
-    pub attributes: &'a [VertexAttribute],
+    pub attributes: Cow<'a, [VertexAttribute]>,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct VertexAttribute {
     pub format: VertexFormat,
     pub offset: usize,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 pub struct PrimitiveState {
     pub topology: PrimitiveTopology,
     pub polygon_mode: PolygonMode,
@@ -95,7 +70,29 @@ impl Default for PrimitiveState {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+impl Eq for PrimitiveState {}
+
+impl PartialEq for PrimitiveState {
+    fn eq(&self, other: &Self) -> bool {
+        self.topology.eq(&other.topology)
+            && self.polygon_mode.eq(&other.polygon_mode)
+            && self.front_face.eq(&other.front_face)
+            && self.cull_mode.eq(&other.cull_mode)
+            && self.line_width.eq(&other.line_width)
+    }
+}
+
+impl Hash for PrimitiveState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.topology.hash(state);
+        self.polygon_mode.hash(state);
+        self.front_face.hash(state);
+        self.cull_mode.hash(state);
+        state.write_u32(self.line_width.to_bits());
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct DepthStencilState {
     pub format: TextureFormat,
     pub depth: DepthState,
@@ -104,7 +101,7 @@ pub struct DepthStencilState {
 
 impl DepthStencilState {
     pub const DEFAULT: Self = Self {
-        format: TextureFormat::DEFAULT,
+        format: TextureFormat::Depth24PlusStencil8,
         depth: DepthState::DEFAULT,
         stencil: StencilState::DEFAULT,
     };
@@ -124,7 +121,7 @@ impl Default for DepthStencilState {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 pub struct DepthState {
     pub write_enabled: bool,
     pub compare: CompareFunction,
@@ -145,13 +142,35 @@ impl DepthState {
     };
 }
 
+impl Eq for DepthState {}
+
+impl PartialEq for DepthState {
+    fn eq(&self, other: &Self) -> bool {
+        self.write_enabled.eq(&other.write_enabled)
+            && self.compare.eq(&other.compare)
+            && self.bias.eq(&other.bias)
+            && self.bias_slope_scale.eq(&other.bias_slope_scale)
+            && self.bias_clamp.eq(&other.bias_clamp)
+    }
+}
+
+impl Hash for DepthState {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.write_enabled.hash(state);
+        self.compare.hash(state);
+        state.write_i32(self.bias);
+        state.write_u32(self.bias_slope_scale.to_bits());
+        state.write_u32(self.bias_clamp.to_bits());
+    }
+}
+
 impl Default for DepthState {
     fn default() -> Self {
         Self::DEFAULT
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StencilState {
     pub front: StencilFaceState,
     pub back: StencilFaceState,
@@ -185,7 +204,7 @@ impl Default for StencilState {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StencilFaceState {
     pub compare: CompareFunction,
     pub fail_op: StencilOperation,
@@ -208,14 +227,14 @@ impl Default for StencilFaceState {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FragmentState<'a> {
     pub module: ShaderModule,
     pub entry_point: &'a str,
-    pub targets: &'a [ColorTargetState],
+    pub targets: Cow<'a, [ColorTargetState]>,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ColorTargetState {
     pub format: TextureFormat,
     pub blend: Option<BlendState>,
@@ -246,13 +265,13 @@ impl From<TextureFormat> for ColorTargetState {
     }
 }
 
-#[derive(Debug, Copy, Clone, Default, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub struct BlendState {
     pub color: BlendComponent,
     pub alpha: BlendComponent,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct BlendComponent {
     pub operation: BlendOperation,
     pub src_factor: BlendFactor,
@@ -273,42 +292,9 @@ impl Default for BlendComponent {
     }
 }
 
-#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
-pub struct RayTracingShaderGroup {
-    pub group_type: RayTracingGroupType,
-    pub general_shader: u32,
-    pub closest_hit_shader: u32,
-    pub any_hit_shader: u32,
-    pub intersection_shader: u32,
-}
-
-#[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
-pub struct RayTracingShaderModule<'a> {
-    pub stage: RayTracingStage,
-    pub module: ShaderModule,
-    pub entry_point: &'a str,
-}
-
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
-pub enum RayTracingStage {
-    #[default]
-    Raygen,
-    AnyHit,
-    ClosestHit,
-    Miss,
-    Intersection,
-    Callable,
-}
-
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
-pub enum RayTracingGroupType {
-    #[default]
-    General,
-    TrianglesHitGroup,
-    ProceduralHitGroup,
-}
-
-#[derive(Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+)]
 pub enum PolygonMode {
     #[default]
     Fill,
@@ -316,7 +302,9 @@ pub enum PolygonMode {
     Point,
 }
 
-#[derive(Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+)]
 pub enum PrimitiveTopology {
     PointList,
     LineList,
@@ -326,14 +314,18 @@ pub enum PrimitiveTopology {
     TriangleStrip,
 }
 
-#[derive(Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+)]
 pub enum VertexStepMode {
     #[default]
     Vertex,
     Instance,
 }
 
-#[derive(Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+)]
 #[non_exhaustive]
 pub enum VertexFormat {
     Uint8x2,
@@ -374,14 +366,18 @@ pub enum VertexFormat {
     Sint32x4,
 }
 
-#[derive(Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+)]
 pub enum IndexFormat {
     Uint16,
     #[default]
     Uint32,
 }
 
-#[derive(Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+)]
 pub enum FrontFace {
     #[default]
     CounterClockwise,
@@ -394,7 +390,9 @@ pub enum Face {
     Back,
 }
 
-#[derive(Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+)]
 pub enum CompareFunction {
     Never,
     Less,
@@ -407,7 +405,9 @@ pub enum CompareFunction {
     Always,
 }
 
-#[derive(Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+)]
 pub enum StencilOperation {
     #[default]
     Keep,

@@ -2,27 +2,18 @@ use self::{
     builder::{PassBuilder, PassGroupBuilder},
     run::PassExec,
 };
-use super::{resources::ResourceDeps, PassDescription};
+use super::{PassIndex, SubPassDescription};
 
 pub mod builder;
 pub mod run;
 
-impl PassDescription {
-    const fn new(
-        index: usize,
-        group_index: usize,
-        name: &'static str,
-        bind_point: PipelineBindPoint,
-    ) -> Self {
+impl SubPassDescription {
+    const fn new(pass_index: PassIndex, name: &'static str) -> Self {
         Self {
-            index,
-            group_index,
+            pass_index,
             name,
-            bind_point,
-            textures: ResourceDeps::new(),
-            buffers: ResourceDeps::new(),
             color_attachments: Vec::new(),
-            depth_stencil_attachments: None,
+            depth_stencil_attachment: None,
             input_attachments: Vec::new(),
         }
     }
@@ -78,7 +69,7 @@ impl<Q: PipelineType, P: Pass<Q>> PassGroup<Q> for P {
     type Output = P::Output;
     #[inline]
     fn build(self, mut builder: PassGroupBuilder<'_, Q>) -> Self::Output {
-        builder.push_pass(self)
+        builder.push_sub_pass(self)
     }
 
     fn type_name(&self) -> &'static str {

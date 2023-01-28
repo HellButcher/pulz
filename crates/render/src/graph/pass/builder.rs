@@ -1,181 +1,208 @@
 use std::marker::PhantomData;
 
-use super::{Graphics, Pass, PassDescription, PassGroup, PipelineType};
-use crate::graph::{
-    access::Stage,
-    resources::{Buffer, BufferUsage, Slot, SlotAccess, Texture, TextureUsage, WriteSlot},
-    PassGroupDescription, RenderGraphBuilder,
+use super::{Graphics, Pass, PassGroup, PipelineType, SubPassDescription};
+use crate::{
+    buffer::{Buffer, BufferUsage},
+    graph::{
+        access::{ShaderStage, Stage},
+        resources::{ResourceDeps, Slot, SlotAccess, WriteSlot},
+        PassDescription, PassIndex, RenderGraphBuilder, SubPassIndex,
+    },
+    texture::{Texture, TextureUsage},
 };
 
 impl RenderGraphBuilder {
-    pub fn add_pass<Q: PipelineType, P: PassGroup<Q>>(&mut self, pass_group: P) -> P::Output {
+    pub fn add_pass<Q, P>(&mut self, pass: P) -> P::Output
+    where
+        Q: PipelineType,
+        P: PassGroup<Q>,
+    {
         debug_assert!(self.is_reset);
-        let begin_passes = self.passes.len();
-        let group_index = self.groups.len();
-        self.groups.push(PassGroupDescription {
-            index: group_index,
-            name: pass_group.type_name(),
+        let begin_subpasses = self.subpasses.len();
+        let index = self.passes.len() as PassIndex;
+        let mut descr = PassDescription {
+            index,
+            name: pass.type_name(),
             bind_point: Q::BIND_POINT,
-            begin_passes,
-            end_passes: begin_passes,
-        });
+            textures: ResourceDeps::new(),
+            buffers: ResourceDeps::new(),
+            begin_subpasses,
+            end_subpasses: begin_subpasses,
+        };
 
-        let output = pass_group.build(PassGroupBuilder {
-            base: self,
-            group_index,
-            _pipeline_type: PhantomData,
-        });
+        let output = pass.build(PassGroupBuilder(
+            PassBuilderIntern {
+                graph: self,
+                pass: &mut descr,
+                current_subpass: 0,
+            },
+            PhantomData,
+        ));
 
         // update end marker
-        let end_passes = self.passes.len();
-        if begin_passes == end_passes {
-            // group was empty, remove it!
-            self.groups.pop();
-        } else {
-            self.groups[group_index].end_passes = end_passes;
+        let end_subpasses = self.subpasses.len();
+        // only add pass, if not empty
+        if begin_subpasses < end_subpasses {
+            descr.end_subpasses = end_subpasses;
+            self.passes.push(descr);
         }
         output
     }
 }
 
-pub struct PassGroupBuilder<'a, Q> {
-    base: &'a mut RenderGraphBuilder,
-    group_index: usize,
-    _pipeline_type: PhantomData<fn(Q)>,
+struct PassBuilderIntern<'a> {
+    graph: &'a mut RenderGraphBuilder,
+    pass: &'a mut PassDescription,
+    current_subpass: u16,
 }
-impl<Q> PassGroupBuilder<'_, Q> {
+
+impl PassBuilderIntern<'_> {
     #[inline]
-    pub fn creates_texture(&mut self) -> WriteSlot<Texture> {
-        self.base.textures.create()
+    fn current_subpass(&self) -> SubPassIndex {
+        (self.pass.index, self.current_subpass)
     }
 
-    #[inline]
-    pub fn creates_buffer(&mut self) -> WriteSlot<Buffer> {
-        self.base.buffers.create()
+    fn writes_texture_intern(
+        &mut self,
+        slot: WriteSlot<Texture>,
+        stages: Stage,
+        usage: TextureUsage,
+    ) -> WriteSlot<Texture> {
+        let current_subpass = self.current_subpass();
+        assert_ne!(
+            slot.last_written_by, current_subpass,
+            "trying to write to a texture multiple times in the same sub-pass"
+        );
+        self.pass.textures.access(&slot, true, stages, usage);
+        self.graph.textures.writes(slot, current_subpass)
+    }
+
+    fn reads_texture_intern(&mut self, slot: Slot<Texture>, stages: Stage, usage: TextureUsage) {
+        assert_ne!(
+            slot.last_written_by,
+            self.current_subpass(),
+            "trying to read and write a texture in the same sub-pass"
+        );
+        self.pass.textures.access(&slot, false, stages, usage);
+        self.graph.textures.reads(slot);
+    }
+
+    fn writes_buffer_intern(
+        &mut self,
+        slot: WriteSlot<Buffer>,
+        stages: Stage,
+        usage: BufferUsage,
+    ) -> WriteSlot<Buffer> {
+        let current_subpass = self.current_subpass();
+        assert_ne!(
+            slot.last_written_by, current_subpass,
+            "trying to write to a buffer multiple times in the same sub-pass"
+        );
+        self.pass.buffers.access(&slot, true, stages, usage);
+        self.graph.buffers.writes(slot, current_subpass)
+    }
+
+    fn reads_buffer_intern(&mut self, slot: Slot<Buffer>, stages: Stage, usage: BufferUsage) {
+        assert_ne!(
+            slot.last_written_by,
+            self.current_subpass(),
+            "trying to read and write a buffer in the same sub-pass"
+        );
+        self.pass.buffers.access(&slot, false, stages, usage);
+        self.graph.buffers.reads(slot);
     }
 }
+
+pub struct PassGroupBuilder<'a, Q>(PassBuilderIntern<'a>, PhantomData<fn(Q)>);
 
 impl<Q: PipelineType> PassGroupBuilder<'_, Q> {
     #[inline]
-    pub(super) fn push_pass<P: Pass<Q>>(&mut self, pass: P) -> P::Output {
-        let index = self.base.passes.len();
-        let mut descr =
-            PassDescription::new(index, self.group_index, pass.type_name(), Q::BIND_POINT);
-        let (output, run) = pass.build(PassBuilder {
-            base: self.base,
-            pass: &mut descr,
+    pub(super) fn push_sub_pass<P: Pass<Q>>(&mut self, sub_pass: P) -> P::Output {
+        let mut descr = SubPassDescription::new(self.0.pass.index, sub_pass.type_name());
+        let (output, run) = sub_pass.build(PassBuilder {
+            base: PassBuilderIntern {
+                graph: self.0.graph,
+                pass: self.0.pass,
+                current_subpass: self.0.current_subpass,
+            },
+            subpass: &mut descr,
             _pipeline_type: PhantomData,
         });
-        self.base.passes.push(descr);
-        self.base.passes_run.push(run.erased());
+        self.0.current_subpass += 1;
+        self.0.graph.subpasses.push(descr);
+        self.0.graph.subpasses_run.push(run.erased());
         output
     }
 }
 
 impl PassGroupBuilder<'_, Graphics> {
     #[inline]
-    pub fn sub_pass<P: Pass<Graphics>>(&mut self, pass: P) -> P::Output {
-        self.push_pass(pass)
+    pub fn sub_pass<P: Pass<Graphics>>(&mut self, sub_pass: P) -> P::Output {
+        self.push_sub_pass(sub_pass)
     }
 }
 
 pub struct PassBuilder<'a, Q> {
-    base: &'a mut RenderGraphBuilder,
-    pass: &'a mut PassDescription,
+    base: PassBuilderIntern<'a>,
+    subpass: &'a mut SubPassDescription,
     _pipeline_type: PhantomData<fn(Q)>,
 }
 
 impl<Q> PassBuilder<'_, Q> {
     #[inline]
-    pub fn creates_texture(&mut self, usage: TextureUsage, stages: Stage) -> WriteSlot<Texture> {
-        let slot = self.base.textures.create();
-        self.writes_texture(slot, stages, usage)
+    pub fn reads_texture(&mut self, texture: Slot<Texture>, stages: ShaderStage) {
+        self.base
+            .reads_texture_intern(texture, stages.as_stage(), TextureUsage::SAMPLED)
     }
 
     #[inline]
-    pub fn writes_or_creates_texture(
+    pub fn reads_storage_texture(&mut self, texture: Slot<Texture>, stages: ShaderStage) {
+        self.base
+            .reads_texture_intern(texture, stages.as_stage(), TextureUsage::STORAGE)
+    }
+
+    #[inline]
+    pub fn writes_storage_texture(
         &mut self,
-        slot: Option<WriteSlot<Texture>>,
-        stages: Stage,
-        usage: TextureUsage,
+        texture: WriteSlot<Texture>,
+        stages: ShaderStage,
     ) -> WriteSlot<Texture> {
-        let slot = slot.unwrap_or_else(|| self.base.textures.create());
-        self.writes_texture(slot, stages, usage)
+        self.base
+            .writes_texture_intern(texture, stages.as_stage(), TextureUsage::STORAGE)
     }
 
-    pub fn writes_texture(
+    #[inline]
+    pub fn reads_uniform_buffer(&mut self, buffer: Slot<Buffer>, stages: ShaderStage) {
+        self.base
+            .reads_buffer_intern(buffer, stages.as_stage(), BufferUsage::UNIFORM)
+    }
+
+    #[inline]
+    pub fn reads_storage_buffer(&mut self, buffer: Slot<Buffer>, stages: ShaderStage) {
+        self.base
+            .reads_buffer_intern(buffer, stages.as_stage(), BufferUsage::STORAGE)
+    }
+
+    #[inline]
+    pub fn writes_storage_buffer(
         &mut self,
-        slot: WriteSlot<Texture>,
-        stages: Stage,
-        usage: TextureUsage,
-    ) -> WriteSlot<Texture> {
-        self.pass.textures.access(&slot, true, stages, usage);
-        let last_written_by_pass = slot.last_written_by_pass as usize;
-        if last_written_by_pass != self.pass.index {
-            return self.base.textures.writes(slot, self.pass.index);
-        }
-        slot
-    }
-
-    #[inline]
-    pub fn reads_texture(&mut self, slot: Slot<Texture>, stages: Stage, usage: TextureUsage) {
-        self.pass.textures.access(&slot, false, stages, usage);
-        let last_written_by_pass = slot.last_written_by_pass as usize;
-        if last_written_by_pass != self.pass.index {
-            self.base.textures.reads(slot);
-        }
-    }
-
-    #[inline]
-    pub fn creates_buffer(&mut self, usage: BufferUsage, stages: Stage) -> WriteSlot<Buffer> {
-        let slot = self.base.buffers.create();
-        self.writes_buffer(slot, stages, usage)
-    }
-
-    #[inline]
-    pub fn writes_or_creates_buffer(
-        &mut self,
-        slot: Option<WriteSlot<Buffer>>,
-        stages: Stage,
-        usage: BufferUsage,
+        buffer: WriteSlot<Buffer>,
+        stages: ShaderStage,
     ) -> WriteSlot<Buffer> {
-        let slot = slot.unwrap_or_else(|| self.base.buffers.create());
-        self.writes_buffer(slot, stages, usage)
-    }
-
-    pub fn writes_buffer(
-        &mut self,
-        slot: WriteSlot<Buffer>,
-        stages: Stage,
-        usage: BufferUsage,
-    ) -> WriteSlot<Buffer> {
-        self.pass.buffers.access(&slot, true, stages, usage);
-        let last_written_by_pass = slot.last_written_by_pass as usize;
-        if last_written_by_pass != self.pass.index {
-            return self.base.buffers.writes(slot, self.pass.index);
-        }
-        slot
-    }
-
-    pub fn reads_buffer(&mut self, slot: Slot<Buffer>, stages: Stage, usage: BufferUsage) {
-        self.pass.buffers.access(&slot, false, stages, usage);
-        let last_written_by_pass = slot.last_written_by_pass as usize;
-        if last_written_by_pass != self.pass.index {
-            self.base.buffers.reads(slot);
-        }
+        self.base
+            .writes_buffer_intern(buffer, stages.as_stage(), BufferUsage::STORAGE)
     }
 }
 
 impl PassBuilder<'_, Graphics> {
     #[inline]
     pub fn creates_color_attachment(&mut self) -> WriteSlot<Texture> {
-        let slot = self.base.textures.create();
+        let slot = self.base.graph.textures.create();
         self.color_attachment(slot)
     }
-
     pub fn color_attachment(&mut self, texture: WriteSlot<Texture>) -> WriteSlot<Texture> {
-        self.pass.color_attachments.push(texture.index());
-        self.writes_texture(
+        self.subpass.color_attachments.push(texture.index());
+        self.base.writes_texture_intern(
             texture,
             Stage::COLOR_ATTACHMENT_OUTPUT,
             TextureUsage::COLOR_ATTACHMENT,
@@ -184,13 +211,15 @@ impl PassBuilder<'_, Graphics> {
 
     #[inline]
     pub fn creates_depth_stencil_attachment(&mut self) -> WriteSlot<Texture> {
-        let slot = self.base.textures.create();
+        let slot = self.base.graph.textures.create();
         self.depth_stencil_attachment(slot)
     }
     pub fn depth_stencil_attachment(&mut self, texture: WriteSlot<Texture>) -> WriteSlot<Texture> {
-        self.pass.depth_stencil_attachments.replace(texture.index());
+        self.subpass
+            .depth_stencil_attachment
+            .replace(texture.index());
         // TODO: support early & late fragment tests
-        self.writes_texture(
+        self.base.writes_texture_intern(
             texture,
             Stage::FRAGMENT_TESTS,
             TextureUsage::DEPTH_STENCIL_ATTACHMENT,
@@ -198,11 +227,23 @@ impl PassBuilder<'_, Graphics> {
     }
 
     pub fn input_attachment(&mut self, texture: Slot<Texture>) {
-        self.pass.input_attachments.push(texture.index());
-        self.reads_texture(
+        self.subpass.input_attachments.push(texture.index());
+        self.base.reads_texture_intern(
             texture,
             Stage::FRAGMENT_SHADER,
             TextureUsage::INPUT_ATTACHMENT,
         )
+    }
+
+    #[inline]
+    pub fn reads_vertex_buffer(&mut self, buffer: Slot<Buffer>) {
+        self.base
+            .reads_buffer_intern(buffer, Stage::VERTEX_INPUT, BufferUsage::VERTEX)
+    }
+
+    #[inline]
+    pub fn reads_index_buffer(&mut self, buffer: Slot<Buffer>) {
+        self.base
+            .reads_buffer_intern(buffer, Stage::VERTEX_INPUT, BufferUsage::INDEX)
     }
 }

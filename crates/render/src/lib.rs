@@ -70,8 +70,8 @@ impl Module for RenderModule {
     fn install_once(&self, res: &mut Resources) {
         Assets::<texture::Image>::install_into(res);
 
-        res.init::<RenderGraphBuilder>();
-        res.init::<RenderGraph>();
+        res.init_unsend::<RenderGraphBuilder>();
+        res.init_unsend::<RenderGraph>();
         // TODO:
         //res.init::<TextureCache>();
         //render_graph::graph::RenderGraph::install_into(res, schedule);

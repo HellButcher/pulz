@@ -33,5 +33,6 @@ pub mod math {
     pub type Size3 = Vec3;
     pub type USize2 = UVec2;
     pub type USize3 = UVec3;
+    pub use glam::{uvec2 as usize2, uvec3 as usize3, vec2 as size2, vec3 as size3};
 }
 pub mod components;

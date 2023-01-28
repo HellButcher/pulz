@@ -14,6 +14,8 @@ pub trait PassRun<Q>: Send + Sync + 'static {
 }
 
 trait PassRunAny: Send + Sync + 'static {
+    #[inline]
+    fn import(&self) {}
     fn run(&self, draw_context: DrawContext<'_>, draw_phases: &DrawPhases);
 }
 
@@ -40,6 +42,7 @@ where
         PassRun::<Q>::run(&self.0, ctx);
     }
 }
+
 pub struct PassExec<Q = Graphics> {
     run: Box<dyn PassRunAny>,
     _phantom: PhantomData<Q>,

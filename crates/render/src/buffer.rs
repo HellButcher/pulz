@@ -25,15 +25,14 @@ impl Default for BufferDescriptor {
 
 bitflags! {
     pub struct BufferUsage: u32 {
-        const MAP_READ = 1;
-        const MAP_WRITE = 2;
-        const TRANSFER_SRC = 4;
-        const TRANSFER_DST = 8;
-        const INDEX = 16;
-        const VERTEX = 32;
-        const UNIFORM = 64;
-        const STORAGE = 128;
-        const INDIRECT = 256;
+        const TRANSFER_SRC = 1;
+        const TRANSFER_DST = 2;
+        const HOST = 4; // used in combination with TRANSFER_SRC / TRANSFER_DST
+        const INDEX = 8;
+        const VERTEX = 17;
+        const UNIFORM = 32;
+        const STORAGE = 64;
+        const INDIRECT = 128;
 
         const NONE = 0;
     }
