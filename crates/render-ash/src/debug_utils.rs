@@ -35,52 +35,47 @@ unsafe extern "system" fn debug_callback(
     match message_severity {
         DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
             debug!(
-                ?message_type,
-                ?message_severity,
                 ?message_id_name,
-                ?message_id_number,
-                "Vulkan Message: {:?}",
-                message
+                "Vk[{:?},#{}]: {}",
+                message_type,
+                message_id_number,
+                message.to_string_lossy()
             )
         }
         DebugUtilsMessageSeverityFlagsEXT::INFO => {
             info!(
-                ?message_type,
-                ?message_severity,
                 ?message_id_name,
-                ?message_id_number,
-                "Vulkan Message: {:?}",
-                message
+                "Vk[{:?},#{}]: {}",
+                message_type,
+                message_id_number,
+                message.to_string_lossy()
             )
         }
         DebugUtilsMessageSeverityFlagsEXT::WARNING => {
             warn!(
-                ?message_type,
-                ?message_severity,
                 ?message_id_name,
-                ?message_id_number,
-                "Vulkan Message: {:?}",
-                message
+                "Vk[{:?},#{}]: {}",
+                message_type,
+                message_id_number,
+                message.to_string_lossy()
             )
         }
         DebugUtilsMessageSeverityFlagsEXT::ERROR => {
             error!(
-                ?message_type,
-                ?message_severity,
                 ?message_id_name,
-                ?message_id_number,
-                "Vulkan Message: {:?}",
-                message
+                "Vk[{:?},#{}]: {}",
+                message_type,
+                message_id_number,
+                message.to_string_lossy()
             )
         }
         _ => {
             warn!(
-                ?message_type,
-                ?message_severity,
                 ?message_id_name,
-                ?message_id_number,
-                "Vulkan Message: {:?}",
-                message
+                "Vk[{:?},#{}]: {}",
+                message_type,
+                message_id_number,
+                message.to_string_lossy()
             )
         }
     };
@@ -105,7 +100,7 @@ impl CStrBuf {
     }
 
     #[inline]
-    fn to_cstr<'a>(&'a mut self, s: &'a str) -> &'a CStr {
+    fn get_cstr<'a>(&'a mut self, s: &'a str) -> &'a CStr {
         if s.ends_with('\0') {
             // SAFETY: string always ends with 0-byte.
             // Don't care, if there are 0-bytes before end.
@@ -217,7 +212,7 @@ impl DebugUtils {
             device,
             object_type,
             object_handle,
-            cstr_buf.to_cstr(object_name),
+            cstr_buf.get_cstr(object_name),
         )
     }
 
@@ -243,7 +238,7 @@ impl DebugUtils {
     #[inline]
     pub unsafe fn cmd_insert_debug_label(&self, command_buffer: vk::CommandBuffer, label: &str) {
         let mut cstr_buf = CStrBuf::new();
-        self.cmd_insert_debug_label_cstr(command_buffer, cstr_buf.to_cstr(label))
+        self.cmd_insert_debug_label_cstr(command_buffer, cstr_buf.get_cstr(label))
     }
     pub unsafe fn cmd_insert_debug_label_cstr(
         &self,
@@ -259,7 +254,7 @@ impl DebugUtils {
     #[inline]
     pub unsafe fn cmd_begin_debug_label(&self, command_buffer: vk::CommandBuffer, label: &str) {
         let mut cstr_buf = CStrBuf::new();
-        self.cmd_begin_debug_label_cstr(command_buffer, cstr_buf.to_cstr(label))
+        self.cmd_begin_debug_label_cstr(command_buffer, cstr_buf.get_cstr(label))
     }
     pub unsafe fn cmd_begin_debug_label_cstr(
         &self,
@@ -280,7 +275,7 @@ impl DebugUtils {
     #[inline]
     pub unsafe fn queue_insert_debug_label(&self, queue: vk::Queue, label: &str) {
         let mut cstr_buf = CStrBuf::new();
-        self.queue_insert_debug_label_cstr(queue, cstr_buf.to_cstr(label))
+        self.queue_insert_debug_label_cstr(queue, cstr_buf.get_cstr(label))
     }
 
     pub unsafe fn queue_insert_debug_label_cstr(&self, queue: vk::Queue, label: &CStr) {
@@ -293,7 +288,7 @@ impl DebugUtils {
     #[inline]
     pub unsafe fn queue_begin_debug_label(&self, queue: vk::Queue, label: &str) {
         let mut cstr_buf = CStrBuf::new();
-        self.queue_begin_debug_label_cstr(queue, cstr_buf.to_cstr(label))
+        self.queue_begin_debug_label_cstr(queue, cstr_buf.get_cstr(label))
     }
 
     pub unsafe fn queue_begin_debug_label_cstr(&self, queue: vk::Queue, label: &CStr) {
