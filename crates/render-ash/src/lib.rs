@@ -39,7 +39,6 @@ use resources::AshResources;
 use thiserror::Error;
 use tracing::info;
 
-mod attachments;
 mod convert;
 mod debug_utils;
 mod device;
@@ -93,6 +92,12 @@ pub enum Error {
 
     #[error("Allocation Error")]
     AllocationError(#[from] gpu_alloc::AllocationError),
+
+    #[error("Serialization Error")]
+    SerializationError(Box<dyn std::error::Error>),
+
+    #[error("Deserialization Error")]
+    DeserializationError(Box<dyn std::error::Error>),
 
     #[error("unknown renderer error")]
     Unknown,

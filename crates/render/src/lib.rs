@@ -45,6 +45,8 @@ pub mod shader;
 pub mod texture;
 pub mod view;
 
+pub mod utils;
+
 pub use pulz_window as window;
 
 pub mod color {

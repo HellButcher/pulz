@@ -4,6 +4,7 @@ use std::{
 };
 
 use bitflags::bitflags;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     pipeline::{GraphicsPass, PipelineLayout, SpecializationInfo},
@@ -13,9 +14,10 @@ use crate::{
 
 crate::backend::define_gpu_resource!(GraphicsPipeline, GraphicsPipelineDescriptor<'l>);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GraphicsPipelineDescriptor<'a> {
     pub label: Option<&'a str>,
+    #[serde(with = "crate::utils::serde_slots::option")]
     pub layout: Option<PipelineLayout>,
     pub vertex: VertexState<'a>,
     pub primitive: PrimitiveState,
@@ -23,29 +25,31 @@ pub struct GraphicsPipelineDescriptor<'a> {
     pub fragment: Option<FragmentState<'a>>,
     pub samples: u32,
     pub specialization: SpecializationInfo<'a>,
+    #[serde(with = "crate::utils::serde_slots")]
     pub graphics_pass: GraphicsPass,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VertexState<'a> {
+    #[serde(with = "crate::utils::serde_slots")]
     pub module: ShaderModule,
     pub entry_point: &'a str,
     pub buffers: Cow<'a, [VertexBufferLayout<'a>]>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VertexBufferLayout<'a> {
     pub array_stride: usize,
     pub attributes: Cow<'a, [VertexAttribute]>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VertexAttribute {
     pub format: VertexFormat,
     pub offset: usize,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct PrimitiveState {
     pub topology: PrimitiveTopology,
     pub polygon_mode: PolygonMode,
@@ -92,7 +96,7 @@ impl Hash for PrimitiveState {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DepthStencilState {
     pub format: TextureFormat,
     pub depth: DepthState,
@@ -121,7 +125,7 @@ impl Default for DepthStencilState {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct DepthState {
     pub write_enabled: bool,
     pub compare: CompareFunction,
@@ -170,7 +174,7 @@ impl Default for DepthState {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StencilState {
     pub front: StencilFaceState,
     pub back: StencilFaceState,
@@ -204,7 +208,7 @@ impl Default for StencilState {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StencilFaceState {
     pub compare: CompareFunction,
     pub fail_op: StencilOperation,
@@ -227,14 +231,15 @@ impl Default for StencilFaceState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FragmentState<'a> {
+    #[serde(with = "crate::utils::serde_slots")]
     pub module: ShaderModule,
     pub entry_point: &'a str,
     pub targets: Cow<'a, [ColorTargetState]>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ColorTargetState {
     pub format: TextureFormat,
     pub blend: Option<BlendState>,
@@ -265,13 +270,13 @@ impl From<TextureFormat> for ColorTargetState {
     }
 }
 
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlendState {
     pub color: BlendComponent,
     pub alpha: BlendComponent,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlendComponent {
     pub operation: BlendOperation,
     pub src_factor: BlendFactor,
@@ -293,7 +298,7 @@ impl Default for BlendComponent {
 }
 
 #[derive(
-    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub enum PolygonMode {
     #[default]
@@ -303,7 +308,7 @@ pub enum PolygonMode {
 }
 
 #[derive(
-    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub enum PrimitiveTopology {
     PointList,
@@ -315,7 +320,7 @@ pub enum PrimitiveTopology {
 }
 
 #[derive(
-    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub enum VertexStepMode {
     #[default]
@@ -324,7 +329,7 @@ pub enum VertexStepMode {
 }
 
 #[derive(
-    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
 )]
 #[non_exhaustive]
 pub enum VertexFormat {
@@ -367,7 +372,7 @@ pub enum VertexFormat {
 }
 
 #[derive(
-    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub enum IndexFormat {
     Uint16,
@@ -376,7 +381,7 @@ pub enum IndexFormat {
 }
 
 #[derive(
-    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub enum FrontFace {
     #[default]
@@ -384,14 +389,14 @@ pub enum FrontFace {
     Clockwise,
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum Face {
     Front,
     Back,
 }
 
 #[derive(
-    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub enum CompareFunction {
     Never,
@@ -406,7 +411,7 @@ pub enum CompareFunction {
 }
 
 #[derive(
-    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd,
+    Copy, Clone, Default, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub enum StencilOperation {
     #[default]
@@ -420,7 +425,7 @@ pub enum StencilOperation {
     DecrementWrap,
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum BlendOperation {
     Add,
     Subtract,
@@ -429,7 +434,7 @@ pub enum BlendOperation {
     Max,
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum BlendFactor {
     Zero,
     One,
@@ -447,6 +452,7 @@ pub enum BlendFactor {
 }
 
 bitflags! {
+    #[derive(Serialize, Deserialize)]
     pub struct ColorWrite: u32 {
         const RED = 1;
         const GREEN = 2;

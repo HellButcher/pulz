@@ -1,4 +1,5 @@
 use pulz_transform::math::USize2;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{
@@ -11,7 +12,7 @@ use crate::{
 crate::backend::define_gpu_resource!(GraphicsPass, GraphicsPassDescriptor);
 
 #[derive(
-    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 pub enum LoadOp {
     #[default]
@@ -21,7 +22,7 @@ pub enum LoadOp {
 }
 
 #[derive(
-    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 pub enum StoreOp {
     #[default]
@@ -29,14 +30,14 @@ pub enum StoreOp {
     DontCare,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 
 pub struct LoadStoreOps {
     pub load_op: LoadOp,
     pub store_op: StoreOp,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct AttachmentDescriptor {
     pub format: TextureFormat,
     pub usage: TextureUsage,
@@ -44,7 +45,7 @@ pub struct AttachmentDescriptor {
     pub samples: u8,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct SubpassDescriptor {
     input_attachments: Vec<u16>,
     color_attachments: Vec<u16>,
@@ -67,7 +68,7 @@ impl SubpassDescriptor {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct GraphicsPassDescriptor {
     attachments: Vec<AttachmentDescriptor>,
     load_store_ops: Vec<LoadStoreOps>,

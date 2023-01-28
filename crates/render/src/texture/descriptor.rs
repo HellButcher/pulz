@@ -1,9 +1,10 @@
 use bitflags::bitflags;
 use pulz_transform::math::{usize2, usize3};
+use serde::{Deserialize, Serialize};
 
 use crate::math::{USize2, USize3};
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct TextureDescriptor {
     pub dimensions: TextureDimensions,
     pub mip_level_count: u32,
@@ -45,7 +46,7 @@ impl Default for TextureDescriptor {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TextureDimensions {
     D1(u32),
     D2(USize2),
@@ -81,7 +82,7 @@ impl TextureDimensions {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum TextureFormat {
     // 8-bit formats
@@ -241,6 +242,7 @@ impl Default for TextureFormat {
 }
 
 bitflags! {
+    #[derive(Serialize, Deserialize)]
     pub struct TextureAspects: u32 {
         const COLOR = 1;
         const DEPTH = 2;
@@ -258,6 +260,7 @@ impl Default for TextureAspects {
 }
 
 bitflags! {
+  #[derive(Default, Serialize, Deserialize)]
   pub struct TextureUsage: u32 {
       const TRANSFER_SRC = 1;
       const TRANSFER_DST = 2;
@@ -289,7 +292,7 @@ impl TextureUsage {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Default)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Default, Serialize, Deserialize)]
 pub struct ImageDataLayout {
     pub offset: usize,
     pub bytes_per_row: u32,

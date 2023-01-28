@@ -1,15 +1,17 @@
 use std::hash::{Hash, Hasher};
 
+use serde::{Deserialize, Serialize};
+
 pub type SpecializationInfo<'a> = Vec<SpecializationMapEntry<'a>>;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SpecializationMapEntry<'a> {
     pub constant_id: u32,
     pub name: &'a str,
     pub value: PipelineConstantValue,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum PipelineConstantValue {
     Bool(bool),
     Float(f32),

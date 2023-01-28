@@ -19,6 +19,7 @@ pulz-render-macros = { path = "macros" }
 pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
 
 atomic_refcell = { workspace = true }
+serde = { worspace = true }
 ambassador = { workspace = true }
 typemap = { workspace = true }
 dynsequence = { workspace = true }

@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
     pipeline::{PipelineLayout, SpecializationInfo},
     shader::ShaderModule,
@@ -7,9 +9,10 @@ use crate::{
 
 crate::backend::define_gpu_resource!(RayTracingPipeline, RayTracingPipelineDescriptor<'l>);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RayTracingPipelineDescriptor<'a> {
     pub label: Option<&'a str>,
+    #[serde(with = "crate::utils::serde_slots::option")]
     pub layout: Option<PipelineLayout>,
     pub modules: Cow<'a, [RayTracingShaderModule<'a>]>,
     pub groups: Cow<'a, [RayTracingShaderGroup]>,
@@ -17,7 +20,7 @@ pub struct RayTracingPipelineDescriptor<'a> {
     pub specialization: SpecializationInfo<'a>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RayTracingShaderGroup {
     pub group_type: RayTracingGroupType,
     pub general_shader: u32,
@@ -26,14 +29,15 @@ pub struct RayTracingShaderGroup {
     pub intersection_shader: u32,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RayTracingShaderModule<'a> {
     pub stage: RayTracingStage,
+    #[serde(with = "crate::utils::serde_slots")]
     pub module: ShaderModule,
     pub entry_point: &'a str,
 }
 
-#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum RayTracingStage {
     #[default]
     Raygen,
@@ -44,7 +48,7 @@ pub enum RayTracingStage {
     Callable,
 }
 
-#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum RayTracingGroupType {
     #[default]
     General,

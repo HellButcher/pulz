@@ -9,25 +9,14 @@ use slotmap::SlotMap;
 
 use crate::{convert as c, Result};
 
-pub trait WgpuResource: GpuResource {
-    type Wgpu;
+pub trait WgpuResource: GpuResource + 'static {
+    type Wgpu: 'static;
 
     fn create(
         device: &wgpu::Device,
         res: &WgpuResources,
         descriptor: &Self::Descriptor<'_>,
     ) -> Result<Self::Wgpu>;
-
-    fn create_many(
-        device: &wgpu::Device,
-        res: &WgpuResources,
-        descriptors: &[Self::Descriptor<'_>],
-    ) -> Result<Vec<Self::Wgpu>> {
-        descriptors
-            .iter()
-            .map(|d| Self::create(device, res, d))
-            .collect()
-    }
 }
 
 impl WgpuResource for Buffer {
@@ -196,22 +185,8 @@ impl WgpuResources {
         R: WgpuResource,
         Self: AsMut<SlotMap<R, R::Wgpu>>,
     {
-        let raw = unsafe { R::create(device, self, descriptor)? };
+        let raw = R::create(device, self, descriptor)?;
         let key = self.as_mut().insert(raw);
         Ok(key)
-    }
-
-    pub fn create_many<R>(
-        &mut self,
-        device: &wgpu::Device,
-        descriptors: &[R::Descriptor<'_>],
-    ) -> Result<Vec<R>>
-    where
-        R: WgpuResource,
-        Self: AsMut<SlotMap<R, R::Wgpu>>,
-    {
-        let raw = unsafe { R::create_many(device, self, descriptors)? };
-        let keys = raw.into_iter().map(|r| self.as_mut().insert(r)).collect();
-        Ok(keys)
     }
 }

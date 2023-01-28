@@ -79,7 +79,7 @@ pub fn convert_texture_descriptor(val: &TextureDescriptor) -> Result<wgpu::Textu
         label: None,
         size: convert_extents(val.dimensions.extents()),
         mip_level_count: val.mip_level_count,
-        sample_count: val.sample_count,
+        sample_count: val.sample_count as u32,
         dimension: convert_texture_dimensions(&val.dimensions),
         format: convert_texture_format(val.format)?,
         usage: convert_texture_usages(val.usage),
@@ -250,10 +250,10 @@ fn convert_texture_usages(val: TextureUsage) -> wgpu::TextureUsages {
     if val.contains(TextureUsage::TRANSFER_DST) {
         result |= wgpu::TextureUsages::COPY_DST;
     }
-    if val.contains(TextureUsage::TEXTURE_BINDING) {
+    if val.contains(TextureUsage::SAMPLED) {
         result |= wgpu::TextureUsages::TEXTURE_BINDING;
     }
-    if val.contains(TextureUsage::STORAGE_BINDING) {
+    if val.contains(TextureUsage::STORAGE) {
         result |= wgpu::TextureUsages::STORAGE_BINDING;
     }
     if val.contains(TextureUsage::COLOR_ATTACHMENT)
@@ -307,7 +307,7 @@ pub fn convert_bind_group_layout_descriptor<'l>(
 }
 
 pub fn convert_pipeline_layout_descriptor<'l>(
-    _res: &'l WgpuResources,
+    _res: &WgpuResources,
     desc: &PipelineLayoutDescriptor<'l>,
     layouts_tmp: &'l mut Vec<&'l wgpu::BindGroupLayout>,
 ) -> wgpu::PipelineLayoutDescriptor<'l> {
@@ -318,8 +318,8 @@ pub fn convert_pipeline_layout_descriptor<'l>(
     }
 }
 
-pub fn convert_compute_pipeline_descriptor<'l>(
-    res: &'l WgpuResources,
+pub fn convert_compute_pipeline_descriptor<'l, 'r: 'l>(
+    res: &'r WgpuResources,
     desc: &ComputePipelineDescriptor<'l>,
 ) -> Result<wgpu::ComputePipelineDescriptor<'l>> {
     let layout = if let Some(layout) = desc.layout {
@@ -337,7 +337,7 @@ pub fn convert_compute_pipeline_descriptor<'l>(
         .get(desc.module)
         .ok_or(ConversionError::ShaderModuleNotAvailable(desc.module))?;
 
-    Ok(wgpu::ComputePipelineDescriptor {
+    Ok(wgpu::ComputePipelineDescriptor::<'l> {
         label: desc.label,
         layout,
         module,
@@ -345,9 +345,9 @@ pub fn convert_compute_pipeline_descriptor<'l>(
     })
 }
 
-pub fn convert_graphics_pipeline_descriptor<'l>(
-    res: &'l WgpuResources,
-    desc: &GraphicsPipelineDescriptor<'l>,
+pub fn convert_graphics_pipeline_descriptor<'l, 'r: 'l>(
+    res: &'r WgpuResources,
+    desc: &'r GraphicsPipelineDescriptor<'_>,
     buffers_tmp: &'l mut Vec<wgpu::VertexBufferLayout<'l>>,
     attribs_tmp: &'l mut Vec<wgpu::VertexAttribute>,
     targets_tmp: &'l mut Vec<Option<wgpu::ColorTargetState>>,
@@ -376,7 +376,7 @@ pub fn convert_graphics_pipeline_descriptor<'l>(
         None
     };
 
-    Ok(wgpu::RenderPipelineDescriptor {
+    Ok(wgpu::RenderPipelineDescriptor::<'l> {
         label: desc.label,
         layout,
         vertex,
@@ -392,9 +392,9 @@ pub fn convert_graphics_pipeline_descriptor<'l>(
     })
 }
 
-fn convert_vertex_state<'l>(
-    res: &'l WgpuResources,
-    state: &VertexState<'l>,
+fn convert_vertex_state<'l, 'r: 'l>(
+    res: &'r WgpuResources,
+    state: &'r VertexState<'_>,
     buffers_tmp: &'l mut Vec<wgpu::VertexBufferLayout<'l>>,
     attributes_tmp: &'l mut Vec<wgpu::VertexAttribute>,
 ) -> Result<wgpu::VertexState<'l>> {
@@ -407,7 +407,7 @@ fn convert_vertex_state<'l>(
     for (i, attr) in state
         .buffers
         .iter()
-        .flat_map(|l| l.attributes)
+        .flat_map(|l| l.attributes.as_ref())
         .copied()
         .enumerate()
     {
@@ -416,7 +416,7 @@ fn convert_vertex_state<'l>(
 
     buffers_tmp.reserve_exact(state.buffers.len());
     let mut offset = 0;
-    for layout in state.buffers {
+    for layout in state.buffers.as_ref() {
         let next_offset = offset + layout.attributes.len();
         buffers_tmp.push(wgpu::VertexBufferLayout {
             array_stride: layout.array_stride as u64,
@@ -426,15 +426,15 @@ fn convert_vertex_state<'l>(
         offset = next_offset;
     }
 
-    Ok(wgpu::VertexState {
+    Ok(wgpu::VertexState::<'l> {
         module,
         entry_point: state.entry_point,
         buffers: buffers_tmp,
     })
 }
 
-fn convert_fragment_state<'l>(
-    res: &'l WgpuResources,
+fn convert_fragment_state<'l, 'r: 'l>(
+    res: &'r WgpuResources,
     state: &FragmentState<'l>,
     targets_tmp: &'l mut Vec<Option<wgpu::ColorTargetState>>,
 ) -> Result<wgpu::FragmentState<'l>> {
@@ -444,7 +444,7 @@ fn convert_fragment_state<'l>(
         .ok_or(ConversionError::ShaderModuleNotAvailable(state.module))?;
 
     targets_tmp.reserve_exact(state.targets.len());
-    for target in state.targets {
+    for target in state.targets.as_ref() {
         targets_tmp.push(convert_color_target_state(&target)?);
     }
 
@@ -668,8 +668,8 @@ fn convert_color(color: Srgba) -> wgpu::Color {
     }
 }
 
-// pub fn convert_render_pass<'l>(
-//     res: &'l RenderBackendResources<WgpuRendererBackend>,
+// pub fn convert_render_pass<'l, 'r: 'l>(
+//     res: &'r RenderBackendResources<WgpuRendererBackend>,
 //     desc: &GraphicsPassDescriptor<'l>,
 //     tmp_color: &'l mut Vec<wgpu::RenderPassColorAttachment<'l>>,
 // ) -> Result<wgpu::RenderPassDescriptor<'l, 'l>> {
@@ -690,8 +690,8 @@ fn convert_color(color: Srgba) -> wgpu::Color {
 //     })
 // }
 
-// pub fn convert_color_attachment<'l>(
-//     res: &'l RenderBackendResources<WgpuRendererBackend>,
+// pub fn convert_color_attachment<'r>(
+//     res: &'r RenderBackendResources<WgpuRendererBackend>,
 //     desc: &ColorAttachment,
 // ) -> Result<wgpu::RenderPassColorAttachment<'l>> {
 //     let view = res
@@ -716,8 +716,8 @@ fn convert_color(color: Srgba) -> wgpu::Color {
 //     })
 // }
 
-// pub fn convert_depth_stencil_attachment<'l>(
-//     res: &'l RenderBackendResources<WgpuRendererBackend>,
+// pub fn convert_depth_stencil_attachment<'r>(
+//     res: &'r RenderBackendResources<WgpuRendererBackend>,
 //     desc: &DepthStencilAttachment,
 // ) -> Result<wgpu::RenderPassDepthStencilAttachment<'l>> {
 //     let view = res

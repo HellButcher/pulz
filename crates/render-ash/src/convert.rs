@@ -1,18 +1,19 @@
-use std::marker::PhantomData;
-
 use ash::vk;
+use pulz_bitset::BitSet;
 use pulz_render::{
     buffer::{BufferDescriptor, BufferUsage},
     graph::{access::Stage, pass::PipelineBindPoint},
     math::{USize2, USize3},
     pipeline::{
         BindGroupLayoutDescriptor, BlendFactor, BlendOperation, CompareFunction,
-        ComputePipelineDescriptor, DepthStencilState, Face, FrontFace, GraphicsPipelineDescriptor,
-        IndexFormat, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology,
-        RayTracingPipelineDescriptor, StencilFaceState, StencilOperation, VertexFormat,
+        ComputePipelineDescriptor, DepthStencilState, Face, FrontFace, GraphicsPassDescriptor,
+        GraphicsPipelineDescriptor, IndexFormat, LoadOp, PipelineLayoutDescriptor, PrimitiveState,
+        PrimitiveTopology, RayTracingPipelineDescriptor, StencilFaceState, StencilOperation,
+        StoreOp, VertexFormat,
     },
     texture::{TextureAspects, TextureDescriptor, TextureDimensions, TextureFormat, TextureUsage},
 };
+use scratchbuffer::ScratchBuffer;
 
 use crate::resources::AshResources;
 
@@ -101,7 +102,7 @@ impl VkFrom<TextureDescriptor> for vk::ImageCreateInfo {
             .extent(val.dimensions.vk_into())
             .array_layers(get_array_layers(&val.dimensions))
             .mip_levels(val.mip_level_count)
-            .samples(vk::SampleCountFlags::from_raw(val.sample_count))
+            .samples(vk::SampleCountFlags::from_raw(val.sample_count as u32))
             .usage(val.usage.vk_into())
             .tiling(vk::ImageTiling::OPTIMAL)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
@@ -450,10 +451,10 @@ impl VkFrom<TextureUsage> for vk::ImageUsageFlags {
         if val.contains(TextureUsage::TRANSFER_DST) {
             result |= Self::TRANSFER_DST;
         }
-        if val.contains(TextureUsage::TEXTURE_BINDING) {
+        if val.contains(TextureUsage::SAMPLED) {
             result |= Self::SAMPLED;
         }
-        if val.contains(TextureUsage::STORAGE_BINDING) {
+        if val.contains(TextureUsage::STORAGE) {
             result |= Self::STORAGE;
         }
         if val.contains(TextureUsage::COLOR_ATTACHMENT) {
@@ -474,9 +475,7 @@ pub fn into_texture_usage_read_access(usage: TextureUsage) -> vk::AccessFlags {
     if usage.contains(TextureUsage::TRANSFER_SRC) | usage.contains(TextureUsage::TRANSFER_DST) {
         result |= vk::AccessFlags::TRANSFER_READ;
     }
-    if usage.contains(TextureUsage::TEXTURE_BINDING)
-        || usage.contains(TextureUsage::STORAGE_BINDING)
-    {
+    if usage.contains(TextureUsage::SAMPLED) || usage.contains(TextureUsage::STORAGE) {
         result |= vk::AccessFlags::SHADER_READ;
     }
     if usage.contains(TextureUsage::COLOR_ATTACHMENT) {
@@ -496,9 +495,7 @@ pub fn into_texture_usage_write_access(usage: TextureUsage) -> vk::AccessFlags {
     if usage.contains(TextureUsage::TRANSFER_SRC) | usage.contains(TextureUsage::TRANSFER_DST) {
         result |= vk::AccessFlags::TRANSFER_WRITE;
     }
-    if usage.contains(TextureUsage::TEXTURE_BINDING)
-        || usage.contains(TextureUsage::STORAGE_BINDING)
-    {
+    if usage.contains(TextureUsage::STORAGE) {
         result |= vk::AccessFlags::SHADER_WRITE;
     }
     if usage.contains(TextureUsage::COLOR_ATTACHMENT) {
@@ -512,7 +509,7 @@ pub fn into_texture_usage_write_access(usage: TextureUsage) -> vk::AccessFlags {
 
 pub fn into_buffer_usage_read_access(usage: BufferUsage) -> vk::AccessFlags {
     let mut result = vk::AccessFlags::empty();
-    if usage.contains(BufferUsage::MAP_READ) | usage.contains(BufferUsage::MAP_WRITE) {
+    if usage.contains(BufferUsage::HOST) {
         result |= vk::AccessFlags::HOST_READ;
     }
     if usage.contains(BufferUsage::TRANSFER_SRC) | usage.contains(BufferUsage::TRANSFER_DST) {
@@ -538,7 +535,7 @@ pub fn into_buffer_usage_read_access(usage: BufferUsage) -> vk::AccessFlags {
 
 pub fn into_buffer_usage_write_access(usage: BufferUsage) -> vk::AccessFlags {
     let mut result = vk::AccessFlags::empty();
-    if usage.contains(BufferUsage::MAP_READ) | usage.contains(BufferUsage::MAP_WRITE) {
+    if usage.contains(BufferUsage::HOST) {
         result |= vk::AccessFlags::HOST_WRITE;
     }
     if usage.contains(BufferUsage::TRANSFER_SRC) | usage.contains(BufferUsage::TRANSFER_DST) {
@@ -779,131 +776,261 @@ impl VkFrom<StencilOperation> for vk::StencilOp {
     }
 }
 
-pub struct CreateInfoBuffer<T = u8> {
-    buf: *mut u8,
-    len_bytes: usize,
-    capacity: usize,
-    _phantom: PhantomData<T>,
-}
-
-impl CreateInfoBuffer {
+impl VkFrom<LoadOp> for vk::AttachmentLoadOp {
     #[inline]
-    pub const fn new() -> Self {
-        Self {
-            buf: std::ptr::null_mut(),
-            len_bytes: 0,
-            capacity: 0,
-            _phantom: PhantomData,
+    fn from(val: &LoadOp) -> Self {
+        match val {
+            LoadOp::Load => Self::LOAD,
+            LoadOp::Clear => Self::CLEAR,
+            LoadOp::DontCare => Self::DONT_CARE,
         }
     }
+}
 
-    fn reset_as<T: Copy>(&mut self) -> &mut CreateInfoBuffer<T> {
-        assert!(std::mem::align_of::<T>() <= std::mem::align_of::<usize>());
-        assert_ne!(0, std::mem::size_of::<T>());
-        self.len_bytes = 0;
-        unsafe { std::mem::transmute(self) }
+impl VkFrom<StoreOp> for vk::AttachmentStoreOp {
+    #[inline]
+    fn from(val: &StoreOp) -> Self {
+        match val {
+            StoreOp::Store => Self::STORE,
+            StoreOp::DontCare => Self::DONT_CARE,
+        }
     }
 }
 
-impl<T: Copy> CreateInfoBuffer<T> {
+pub struct CreateInfoConverter6(
+    ScratchBuffer,
+    ScratchBuffer,
+    ScratchBuffer,
+    ScratchBuffer,
+    ScratchBuffer,
+    ScratchBuffer,
+);
+
+pub struct CreateInfoConverter2(ScratchBuffer, ScratchBuffer);
+
+fn get_or_create_subpass_dep(
+    buf: &mut ScratchBuffer<vk::SubpassDependency>,
+    src: u32,
+    dst: u32,
+    src_access_mask: vk::AccessFlags,
+) -> &mut vk::SubpassDependency {
+    buf.binary_search_insert_by_key_with(
+        &(src, dst),
+        |d| (d.src_subpass, d.dst_subpass),
+        || {
+            vk::SubpassDependency::builder()
+                .src_subpass(src)
+                .dst_subpass(dst)
+                .src_stage_mask(
+                    if src_access_mask.contains(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE) {
+                        vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+                            | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS
+                    } else {
+                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                    },
+                )
+                .src_access_mask(src_access_mask)
+                // use BY-REGION by default
+                .dependency_flags(vk::DependencyFlags::BY_REGION)
+                .build()
+        },
+    )
+}
+
+impl CreateInfoConverter6 {
     #[inline]
-    pub fn len(&self) -> usize {
-        self.len_bytes / std::mem::size_of::<T>()
+    pub const fn new() -> Self {
+        Self(
+            ScratchBuffer::new(),
+            ScratchBuffer::new(),
+            ScratchBuffer::new(),
+            ScratchBuffer::new(),
+            ScratchBuffer::new(),
+            ScratchBuffer::new(),
+        )
     }
 
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len_bytes == 0
-    }
+    pub fn graphics_pass(&mut self, desc: &GraphicsPassDescriptor) -> &vk::RenderPassCreateInfo {
+        // collect attachments
+        let attachments = self.0.clear_and_use_as::<vk::AttachmentDescription>();
+        let num_attachments = desc.attachments().len();
+        attachments.reserve(num_attachments);
+        let mut attachment_dep_data = Vec::with_capacity(num_attachments);
+        for (i, a) in desc.attachments().iter().enumerate() {
+            let load_store_ops = desc.load_store_ops().get(i).copied().unwrap_or_default();
+            attachments.push(
+                vk::AttachmentDescription::builder()
+                    .format(a.format.vk_into())
+                    .samples(vk::SampleCountFlags::from_raw(a.samples as u32))
+                    .load_op(load_store_ops.load_op.vk_into())
+                    .store_op(load_store_ops.store_op.vk_into())
+                    .stencil_load_op(load_store_ops.load_op.vk_into())
+                    .stencil_store_op(load_store_ops.store_op.vk_into())
+                    // TODO: initial_layout if load-op == LOAD
+                    .initial_layout(vk::ImageLayout::UNDEFINED)
+                    .final_layout(vk::ImageLayout::GENERAL)
+                    .build(),
+            );
+            attachment_dep_data.push((vk::SUBPASS_EXTERNAL, vk::AccessFlags::NONE));
+        }
 
-    pub fn reserve(&mut self, _num_items: usize) {
-        let value_len = std::mem::size_of::<T>();
-        let new_len = self.len_bytes + value_len * 2;
-        if new_len > self.capacity {
-            let new_capacity = new_len.next_power_of_two();
-            unsafe {
-                if self.buf.is_null() {
-                    let layout = std::alloc::Layout::from_size_align(
-                        new_capacity,
-                        std::mem::align_of::<usize>(),
-                    )
-                    .unwrap();
-                    self.buf = std::alloc::alloc(layout);
-                } else {
-                    let layout = std::alloc::Layout::from_size_align(
-                        self.capacity,
-                        std::mem::align_of::<usize>(),
-                    )
-                    .unwrap();
-                    self.buf = std::alloc::realloc(self.buf, layout, new_capacity)
+        // calculate subpass deps
+        let sp_deps = self.1.clear_and_use_as::<vk::SubpassDependency>();
+        let num_subpasses = desc.subpasses().len();
+        let mut attachment_usage = BitSet::with_capacity_for(num_attachments * num_subpasses);
+        for (i, sp) in desc.subpasses().iter().enumerate() {
+            // TODO: handle Write>Read>Write!
+            let dst = i as u32;
+            for &a in sp.input_attachments() {
+                let a = a as usize;
+                attachments[a].final_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
+                let (src, src_access) = attachment_dep_data[a];
+                if src != vk::SUBPASS_EXTERNAL {
+                    let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
+                    dep.dst_stage_mask |= vk::PipelineStageFlags::FRAGMENT_SHADER;
+                    dep.dst_access_mask |= vk::AccessFlags::INPUT_ATTACHMENT_READ;
+                }
+                attachment_usage.insert(i * num_attachments + a);
+            }
+            for &a in sp.color_attachments() {
+                let a = a as usize;
+                attachments[a].final_layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
+                let (src, src_access) = attachment_dep_data[a];
+                if src != vk::SUBPASS_EXTERNAL {
+                    let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
+                    dep.dst_stage_mask |= vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
+                    dep.dst_access_mask |= vk::AccessFlags::COLOR_ATTACHMENT_READ;
+                }
+                attachment_dep_data[a] = (dst, vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+                attachment_usage.insert(i * num_attachments + a);
+            }
+            if let Some(a) = sp.depth_stencil_attachment() {
+                let a = a as usize;
+                attachments[a].final_layout = vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                let (src, src_access) = attachment_dep_data[a];
+                if src != vk::SUBPASS_EXTERNAL {
+                    let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
+                    dep.dst_stage_mask |= vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+                        | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS;
+                    dep.dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ;
+                }
+                attachment_dep_data[a] = (dst, vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
+                attachment_usage.insert(i * num_attachments + a);
+            }
+        }
+        drop(attachment_dep_data);
+
+        // collect references
+        let a_refs = self.2.clear_and_use_as::<vk::AttachmentReference>();
+        for s in desc.subpasses() {
+            for &a in s.input_attachments() {
+                a_refs.push(vk::AttachmentReference {
+                    attachment: a as u32, // if a==!0 => vk::ATTACHMENT_UNUSED
+                    layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                });
+            }
+            for &a in s.color_attachments() {
+                a_refs.push(vk::AttachmentReference {
+                    attachment: a as u32, // if a==!0 => vk::ATTACHMENT_UNUSED
+                    layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                });
+            }
+            if let Some(a) = s.depth_stencil_attachment() {
+                a_refs.push(vk::AttachmentReference {
+                    attachment: a as u32,
+                    layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                });
+            }
+        }
+
+        // preserve attachment
+        let mut a_preserve_tmp: Vec<Vec<u32>> = Vec::new();
+        a_preserve_tmp.resize_with(desc.subpasses().len(), Vec::new);
+        loop {
+            let mut changed = false;
+            for dep in sp_deps.iter() {
+                if dep.src_subpass == vk::SUBPASS_EXTERNAL
+                    || dep.dst_subpass == vk::SUBPASS_EXTERNAL
+                {
+                    continue;
+                }
+                let src = dep.src_subpass as usize;
+                let dst = dep.dst_subpass as usize;
+                // There is a subpass dependency from S1 (`src`) to S (`dst`).
+                let a_start = src * num_subpasses;
+                let a_preserve_tmp_offset = a_preserve_tmp[dst].len();
+                for a in attachment_usage.iter_range(a_start..a_start + num_attachments) {
+                    // There is a subpass S1 that uses or preserves the attachment (`a`)
+                    if !attachment_usage.contains(dst * num_attachments + a) {
+                        // The attachment is not used or preserved in subpass S.
+                        a_preserve_tmp[dst].push(a as u32);
+                        changed = true;
+                    }
+                }
+                for &a in &a_preserve_tmp[dst][a_preserve_tmp_offset..] {
+                    // mark as used (perserved)
+                    attachment_usage.insert(dst * num_attachments + a as usize);
                 }
             }
-            self.capacity = new_capacity;
-        }
-    }
-
-    pub fn push(&mut self, value: T) -> &mut T {
-        self.reserve(1);
-        let value_len = std::mem::size_of::<T>();
-        unsafe {
-            let ptr = self.buf.add(self.len_bytes) as *mut T;
-            std::ptr::write(ptr, value);
-            self.len_bytes += value_len;
-            &mut *ptr
-        }
-    }
-
-    pub fn as_slice(&self) -> &[T] {
-        let len = self.len();
-        if len == 0 {
-            return &[];
-        }
-        unsafe {
-            let ptr = self.buf as *const T;
-            std::slice::from_raw_parts(ptr, len)
-        }
-    }
-    pub fn as_slice_mut(&mut self) -> &mut [T] {
-        let len = self.len();
-        if len == 0 {
-            return &mut [];
-        }
-        unsafe {
-            let ptr = self.buf as *mut T;
-            std::slice::from_raw_parts_mut(ptr, len)
-        }
-    }
-}
-
-impl<T> Drop for CreateInfoBuffer<T> {
-    fn drop(&mut self) {
-        if !self.buf.is_null() {
-            let layout =
-                std::alloc::Layout::from_size_align(self.capacity, std::mem::align_of::<usize>())
-                    .unwrap();
-            unsafe {
-                std::alloc::dealloc(self.buf, layout);
+            if !changed {
+                break;
             }
-            self.buf = std::ptr::null_mut();
         }
+        let a_preserves = self.3.clear_and_use_as::<u32>();
+        for a in a_preserve_tmp.iter().flatten().copied() {
+            a_preserves.push(a);
+        }
+
+        let a_refs = a_refs.as_slice();
+        let a_preserves = a_preserves.as_slice();
+        let subpasses = self.4.clear_and_use_as::<vk::SubpassDescription>();
+        let mut a_refs_offset = 0;
+        let mut a_preserves_offset = 0;
+        for (i, s) in desc.subpasses().iter().enumerate() {
+            let end_input_offset = a_refs_offset + s.input_attachments().len();
+            let end_color_offset = end_input_offset + s.color_attachments().len();
+            let end_preserves_offset = a_preserves_offset + a_preserve_tmp[i].len();
+            let mut b = vk::SubpassDescription::builder()
+                .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+                .preserve_attachments(&a_preserves[a_preserves_offset..end_preserves_offset])
+                .input_attachments(&a_refs[a_refs_offset..end_input_offset])
+                .color_attachments(&a_refs[end_input_offset..end_color_offset]);
+            // TODO: resolve
+            a_refs_offset = end_color_offset;
+            a_preserves_offset = end_preserves_offset;
+            if s.depth_stencil_attachment().is_some() {
+                a_refs_offset += 1;
+                b = b.depth_stencil_attachment(&a_refs[end_color_offset]);
+            }
+            subpasses.push(b.build());
+        }
+        // TODO: subpass dependencies
+
+        let buf = self.5.clear_and_use_as::<vk::RenderPassCreateInfo>();
+        buf.reserve(1);
+        buf.push(
+            vk::RenderPassCreateInfo::builder()
+                .attachments(attachments.as_slice())
+                .subpasses(subpasses.as_slice())
+                .build(),
+        );
+        &buf.as_slice()[0]
     }
 }
 
-pub struct CreateInfoConverter(CreateInfoBuffer, CreateInfoBuffer);
-
-impl CreateInfoConverter {
+impl CreateInfoConverter2 {
     #[inline]
     pub const fn new() -> Self {
-        Self(CreateInfoBuffer::new(), CreateInfoBuffer::new())
+        Self(ScratchBuffer::new(), ScratchBuffer::new())
     }
 
     pub fn bind_group_layout(
         &mut self,
         desc: &BindGroupLayoutDescriptor<'_>,
     ) -> &vk::DescriptorSetLayoutCreateInfo {
-        let buf0 = self.0.reset_as::<vk::DescriptorSetLayoutBinding>();
+        let buf0 = self.0.clear_and_use_as::<vk::DescriptorSetLayoutBinding>();
         buf0.reserve(desc.entries.len());
-        for e in desc.entries {
+        for e in desc.entries.as_ref() {
             buf0.push(
                 vk::DescriptorSetLayoutBinding::builder()
                     .binding(e.binding)
@@ -914,7 +1041,9 @@ impl CreateInfoConverter {
             todo!();
         }
 
-        let buf = self.1.reset_as::<vk::DescriptorSetLayoutCreateInfo>();
+        let buf = self
+            .1
+            .clear_and_use_as::<vk::DescriptorSetLayoutCreateInfo>();
         buf.reserve(1);
         buf.push(
             vk::DescriptorSetLayoutCreateInfo::builder()
@@ -929,13 +1058,13 @@ impl CreateInfoConverter {
         res: &AshResources,
         desc: &PipelineLayoutDescriptor<'_>,
     ) -> &vk::PipelineLayoutCreateInfo {
-        let buf0 = self.0.reset_as::<vk::DescriptorSetLayout>();
+        let buf0 = self.0.clear_and_use_as::<vk::DescriptorSetLayout>();
         buf0.reserve(desc.bind_group_layouts.len());
-        for bgl in desc.bind_group_layouts {
+        for bgl in desc.bind_group_layouts.as_ref() {
             buf0.push(res.bind_group_layouts[*bgl]);
         }
 
-        let buf = self.1.reset_as::<vk::PipelineLayoutCreateInfo>();
+        let buf = self.1.clear_and_use_as::<vk::PipelineLayoutCreateInfo>();
         buf.reserve(1);
         buf.push(
             vk::PipelineLayoutCreateInfo::builder()
@@ -950,7 +1079,7 @@ impl CreateInfoConverter {
         res: &AshResources,
         descs: &[GraphicsPipelineDescriptor<'_>],
     ) -> &[vk::GraphicsPipelineCreateInfo] {
-        let buf = self.0.reset_as::<vk::GraphicsPipelineCreateInfo>();
+        let buf = self.0.clear_and_use_as::<vk::GraphicsPipelineCreateInfo>();
         buf.reserve(descs.len());
         for desc in descs {
             let layout = desc
@@ -972,7 +1101,7 @@ impl CreateInfoConverter {
         res: &AshResources,
         descs: &[ComputePipelineDescriptor<'_>],
     ) -> &[vk::ComputePipelineCreateInfo] {
-        let buf = self.0.reset_as::<vk::ComputePipelineCreateInfo>();
+        let buf = self.0.clear_and_use_as::<vk::ComputePipelineCreateInfo>();
         buf.reserve(descs.len());
         for desc in descs {
             let layout = desc
@@ -994,7 +1123,9 @@ impl CreateInfoConverter {
         res: &AshResources,
         descs: &[RayTracingPipelineDescriptor<'_>],
     ) -> &[vk::RayTracingPipelineCreateInfoKHR] {
-        let buf = self.0.reset_as::<vk::RayTracingPipelineCreateInfoKHR>();
+        let buf = self
+            .0
+            .clear_and_use_as::<vk::RayTracingPipelineCreateInfoKHR>();
         buf.reserve(descs.len());
         for desc in descs {
             let layout = desc

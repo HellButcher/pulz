@@ -11,13 +11,17 @@ readme = "README.md"
 pulz-ecs = { path = "../ecs" }
 pulz-window = { path = "../window" }
 pulz-render = { path = "../render" }
+pulz-bitset = { path = "../bitset" }
 
 thiserror = { workspace = true }
 tracing = { workspace = true }
 bitflags = { workspace = true }
 slotmap = { workspace = true }
+serde = { workspace = true }
+fnv = { workspace = true }
 raw-window-handle = { workspace = true }
 ash = "0.37"
+scratchbuffer = "0.1.0-alpha.1"
 gpu-alloc = "0.5"
 gpu-alloc-ash = "0.5"
 gpu-descriptor = "0.2"

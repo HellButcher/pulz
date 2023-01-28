@@ -1,8 +1,9 @@
 use bitflags::bitflags;
+use serde::{Deserialize, Serialize};
 
 crate::backend::define_gpu_resource!(Buffer, BufferDescriptor);
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BufferDescriptor {
     pub size: usize,
     pub usage: BufferUsage,
@@ -24,6 +25,7 @@ impl Default for BufferDescriptor {
 }
 
 bitflags! {
+    #[derive(Default, Serialize, Deserialize)]
     pub struct BufferUsage: u32 {
         const TRANSFER_SRC = 1;
         const TRANSFER_DST = 2;
