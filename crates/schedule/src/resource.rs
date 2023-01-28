@@ -12,7 +12,7 @@ use atomic_refcell::AtomicRefCell;
 pub use atomic_refcell::{AtomicRef as Res, AtomicRefMut as ResMut};
 use pulz_bitset::BitSet;
 
-use crate::system::param::{SystemParam, SystemParamState};
+use crate::system::param::{SystemParam, SystemParamFetch, SystemParamState};
 
 #[repr(transparent)]
 pub struct ResourceId<T = crate::Void>(usize, PhantomData<fn() -> T>);
@@ -611,21 +611,26 @@ impl Default for ResourceAccess {
 }
 
 #[doc(hidden)]
-pub struct FetchRes<T>(ResourceId<T>);
+pub struct ResState<T>(pub ResourceId<T>);
 
-unsafe impl<T> SystemParam for Res<'_, T>
+impl<T> SystemParam for &'_ T
 where
     T: 'static,
 {
-    type State = FetchRes<T>;
+    type State = ResState<T>;
+    type Fetch<'r> = Res<'r, T>;
+    type Item<'a> = &'a T;
+
+    #[inline]
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+        fetch
+    }
 }
 
-unsafe impl<T> SystemParamState for FetchRes<T>
+unsafe impl<T> SystemParamState for ResState<T>
 where
     T: 'static,
 {
-    type Item<'r> = Res<'r, T>;
-
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.expect_id::<T>())
@@ -635,29 +640,38 @@ where
     fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
         access.add_shared_checked(self.0);
     }
+}
+
+impl<'r, T: 'static> SystemParamFetch<'r> for Res<'r, T> {
+    type State = ResState<T>;
 
     #[inline]
-    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
-        resources.borrow_res_id(self.0).unwrap()
+    fn fetch(res: &'r Resources, state: &'r mut Self::State) -> Self {
+        res.borrow_res_id(state.0).unwrap()
     }
 }
 
 #[doc(hidden)]
-pub struct FetchResMut<T>(ResourceId<T>);
+pub struct ResMutState<T>(pub ResourceId<T>);
 
-unsafe impl<T> SystemParam for ResMut<'_, T>
+impl<T> SystemParam for &'_ mut T
 where
     T: 'static,
 {
-    type State = FetchResMut<T>;
+    type State = ResMutState<T>;
+    type Fetch<'r> = ResMut<'r, T>;
+    type Item<'a> = &'a mut T;
+
+    #[inline]
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+        fetch
+    }
 }
 
-unsafe impl<T> SystemParamState for FetchResMut<T>
+unsafe impl<T> SystemParamState for ResMutState<T>
 where
     T: 'static,
 {
-    type Item<'r> = ResMut<'r, T>;
-
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.expect_id::<T>())
@@ -667,29 +681,38 @@ where
     fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
         access.add_exclusive_checked(self.0);
     }
+}
+
+impl<'r, T: 'static> SystemParamFetch<'r> for ResMut<'r, T> {
+    type State = ResMutState<T>;
 
     #[inline]
-    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
-        resources.borrow_res_mut_id(self.0).unwrap()
+    fn fetch(res: &'r Resources, state: &'r mut Self::State) -> Self {
+        res.borrow_res_mut_id(state.0).unwrap()
     }
 }
 
 #[doc(hidden)]
-pub struct FetchOptionRes<T>(Option<ResourceId<T>>);
+pub struct OptionResState<T>(pub Option<ResourceId<T>>);
 
-unsafe impl<T> SystemParam for Option<Res<'_, T>>
+impl<T> SystemParam for Option<&'_ T>
 where
     T: 'static,
 {
-    type State = FetchOptionRes<T>;
+    type State = OptionResState<T>;
+    type Fetch<'r> = Option<Res<'r, T>>;
+    type Item<'a> = Option<&'a T>;
+
+    #[inline]
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+        fetch.as_deref()
+    }
 }
 
-unsafe impl<T> SystemParamState for FetchOptionRes<T>
+unsafe impl<T> SystemParamState for OptionResState<T>
 where
     T: 'static,
 {
-    type Item<'r> = Option<Res<'r, T>>;
-
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.id::<T>())
@@ -701,11 +724,15 @@ where
             access.add_shared_checked(resource);
         }
     }
+}
+
+impl<'r, T: 'static> SystemParamFetch<'r> for Option<Res<'r, T>> {
+    type State = OptionResState<T>;
 
     #[inline]
-    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
-        if let Some(resource_id) = self.0 {
-            resources.borrow_res_id(resource_id)
+    fn fetch(res: &'r Resources, state: &'r mut Self::State) -> Self {
+        if let Some(resource_id) = state.0 {
+            res.borrow_res_id(resource_id)
         } else {
             None
         }
@@ -713,21 +740,26 @@ where
 }
 
 #[doc(hidden)]
-pub struct FetchOptionResMut<T>(Option<ResourceId<T>>);
+pub struct OptionResMutState<T>(pub Option<ResourceId<T>>);
 
-unsafe impl<T> SystemParam for Option<ResMut<'_, T>>
+impl<T> SystemParam for Option<&'_ mut T>
 where
     T: 'static,
 {
-    type State = FetchOptionResMut<T>;
+    type State = OptionResMutState<T>;
+    type Fetch<'r> = Option<ResMut<'r, T>>;
+    type Item<'a> = Option<&'a mut T>;
+
+    #[inline]
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+        fetch.as_deref_mut()
+    }
 }
 
-unsafe impl<T> SystemParamState for FetchOptionResMut<T>
+unsafe impl<T> SystemParamState for OptionResMutState<T>
 where
     T: 'static,
 {
-    type Item<'r> = Option<ResMut<'r, T>>;
-
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.id::<T>())
@@ -739,11 +771,15 @@ where
             access.add_exclusive_checked(resource);
         }
     }
+}
+
+impl<'r, T: 'static> SystemParamFetch<'r> for Option<ResMut<'r, T>> {
+    type State = OptionResMutState<T>;
 
     #[inline]
-    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
-        if let Some(resource_id) = self.0 {
-            resources.borrow_res_mut_id(resource_id)
+    fn fetch(res: &'r Resources, state: &'r mut Self::State) -> Self {
+        if let Some(resource_id) = state.0 {
+            res.borrow_res_mut_id(resource_id)
         } else {
             None
         }

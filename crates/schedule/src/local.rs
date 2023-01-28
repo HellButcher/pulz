@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use crate::{
     prelude::{FromResources, Resources},
     resource::ResourceAccess,
-    system::param::{SystemParam, SystemParamState},
+    system::param::{SystemParam, SystemParamFetch, SystemParamState},
 };
 
 pub struct Local<'l, T>(&'l mut T);
@@ -24,24 +24,36 @@ impl<'l, T> DerefMut for Local<'l, T> {
     }
 }
 
+#[doc(hidden)]
 pub struct LocalState<T>(T);
+#[doc(hidden)]
+pub struct LocalFetch<'r, T>(&'r mut T);
 
-unsafe impl<'a, T: FromResources + Sized + Send + Sync + 'static> SystemParam for Local<'a, T> {
+impl<T: FromResources + Sized + Send + Sync + 'static> SystemParam for Local<'_, T> {
     type State = LocalState<T>;
+    type Fetch<'r> = LocalFetch<'r, T>;
+    type Item<'a> = Local<'a, T>;
+
+    #[inline]
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+        Local(fetch.0)
+    }
 }
 
 // SAFETY: only local state is accessed
 unsafe impl<T: FromResources + Sized + Send + Sync + 'static> SystemParamState for LocalState<T> {
-    type Item<'r> = Local<'r, T>;
-
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(T::from_resources(resources))
     }
 
     fn update_access(&self, _resources: &Resources, _access: &mut ResourceAccess) {}
+}
 
-    fn fetch<'r>(&'r mut self, _resources: &'r Resources) -> Self::Item<'r> {
-        Local(&mut self.0)
+impl<'r, T: FromResources + Send + Sync + 'static> SystemParamFetch<'r> for LocalFetch<'r, T> {
+    type State = LocalState<T>;
+    #[inline]
+    fn fetch(_res: &'r Resources, state: &'r mut Self::State) -> Self {
+        Self(&mut state.0)
     }
 }

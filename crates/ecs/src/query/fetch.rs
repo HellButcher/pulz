@@ -20,7 +20,7 @@ pub struct QryRefState<T: Component> {
     component_id: ComponentId<T>,
 }
 
-impl<T: Component> QueryParamState for QryRefState<T> {
+unsafe impl<T: Component> QueryParamState for QryRefState<T> {
     #[inline]
     fn init(_res: &Resources, components: &Components) -> Self {
         let component_id = components.expect_id::<T>();
@@ -80,7 +80,7 @@ pub struct QryRefMutState<T: Component> {
     component_id: ComponentId<T>,
 }
 
-impl<T: Component> QueryParamState for QryRefMutState<T> {
+unsafe impl<T: Component> QueryParamState for QryRefMutState<T> {
     #[inline]
     fn init(_res: &Resources, components: &Components) -> Self {
         let component_id = components.expect_id::<T>();
@@ -167,7 +167,7 @@ where
 #[repr(transparent)]
 pub struct QryOptionState<S>(S);
 
-impl<S: QueryParamState> QueryParamState for QryOptionState<S> {
+unsafe impl<S: QueryParamState> QueryParamState for QryOptionState<S> {
     #[inline]
     fn init(resources: &Resources, components: &Components) -> Self {
         Self(S::init(resources, components))
@@ -226,7 +226,7 @@ impl QueryParam for () {
     type Fetch<'w> = ();
 }
 
-impl QueryParamState for () {
+unsafe impl QueryParamState for () {
     #[inline]
     fn init(_res: &Resources, _components: &Components) -> Self {}
 
@@ -265,7 +265,7 @@ macro_rules! impl_query_param {
             type Fetch<'w> = ($($name::Fetch<'w>,)+);
         }
 
-        impl<$($name),+> QueryParamState for ($($name,)+)
+        unsafe impl<$($name),+> QueryParamState for ($($name,)+)
         where
             $($name: QueryParamState,)+
         {

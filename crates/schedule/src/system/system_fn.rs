@@ -1,21 +1,21 @@
-use super::{IntoExclusiveSystem, IntoSystem};
+use super::{param::SystemParamFetch, IntoExclusiveSystem, IntoSystem};
 use crate::{
     resource::{FromResources, ResourceAccess, ResourceId, Resources},
     system::{
-        param::{SystemParam, SystemParamItem, SystemParamState},
+        param::{SystemParam, SystemParamState},
         ExclusiveSystem, System,
     },
 };
 
-struct SystemFnState<P: SystemParam> {
-    param_state: P::State,
+struct SystemFnState<S: SystemParamState> {
+    param_state: S,
     is_send: bool,
 }
 
-impl<P: SystemParam> FromResources for SystemFnState<P> {
+impl<S: SystemParamState> FromResources for SystemFnState<S> {
     #[inline]
     fn from_resources(resources: &mut Resources) -> Self {
-        let param_state = <P::State as SystemParamState>::init(resources);
+        let param_state = S::init(resources);
         Self {
             param_state,
             is_send: false, // TODO
@@ -26,7 +26,7 @@ impl<P: SystemParam> FromResources for SystemFnState<P> {
 pub struct SystemFn<Args, P: SystemParam, F> {
     func: F,
     is_send: bool,
-    state_resource_id: Option<ResourceId<SystemFnState<P>>>,
+    state_resource_id: Option<ResourceId<SystemFnState<P::State>>>,
     _phantom: std::marker::PhantomData<fn(Args)>,
 }
 
@@ -62,7 +62,7 @@ where
 
 impl<Args, P, F> IntoSystem<Args, P> for F
 where
-    P: SystemParam + 'static,
+    P: SystemParam,
     F: SystemParamFn<Args, P, ()>,
 {
     type System = SystemFn<Args, P, F>;
@@ -75,14 +75,14 @@ where
 // TODO: analyze safety
 unsafe impl<Args, P, F> System<Args> for SystemFn<Args, P, F>
 where
-    P: SystemParam + 'static,
+    P: SystemParam,
     F: SystemParamFn<Args, P, ()>,
 {
     #[inline]
     fn init(&mut self, resources: &mut Resources) {
         let id = *self
             .state_resource_id
-            .get_or_insert_with(|| resources.init::<SystemFnState<P>>());
+            .get_or_insert_with(|| resources.init::<SystemFnState<P::State>>());
         // TODO: check this:
         self.is_send = resources.borrow_res_id(id).unwrap().is_send;
     }
@@ -93,8 +93,9 @@ where
         let mut state = resources
             .borrow_res_mut_id(state_resource_id)
             .expect("state unavailable");
-        let params = state.param_state.fetch(resources);
-        SystemParamFn::call(&mut self.func, args, params)
+        let mut params =
+            <P::Fetch<'_> as SystemParamFetch<'_>>::fetch(resources, &mut state.param_state);
+        SystemParamFn::call(&mut self.func, args, P::get(&mut params));
     }
 
     fn is_send(&self) -> bool {
@@ -142,7 +143,23 @@ where
 }
 
 pub trait SystemParamFn<Args, P: SystemParam, Out>: Send + Sync + 'static {
-    fn call(&mut self, arg: Args, params: SystemParamItem<'_, P>) -> Out;
+    fn call(&mut self, arg: Args, params: P::Item<'_>) -> Out;
+}
+
+pub struct ExclusiveResources<'a>(&'a mut Resources);
+
+impl std::ops::Deref for ExclusiveResources<'_> {
+    type Target = Resources;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+impl std::ops::DerefMut for ExclusiveResources<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
 }
 
 pub trait ExclusiveSystemParamFn<Out>: 'static {
@@ -152,11 +169,11 @@ pub trait ExclusiveSystemParamFn<Out>: 'static {
 impl<Out, F> ExclusiveSystemParamFn<Out> for F
 where
     F: 'static,
-    F: FnMut(&mut Resources) -> Out,
+    F: FnMut(ExclusiveResources<'_>) -> Out,
 {
     #[inline]
     fn call(&mut self, resources: &mut Resources) -> Out {
-        self(resources)
+        self(ExclusiveResources(resources))
     }
 }
 
@@ -169,10 +186,10 @@ macro_rules! impl_system_fn_sub {
             $($name: SystemParam,)*
             F:
               FnMut($($arg_name,)* $($name),*) -> Out +
-              FnMut($($arg_name,)* $(SystemParamItem<'_, $name>),*) -> Out,
+              FnMut($($arg_name,)* $($name::Item<'_>),*) -> Out,
         {
             #[inline]
-            fn call(&mut self, _arg: ($($arg_name,)*), _params: SystemParamItem<'_, ($($name,)*)>) -> Out {
+            fn call(&mut self, _arg: ($($arg_name,)*), _params: ($($name::Item<'_>,)*)) -> Out {
               self($(_arg.$arg_index,)* $(_params.$index,)*)
             }
         }
@@ -191,9 +208,11 @@ pulz_functional_utils::generate_variadic_array! {[0..9 A,#] impl_system_fn!{}}
 mod tests {
     use std::sync::Arc;
 
-    use super::{ExclusiveSystemFn, ExclusiveSystemParamFn, SystemFn, SystemParamFn};
+    use super::{
+        ExclusiveResources, ExclusiveSystemFn, ExclusiveSystemParamFn, SystemFn, SystemParamFn,
+    };
     use crate::{
-        resource::{Res, ResMut, ResourceAccess, Resources},
+        resource::{ResourceAccess, Resources},
         system::{IntoSystem, IntoSystemDescriptor, System, SystemDescriptor, SystemVariant},
     };
 
@@ -202,15 +221,15 @@ mod tests {
 
     fn system_0() {}
 
-    fn system_1(mut a: ResMut<'_, A>) {
+    fn system_1(mut a: &mut A) {
         a.0 += 1;
     }
 
-    fn system_2(a: Res<'_, A>, mut b: ResMut<'_, B>) {
+    fn system_2(a: &A, b: &mut B) {
         b.0 += a.0;
     }
 
-    fn system_qry_init(resources: &mut Resources) {
+    fn system_qry_init(mut resources: ExclusiveResources<'_>) {
         resources.insert(A(22));
         resources.insert(B(11));
     }
@@ -276,7 +295,7 @@ mod tests {
         let value = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let sys_a = {
             let value = value.clone();
-            move |mut a: ResMut<'_, A>| {
+            move |mut a: &mut A| {
                 value.store(a.0, std::sync::atomic::Ordering::Release);
                 a.0 += 10;
             }
@@ -305,7 +324,7 @@ mod tests {
         let value = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let sys_a = {
             let value = value.clone();
-            move |a: &mut usize, mut b: ResMut<'_, A>| {
+            move |a: &mut usize, mut b: &mut A| {
                 *a += 5;
                 value.store(b.0, std::sync::atomic::Ordering::Release);
                 b.0 += 10;

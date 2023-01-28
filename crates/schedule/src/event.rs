@@ -2,9 +2,9 @@ use std::{collections::VecDeque, marker::PhantomData};
 
 use crate::{
     label::CoreSystemPhase,
-    resource::{Res, ResMut, ResourceAccess, ResourceId, Resources},
+    resource::{Res, ResMut, ResMutState, ResState, Resources},
     schedule::Schedule,
-    system::param::{SystemParam, SystemParamState},
+    system::param::SystemParam,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -55,10 +55,6 @@ impl<T> Events<T> {
         self.frame_start_id = self.first_id + self.events.len();
     }
 
-    pub fn update_system(mut events: ResMut<'_, Self>) {
-        events.update()
-    }
-
     pub fn install_into(resources: &mut Resources)
     where
         T: Send + Sync + 'static,
@@ -66,7 +62,7 @@ impl<T> Events<T> {
         if resources.try_init::<Self>().is_ok() {
             let mut schedule = resources.borrow_res_mut::<Schedule>().unwrap();
             schedule
-                .add_system(Self::update_system)
+                .add_system(Self::update)
                 .into_phase(CoreSystemPhase::First);
         }
     }
@@ -128,7 +124,7 @@ impl<T> std::iter::FusedIterator for IdIter<'_, T> {}
 
 pub struct EventSubscriber<'w, T> {
     next_id: usize,
-    events: Res<'w, Events<T>>,
+    events: &'w Events<T>,
 }
 
 impl<'w, T> EventSubscriber<'w, T> {
@@ -156,7 +152,7 @@ impl<'w, T> EventSubscriber<'w, T> {
     }
 }
 
-pub struct EventWriter<'w, T>(ResMut<'w, Events<T>>);
+pub struct EventWriter<'w, T>(&'w mut Events<T>);
 
 impl<'w, T> EventWriter<'w, T> {
     pub fn send(&mut self, event: T) {
@@ -177,69 +173,36 @@ impl<'w, T> Extend<T> for EventWriter<'w, T> {
     }
 }
 
-#[doc(hidden)]
-pub struct FetchEventSubscriber<T>(ResourceId<Events<T>>);
-
-unsafe impl<T> SystemParam for EventSubscriber<'_, T>
+impl<T> SystemParam for EventSubscriber<'_, T>
 where
     T: Send + Sync + 'static,
 {
-    type State = FetchEventSubscriber<T>;
-}
-
-unsafe impl<T> SystemParamState for FetchEventSubscriber<T>
-where
-    T: Send + Sync + 'static,
-{
-    type Item<'r> = EventSubscriber<'r, T>;
+    type State = ResState<Events<T>>;
+    type Fetch<'r> = Res<'r, Events<T>>;
+    type Item<'a> = EventSubscriber<'a, T>;
 
     #[inline]
-    fn init(resources: &mut Resources) -> Self {
-        Self(resources.init::<Events<T>>())
-    }
-
-    #[inline]
-    fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
-        access.add_shared_checked(self.0);
-    }
-
-    #[inline]
-    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
         EventSubscriber {
             next_id: 0, // TODO: keep state
-            events: resources.borrow_res_id(self.0).expect("borrow"),
+            events: fetch,
         }
     }
 }
 
 #[doc(hidden)]
-pub struct FetchEventWriter<T>(ResourceId<Events<T>>);
+pub struct EventWriterFetch<'r, T>(ResMut<'r, Events<T>>);
 
-unsafe impl<T> SystemParam for EventWriter<'_, T>
+impl<T> SystemParam for EventWriter<'_, T>
 where
     T: Send + Sync + 'static,
 {
-    type State = FetchEventWriter<T>;
-}
-
-unsafe impl<T> SystemParamState for FetchEventWriter<T>
-where
-    T: Send + Sync + 'static,
-{
-    type Item<'r> = EventWriter<'r, T>;
+    type State = ResMutState<Events<T>>;
+    type Fetch<'r> = ResMut<'r, Events<T>>;
+    type Item<'a> = EventWriter<'a, T>;
 
     #[inline]
-    fn init(resources: &mut Resources) -> Self {
-        Self(resources.init::<Events<T>>())
-    }
-
-    #[inline]
-    fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
-        access.add_exclusive_checked(self.0);
-    }
-
-    #[inline]
-    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
-        EventWriter(resources.borrow_res_mut_id(self.0).expect("borrow"))
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+        EventWriter(fetch)
     }
 }

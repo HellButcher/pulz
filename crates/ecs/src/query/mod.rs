@@ -20,7 +20,9 @@ pub trait QueryParam {
     type Fetch<'w>: QueryParamFetch<'w, State = Self::State>;
 }
 
-pub trait QueryParamState: Send + Sync + Sized + 'static {
+/// # Safety
+/// update_access should mark all used resources with ther usage.
+pub unsafe trait QueryParamState: Send + Sync + Sized + 'static {
     /// Looks up data that can be re-used between multiple query invocations
     fn init(resources: &Resources, components: &Components) -> Self;
 

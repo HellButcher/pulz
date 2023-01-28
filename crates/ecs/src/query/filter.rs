@@ -67,7 +67,9 @@ pub struct QryWithoutFilterState<F, Q> {
     query: Q,
 }
 
-impl<F: QueryParamState, Q: QueryParamState> QueryParamState for QryWithoutFilterState<F, Q> {
+unsafe impl<F: QueryParamState, Q: QueryParamState> QueryParamState
+    for QryWithoutFilterState<F, Q>
+{
     #[inline]
     fn init(resources: &Resources, components: &Components) -> Self {
         Self {
@@ -139,7 +141,7 @@ pub struct QryWithFilterState<F, S> {
     query: S,
 }
 
-impl<F: QueryParamState, S: QueryParamState> QueryParamState for QryWithFilterState<F, S> {
+unsafe impl<F: QueryParamState, S: QueryParamState> QueryParamState for QryWithFilterState<F, S> {
     #[inline]
     fn init(resources: &Resources, components: &Components) -> Self {
         Self {

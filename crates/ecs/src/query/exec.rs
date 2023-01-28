@@ -1,5 +1,8 @@
 use std::pin::Pin;
 
+use pulz_schedule::system::param::SystemParamFetch;
+
+use super::QueryParamState;
 use crate::{
     archetype::{Archetype, ArchetypeId, ArchetypeSet, ArchetypeSetIter},
     entity::Entity,
@@ -220,37 +223,42 @@ where
 }
 
 #[doc(hidden)]
-pub struct FetchQuery<Q: QueryParam>(ResourceId<QueryState<Q::State>>);
+pub struct QuerySystemParamState<S: QueryParamState>(ResourceId<QueryState<S>>);
 
-unsafe impl<Q> SystemParam for Query<'_, Q>
+#[doc(hidden)]
+pub struct QuerySystemParamFetch<'r, S: QueryParamState>(&'r Resources, ResourceId<QueryState<S>>);
+
+impl<Q> SystemParam for Query<'_, Q>
 where
     Q: QueryParam + 'static,
 {
-    type State = FetchQuery<Q>;
+    type State = QuerySystemParamState<Q::State>;
+    type Fetch<'r> = QuerySystemParamFetch<'r, Q::State>;
+    type Item<'a> = Query<'a, Q>;
+
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+        Query::new_id(fetch.0, fetch.1)
+    }
 }
 
-unsafe impl<Q> SystemParamState for FetchQuery<Q>
-where
-    Q: QueryParam + 'static,
-{
-    type Item<'r> = Query<'r, Q>;
-
+unsafe impl<S: QueryParamState> SystemParamState for QuerySystemParamState<S> {
     #[inline]
     fn init(resources: &mut Resources) -> Self {
-        Self(resources.init::<QueryState<Q::State>>())
+        Self(resources.init::<QueryState<S>>())
     }
 
     #[inline]
     fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
-        use super::QueryParamState;
         let state = resources.borrow_res_id(self.0).unwrap();
         access.add_shared(self.0);
         access.add_shared(state.world_resource_id);
         state.param_state.update_access(access)
     }
+}
 
-    #[inline]
-    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
-        Query::new_id(resources, self.0)
+impl<'r, S: QueryParamState> SystemParamFetch<'r> for QuerySystemParamFetch<'r, S> {
+    type State = QuerySystemParamState<S>;
+    fn fetch(res: &'r Resources, state: &'r mut Self::State) -> Self {
+        Self(res, state.0)
     }
 }
