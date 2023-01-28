@@ -16,7 +16,7 @@ pub struct CoreShadingModule;
 
 impl CoreShadingModule {
     fn build_graph_system(
-        mut builder: ResMut<'_, RenderGraphBuilder>,
+        builder: &mut RenderGraphBuilder,
         cams_qry: Query<'_, (&Camera, &RenderTarget, Entity)>,
     ) {
         for (camera, render_target, entity) in cams_qry {

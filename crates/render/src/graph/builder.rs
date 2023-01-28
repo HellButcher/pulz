@@ -64,64 +64,12 @@ impl RenderGraphBuilder {
         hasher.finish()
     }
 
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
+        debug_assert!(!self.is_reset);
         self.is_reset = true;
         self.textures.reset();
         self.buffers.reset();
         self.passes.clear();
-        self.passes_run.clear();
-        self.groups.clear();
-    }
-
-    pub(crate) fn build_graph_system(
-        mut builder: ResMut<'_, Self>,
-        mut graph: ResMut<'_, RenderGraph>,
-    ) {
-        debug_assert!(builder.is_reset);
-        builder.is_reset = false;
-
-        let builder_hash = builder.hash();
-        if graph.init
-            && builder_hash == graph.hash
-            && builder.textures.len() == graph.textures.len()
-            && builder.buffers.len() == graph.buffers.len()
-            && builder.passes.len() == graph.passes.len()
-            && builder.passes_run.len() == graph.passes_exec.len()
-            && builder.groups.len() == graph.groups.len()
-        {
-            // graph not changed: swap data from builder (rest stays the same)
-            graph.was_updated = false;
-            swap_graph_data(&mut builder, &mut graph);
-            trace!("RenderGraph not changed");
-            return;
-        }
-
-        debug!(
-            "Updating RenderGraph with {} passes...",
-            builder.passes.len()
-        );
-
-        graph.reset();
-        swap_graph_data(&mut builder, &mut graph);
-        graph.hash = builder_hash;
-
-        // TODO: detect unused nodes / dead-stripping
-
-        let mut m = graph.build_group_dependency_matrix();
-        m.remove_self_references();
-
-        graph.topo_order = m.into_topological_order();
-
-        debug!("Topological order: {:?}", graph.topo_order);
-
-        // TODO: resource aliasing (e.g. share Image resource when )
-
-        graph.init = true;
-    }
-
-    pub(crate) fn reset_graph_builder(mut builder: ResMut<'_, Self>) {
-        debug_assert!(!builder.is_reset);
-        builder.reset()
     }
 }
 
@@ -135,6 +83,49 @@ impl RenderGraph {
         self.passes_exec.clear();
         self.groups.clear();
         self.topo_order.clear();
+    }
+
+    pub(crate) fn build_from_builder(&mut self, builder: &mut RenderGraphBuilder) {
+        debug_assert!(builder.is_reset);
+        builder.is_reset = false;
+
+        let builder_hash = builder.hash();
+        if self.init
+            && builder_hash == self.hash
+            && builder.textures.len() == self.textures.len()
+            && builder.buffers.len() == self.buffers.len()
+            && builder.passes.len() == self.passes.len()
+            && builder.passes_run.len() == self.passes_run.len()
+            && builder.groups.len() == self.groups.len()
+        {
+            // graph not changed: swap data from builder (rest stays the same)
+            self.was_updated = false;
+            swap_graph_data(builder, self);
+            trace!("RenderGraph not changed");
+            return;
+        }
+
+        debug!(
+            "Updating RenderGraph with {} passes...",
+            builder.passes.len()
+        );
+
+        self.reset();
+        swap_graph_data(builder, self);
+        self.hash = builder_hash;
+
+        // TODO: detect unused nodes / dead-stripping
+
+        let mut m = self.build_group_dependency_matrix();
+        m.remove_self_references();
+
+        self.topo_order = m.into_topological_order();
+
+        debug!("Topological order: {:?}", self.topo_order);
+
+        // TODO: resource aliasing (e.g. share Image resource when )
+
+        self.init = true;
     }
 
     fn build_pass_dependency_matrix(&self) -> DependencyMatrix {

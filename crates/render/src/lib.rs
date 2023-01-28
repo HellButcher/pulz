@@ -91,10 +91,10 @@ impl Module for RenderModule {
         // SORTING after update UPDATE
         schedule.add_phase_dependency(CoreSystemPhase::Update, RenderSystemPhase::Sorting);
         schedule
-            .add_system(RenderGraphBuilder::reset_graph_builder)
+            .add_system(RenderGraphBuilder::reset)
             .before(RenderSystemPhase::BuildGraph);
         schedule
-            .add_system(RenderGraphBuilder::build_graph_system)
+            .add_system(RenderGraph::build_from_builder)
             .after(RenderSystemPhase::BuildGraph)
             .before(RenderSystemPhase::UpdateGraph);
     }

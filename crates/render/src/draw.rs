@@ -2,11 +2,7 @@ use std::{hash::Hash, marker::PhantomData, ops::Deref};
 
 use atomic_refcell::AtomicRefCell;
 use dynsequence::{dyn_sequence, DynSequence};
-use pulz_ecs::{
-    prelude::*,
-    resource::ResourceAccess,
-    system::param::{SystemParam, SystemParamState},
-};
+use pulz_ecs::{prelude::*, resource::ResState, system::param::SystemParam};
 
 use crate::{backend::CommandEncoder, RenderSystemPhase};
 
@@ -66,7 +62,8 @@ pub trait PhaseItem: Send + Sync + Sized + 'static {
         E: Deref<Target = Self>;
 }
 
-struct DrawQueue<I: PhaseItem>(crossbeam_queue::SegQueue<(I::TargetKey, PhaseData<I>)>);
+#[doc(hidden)]
+pub struct DrawQueue<I: PhaseItem>(crossbeam_queue::SegQueue<(I::TargetKey, PhaseData<I>)>);
 
 struct KeyType<I: PhaseItem>(PhantomData<fn(&I)>);
 impl<I: PhaseItem> typemap::Key for KeyType<I> {
@@ -200,7 +197,7 @@ impl DrawPhases {
 }
 
 pub struct Draw<'l, I: PhaseItem> {
-    destination: Res<'l, DrawQueue<I>>,
+    destination: &'l DrawQueue<I>,
 }
 
 impl<I: PhaseItem> Draw<'_, I> {
@@ -227,10 +224,7 @@ impl<I: PhaseItem> Default for DrawQueue<I> {
     }
 }
 
-fn collect_and_sort_draws_system<I: PhaseItem>(
-    mut queue: ResMut<'_, DrawQueue<I>>,
-    phases: Res<'_, DrawPhases>,
-) {
+fn collect_and_sort_draws_system<I: PhaseItem>(queue: &mut DrawQueue<I>, phases: &DrawPhases) {
     let mut phase_map = phases.0.get::<KeyType<I>>().unwrap().borrow_mut();
 
     // clear sequences
@@ -280,23 +274,13 @@ impl<I: PhaseItem> Drop for DrawTarget<'_, I> {
     }
 }
 
-unsafe impl<I: PhaseItem> SystemParam for Draw<'_, I> {
-    type State = DrawState<I>;
-}
-pub struct DrawState<I: PhaseItem>(ResourceId<DrawQueue<I>>);
+impl<I: PhaseItem> SystemParam for Draw<'_, I> {
+    type State = ResState<DrawQueue<I>>;
+    type Fetch<'r> = Res<'r, DrawQueue<I>>;
+    type Item<'a> = Draw<'a, I>;
 
-unsafe impl<I: PhaseItem> SystemParamState for DrawState<I> {
-    type Item<'r> = Draw<'r, I>;
-    fn init(resources: &mut Resources) -> Self {
-        Self(resources.init::<DrawQueue<I>>())
-    }
-    fn update_access(&self, _resources: &Resources, access: &mut ResourceAccess) {
-        access.add_shared_checked(self.0);
-    }
-    fn fetch<'r>(&'r mut self, resources: &'r Resources) -> Self::Item<'r> {
-        Draw {
-            destination: resources.borrow_res_id(self.0).unwrap(),
-        }
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+        Draw { destination: fetch }
     }
 }
 

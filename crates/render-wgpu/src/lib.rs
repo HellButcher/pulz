@@ -215,16 +215,16 @@ impl WgpuRenderer {
         self.queue.submit(cmds);
     }
 
-    fn run_render_system(
-        mut renderer: ResMut<'_, Self>,
-        windows: Res<'_, Windows>,
-        src_graph: Res<'_, RenderGraph>,
+    fn run(
+        &mut self,
+        windows: &Windows,
+        src_graph: &RenderGraph,
     ) {
-        renderer.reconfigure_surfaces(&windows);
-        renderer.graph.update(&src_graph);
-        renderer.aquire_swapchain_images();
-        renderer.run_graph(&src_graph);
-        renderer.present_swapchain_images();
+        self.reconfigure_surfaces(&windows);
+        self.graph.update(&src_graph);
+        self.aquire_swapchain_images();
+        self.run_graph(&src_graph);
+        self.present_swapchain_images();
     }
 }
 
@@ -242,7 +242,7 @@ impl ModuleWithOutput for WgpuRenderer {
 
     fn install_systems(schedule: &mut Schedule) {
         schedule
-            .add_system(Self::run_render_system)
+            .add_system(Self::run)
             .into_phase(RenderSystemPhase::Render);
     }
 }

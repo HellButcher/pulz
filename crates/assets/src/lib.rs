@@ -191,13 +191,6 @@ impl<T> Assets<T> {
         events_writer.send_batch(self.events.drain(..))
     }
 
-    pub fn update_system(
-        mut assets: ResMut<'_, Self>,
-        events_writer: EventWriter<'_, AssetEvent<T>>,
-    ) {
-        assets.update(events_writer)
-    }
-
     pub fn install_into(res: &mut Resources)
     where
         T: Send + Sync + 'static,
@@ -212,7 +205,7 @@ impl<T> Assets<T> {
                 CoreSystemPhase::Update.as_label(),
             ]);
             schedule
-                .add_system(Self::update_system)
+                .add_system(Self::update)
                 .into_phase(AssetSystemPhase::UpdateAssets);
         }
     }
