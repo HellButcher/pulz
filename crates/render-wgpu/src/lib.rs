@@ -58,6 +58,9 @@ pub enum Error {
     #[error("The window is not available, or it has no raw-window-handle")]
     WindowNotAvailable,
 
+    #[error("Unable to create surface")]
+    CreateSurfaceError(#[from] wgpu::CreateSurfaceError),
+
     #[error("Unable to convert objects")]
     ConversionError(#[from] ConversionError),
 
@@ -215,7 +218,10 @@ pub struct WgpuRenderer(WgpuRendererInner);
 impl WgpuRenderer {
     pub async fn new() -> Result<Self> {
         let backends = backend_bits_from_env_or_default();
-        let instance = wgpu::Instance::new(backends);
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
         if let Some(adapter) = wgpu::util::initialize_adapter_from_env(&instance, backends) {
             let renderer = WgpuRendererFull::for_adapter(instance, adapter).await?;
             return Ok(Self(WgpuRendererInner::Full(renderer)));
@@ -253,7 +259,7 @@ impl WgpuRenderer {
     ) -> Result<&mut WgpuRendererFull> {
         if let WgpuRendererInner::Full(renderer) = &mut self.0 {
             renderer.surfaces.remove(window_id); // replaces old surface
-            let surface = Surface::create(&renderer.instance, window_descriptor, window_raw);
+            let surface = Surface::create(&renderer.instance, window_descriptor, window_raw)?;
             renderer.surfaces.insert(window_id, surface);
         } else {
             #[cfg(not(target_arch = "wasm32"))]
@@ -261,7 +267,7 @@ impl WgpuRenderer {
                 let WgpuRendererInner::Early { instance } = std::mem::replace(&mut self.0, WgpuRendererInner::Tmp) else {
                     panic!("unexpected state");
                 };
-                let surface = Surface::create(&instance, window_descriptor, window_raw);
+                let surface = Surface::create(&instance, window_descriptor, window_raw)?;
                 let mut renderer = pollster::block_on(async {
                     let adapter = Self::default_adapter(&instance, Some(&surface)).await?;
                     WgpuRendererFull::for_adapter(instance, adapter).await

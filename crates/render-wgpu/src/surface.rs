@@ -15,14 +15,14 @@ impl Surface {
         instance: &wgpu::Instance,
         window: &Window,
         window_handle: &dyn RawWindow,
-    ) -> Self {
-        let surface = unsafe { instance.create_surface(&window_handle) };
-        Self {
+    ) -> Result<Self, wgpu::CreateSurfaceError> {
+        let surface = unsafe { instance.create_surface(&window_handle)? };
+        Ok(Self {
             surface,
             size: window.size,
             vsync: window.vsync,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        }
+        })
     }
 
     #[inline]
@@ -52,16 +52,16 @@ impl Surface {
 
     pub fn configure(&mut self, adapter: &wgpu::Adapter, device: &wgpu::Device) {
         // TODO: also reconfigure on resize, and when presenting results in `Outdated/Lost`
-        self.format = self
-            .surface
-            .get_supported_formats(adapter)
+        let capabilities = self.surface.get_capabilities(adapter);
+        self.format = capabilities
+            .formats
             .first()
             .copied()
             .expect("surface not compatible");
         let present_mode = if self.vsync {
-            wgpu::PresentMode::Fifo
+            wgpu::PresentMode::AutoVsync
         } else {
-            wgpu::PresentMode::Immediate
+            wgpu::PresentMode::AutoNoVsync
         };
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -70,6 +70,7 @@ impl Surface {
             height: self.size.y,
             present_mode,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
         };
         self.surface.configure(device, &surface_config);
     }

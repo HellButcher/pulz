@@ -83,6 +83,7 @@ pub fn convert_texture_descriptor(val: &TextureDescriptor) -> Result<wgpu::Textu
         dimension: convert_texture_dimensions(&val.dimensions),
         format: convert_texture_format(val.format)?,
         usage: convert_texture_usages(val.usage),
+        view_formats: &[],
     })
 }
 
