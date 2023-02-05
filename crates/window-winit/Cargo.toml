@@ -21,7 +21,7 @@ pulz-input = { path = "../input" }
 
 fnv = { workspace = true }
 tracing = { workspace = true }
-winit = { version = "0.27", default-features = false }
+winit = { version = "0.28", default-features = false }
 
 [target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true }
