@@ -8,7 +8,7 @@ use crate::{
         resources::{ResourceDeps, Slot, SlotAccess, WriteSlot},
         PassDescription, PassIndex, RenderGraphBuilder, SubPassIndex,
     },
-    texture::{Texture, TextureUsage},
+    texture::{Texture, TextureDimensions, TextureFormat, TextureUsage},
 };
 
 impl RenderGraphBuilder {
@@ -28,6 +28,7 @@ impl RenderGraphBuilder {
             buffers: ResourceDeps::new(),
             begin_subpasses,
             end_subpasses: begin_subpasses,
+            active: false,
         };
 
         let output = pass.build(PassGroupBuilder(
@@ -117,6 +118,11 @@ pub struct PassGroupBuilder<'a, Q>(PassBuilderIntern<'a>, PhantomData<fn(Q)>);
 
 impl<Q: PipelineType> PassGroupBuilder<'_, Q> {
     #[inline]
+    pub fn set_active(&mut self) {
+        self.0.pass.active = true;
+    }
+
+    #[inline]
     pub(super) fn push_sub_pass<P: Pass<Q>>(&mut self, sub_pass: P) -> P::Output {
         let mut descr = SubPassDescription::new(self.0.pass.index, sub_pass.type_name());
         let (output, run) = sub_pass.build(PassBuilder {
@@ -149,6 +155,21 @@ pub struct PassBuilder<'a, Q> {
 }
 
 impl<Q> PassBuilder<'_, Q> {
+    #[inline]
+    pub fn set_texture_format(&mut self, slot: &Slot<Texture>, format: TextureFormat) {
+        self.base.graph.textures.set_format(slot, format);
+    }
+
+    #[inline]
+    pub fn set_texture_size(&mut self, slot: &Slot<Texture>, size: TextureDimensions) {
+        self.base.graph.textures.set_size(slot, size);
+    }
+
+    #[inline]
+    pub fn set_buffer_size(&mut self, slot: &Slot<Buffer>, size: usize) {
+        self.base.graph.buffers.set_size(slot, size);
+    }
+
     #[inline]
     pub fn reads_texture(&mut self, texture: Slot<Texture>, stages: ShaderStage) {
         self.base

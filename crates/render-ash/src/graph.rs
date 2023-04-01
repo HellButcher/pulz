@@ -1,25 +1,27 @@
-use std::sync::Arc;
-
 use ash::vk::{self};
 use pulz_render::{
     draw::DrawPhases,
-    graph::{pass::PipelineBindPoint, resources::ResourceAssignments, PassIndex, RenderGraph},
+    graph::{
+        pass::PipelineBindPoint, resources::GraphBackend, PassIndex, RenderGraph,
+        RenderGraphAssignments,
+    },
     pipeline::{GraphicsPass, GraphicsPassDescriptorWithTextures},
+    texture::{TextureDimensions, TextureFormat},
 };
+use pulz_window::WindowsMirror;
 
 use crate::{
-    device::AshDevice,
     drop_guard::Guard,
     encoder::{AshCommandPool, SubmissionGroup},
     resources::AshResources,
+    swapchain::SurfaceSwapchain,
     Result,
 };
 
 pub struct AshRenderGraph {
-    device: Arc<AshDevice>,
-    hash: u64,
     topo: Vec<TopoGroup>,
     barriers: Vec<Barrier>,
+    assignments: RenderGraphAssignments,
 }
 
 #[derive(Default)]
@@ -41,35 +43,27 @@ unsafe impl Sync for Barrier {}
 
 impl AshRenderGraph {
     #[inline]
-    pub fn new(device: &Arc<AshDevice>) -> Self {
+    pub const fn new() -> Self {
         Self {
-            device: device.clone(),
-            hash: 0,
             topo: Vec::new(),
             barriers: Vec::new(),
+            assignments: RenderGraphAssignments::new(),
         }
     }
 
-    fn reset(&mut self) {
-        // TODO: caching of render-passes: don't destroy & recreate on every update!
-        for topo in &mut self.topo {
-            for (_, pass, fb) in topo.render_passes.drain(..) {
-                unsafe {
-                    self.device.destroy_framebuffer(fb, None);
-                    self.device.destroy_render_pass(pass, None);
-                }
-            }
-        }
-
-        self.topo.clear();
-        self.barriers.clear();
-    }
-
-    pub fn update(&mut self, src_graph: &RenderGraph, res: &mut AshResources) -> Result<bool> {
+    pub fn update(
+        &mut self,
+        src_graph: &RenderGraph,
+        res: &mut AshResources,
+        surfaces: &WindowsMirror<SurfaceSwapchain>,
+    ) -> Result<bool> {
         // TODO: update render-pass, if resource-formats changed
         // TODO: update framebuffer if render-pass or dimensions changed
-        if src_graph.was_updated() || self.hash != src_graph.hash() {
-            self.force_update(src_graph, res)?;
+        if self
+            .assignments
+            .update(src_graph, &mut AshGraphBackend { res, surfaces })
+        {
+            self.do_update(src_graph, res)?;
             Ok(true)
         } else {
             Ok(false)
@@ -81,7 +75,8 @@ impl AshRenderGraph {
         descr: &GraphicsPassDescriptorWithTextures,
         render_pass: vk::RenderPass,
     ) -> Result<Guard<'d, vk::Framebuffer>> {
-        // TODO: caching?
+        // TODO: caching
+        // TODO: destroy (if not caching)
         let image_views: Vec<_> = descr.textures.iter().map(|&t| res[t].1).collect();
         let create_info = vk::FramebufferCreateInfo::builder()
             .render_pass(render_pass)
@@ -96,15 +91,14 @@ impl AshRenderGraph {
         }
     }
 
-    pub fn force_update(&mut self, src: &RenderGraph, res: &mut AshResources) -> Result<()> {
-        self.reset();
-        self.hash = src.hash();
+    fn do_update(&mut self, src: &RenderGraph, res: &mut AshResources) -> Result<()> {
+        self.topo.clear();
+        self.barriers.clear();
 
         let num_topological_groups = src.get_num_topological_groups();
         self.topo
             .resize_with(num_topological_groups, Default::default);
 
-        let texture_assignments = ResourceAssignments::new();
         for topo_index in 0..num_topological_groups {
             let topo_group = &mut self.topo[topo_index];
             for pass in src.get_topological_group(topo_index) {
@@ -113,8 +107,8 @@ impl AshRenderGraph {
                         // TODO: no unwrap / error handling
                         let pass_descr = GraphicsPassDescriptorWithTextures::from_graph(
                             src,
+                            &self.assignments,
                             pass,
-                            &texture_assignments,
                         )
                         .unwrap();
                         let graphics_pass =
@@ -199,8 +193,21 @@ impl AshRenderGraph {
     }
 }
 
-impl Drop for AshRenderGraph {
-    fn drop(&mut self) {
-        self.reset()
+struct AshGraphBackend<'a> {
+    res: &'a mut AshResources,
+    surfaces: &'a WindowsMirror<SurfaceSwapchain>,
+}
+
+impl GraphBackend for AshGraphBackend<'_> {
+    fn get_surface(
+        &mut self,
+        window_id: pulz_window::WindowId,
+    ) -> (
+        pulz_render::texture::Texture,
+        TextureFormat,
+        TextureDimensions,
+    ) {
+        let swapchain = self.surfaces.get(window_id).expect("swapchain not initialized");
+        (swapchain.texture_id(), swapchain.texture_format(), TextureDimensions::D2(swapchain.size()))
     }
 }

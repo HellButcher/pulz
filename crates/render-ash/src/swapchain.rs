@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
 use ash::{extensions::khr, vk};
-use pulz_render::{math::uvec2, texture::Texture};
+use pulz_render::{math::uvec2, texture::{Texture, TextureFormat}};
 use pulz_window::{RawWindow, Size2, Window, WindowId};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use slotmap::Key;
+use tracing::debug;
 
 use crate::{
     device::AshDevice,
     drop_guard::{Destroy, Guard},
     instance::AshInstance,
-    AshRendererFull, Error, Result,
+    AshRendererFull, Error, Result, convert::VkInto,
 };
 
 pub struct Surface {
@@ -358,6 +359,24 @@ impl SwapchainSupportDetail {
         }
         self.present_modes.first().copied().unwrap()
     }
+
+    pub fn preferred_composite_alpha(&self) -> vk::CompositeAlphaFlagsKHR {
+        if self
+            .capabilities
+            .supported_composite_alpha
+            .contains(vk::CompositeAlphaFlagsKHR::OPAQUE)
+        {
+            return vk::CompositeAlphaFlagsKHR::OPAQUE;
+        }
+        if self
+            .capabilities
+            .supported_composite_alpha
+            .contains(vk::CompositeAlphaFlagsKHR::INHERIT)
+        {
+            return vk::CompositeAlphaFlagsKHR::INHERIT;
+        }
+        self.capabilities.supported_composite_alpha
+    }
 }
 
 pub struct SurfaceSwapchain {
@@ -370,10 +389,11 @@ pub struct SurfaceSwapchain {
     present_mode: vk::PresentModeKHR,
     image_usage: vk::ImageUsageFlags,
     images: Vec<vk::Image>,
-    //image_views: Vec<vk::ImageView>,
+    image_views: Vec<vk::ImageView>,
     texture_id: Texture,
     acquired_image: u32,
     retired_swapchains: Vec<vk::SwapchainKHR>,
+    retired_image_views: Vec<vk::ImageView>,
 }
 
 impl AshDevice {
@@ -398,10 +418,11 @@ impl AshDevice {
             // TODO: custom usage
             image_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST,
             images: Vec::new(),
-            //image_views: Vec::new(),
+            image_views: Vec::new(),
             texture_id: Texture::null(),
             acquired_image: !0,
             retired_swapchains: Vec::new(),
+            retired_image_views: Vec::new(),
         };
         swapchain.configure()?;
         Ok(swapchain)
@@ -417,6 +438,16 @@ impl SurfaceSwapchain {
     #[inline]
     pub fn format(&self) -> vk::Format {
         self.surface_format.format
+    }
+
+    #[inline]
+    pub fn texture_format(&self) -> TextureFormat {
+        self.surface_format.format.vk_into()
+    }
+
+    #[inline]
+    pub fn texture_id(&self) -> Texture {
+        self.texture_id
     }
 
     #[inline]
@@ -590,7 +621,7 @@ impl SurfaceSwapchain {
                         },
                     )
                     .pre_transform(swapchain_support_info.capabilities.current_transform)
-                    .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
+                    .composite_alpha(swapchain_support_info.preferred_composite_alpha())
                     .present_mode(self.present_mode)
                     .clipped(true)
                     .old_swapchain(old_swapchain)
@@ -601,11 +632,34 @@ impl SurfaceSwapchain {
         };
 
         self.images = unsafe { ext_swapchain.get_swapchain_images(self.swapchain_raw)? };
+        self.retired_image_views.append(&mut self.image_views);
+        for image in &self.images {
+            unsafe {
+                let image_view = self.device.create_image_view(
+                    &vk::ImageViewCreateInfo::builder()
+                        .image(*image)
+                        .view_type(vk::ImageViewType::TYPE_2D)
+                        .format(self.surface_format.format)
+                        .subresource_range(
+                            vk::ImageSubresourceRange::builder()
+                                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                                .base_mip_level(0)
+                                .level_count(1)
+                                .base_array_layer(0)
+                                .layer_count(1)
+                                .build(),
+                        )
+                        .build(),
+                    None,
+                )?;
+                self.image_views.push(image_view);
+            }
+        }
 
         Ok(())
     }
 
-    pub(crate) fn acquire_next_image(
+    fn acquire_next_image(
         &mut self,
         timeout: u64,
         signal_semaphore: vk::Semaphore,
@@ -657,7 +711,7 @@ impl SurfaceSwapchain {
         Ok(Some(AcquiredSwapchainImage {
             index,
             image: self.images[index as usize],
-            //image_view: self.image_views[index as usize],
+            image_view: self.image_views[index as usize],
             suboptimal,
         }))
     }
@@ -668,30 +722,29 @@ impl Drop for SurfaceSwapchain {
         if self.swapchain_raw != vk::SwapchainKHR::null()
             || self.surface_raw != vk::SurfaceKHR::null()
             || !self.retired_swapchains.is_empty()
+            || !self.retired_image_views.is_empty()
         {
             unsafe {
-                self.device.device_wait_idle();
+                self.device.device_wait_idle().unwrap();
             }
         }
 
-        if !self.retired_swapchains.is_empty() {
-            let ext_swapchain = self.device.ext_swapchain().unwrap();
-            for r in self.retired_swapchains.drain(..) {
-                unsafe {
-                    ext_swapchain.destroy_swapchain(r, None);
-                }
+        for image_view in self.image_views.drain(..) {
+            unsafe {
+                self.device.destroy_image_view(image_view, None);
+            }
+        }
+        // don't destroy images obtained from get_swapchain_images! They are destroyed together with the swapchain object.
+
+        let ext_swapchain = self.device.ext_swapchain().unwrap();
+        for r in self.retired_swapchains.drain(..) {
+            unsafe {
+                ext_swapchain.destroy_swapchain(r, None);
             }
         }
 
-        // for image_view in self.image_views.drain(..) {
-        //     unsafe {
-        //         self.device.destroy_image_view(image_view, None);
-        //     }
-        // }
-        // don't destroy images obtained from get_swapchain_images. They are destroyed together with the swapchain object.
         self.images.clear();
         if self.swapchain_raw != vk::SwapchainKHR::null() {
-            let ext_swapchain = self.device.ext_swapchain().unwrap();
             unsafe {
                 ext_swapchain.destroy_swapchain(self.swapchain_raw, None);
             }
@@ -707,6 +760,22 @@ impl Drop for SurfaceSwapchain {
 }
 
 impl AshRendererFull {
+    pub(crate) fn insert_swapchain(
+        &mut self,
+        swapchain: SurfaceSwapchain,
+        window_id: WindowId,
+    ) -> Result<()> {
+        if let Some(old_swapchain) = self.surfaces.insert(window_id, swapchain) {
+            self.res.textures.remove(old_swapchain.texture_id);
+        }
+        let surface = &mut self.surfaces[window_id];
+        surface.texture_id = self
+            .res
+            .textures
+            .insert((vk::Image::null(), vk::ImageView::null()));
+        Ok(())
+    }
+
     pub(crate) fn acquire_swapchain_image(
         &mut self,
         window_id: WindowId,
@@ -728,13 +797,6 @@ impl AshRendererFull {
         self.surfaces
             .iter()
             .filter(|(_, s)| s.is_acquired())
-            .count()
-    }
-
-    pub(crate) fn get_num_unacquired_swapchains(&self) -> usize {
-        self.surfaces
-            .iter()
-            .filter(|(_, s)| !s.is_acquired())
             .count()
     }
 
@@ -809,7 +871,10 @@ impl AshRendererFull {
         for (_, surface_swapchain) in &mut self.surfaces {
             frame
                 .retired_swapchains
-                .append(&mut surface_swapchain.retired_swapchains)
+                .append(&mut surface_swapchain.retired_swapchains);
+            frame
+                .retired_image_views
+                .append(&mut surface_swapchain.retired_image_views);
         }
     }
 }
@@ -817,6 +882,6 @@ impl AshRendererFull {
 pub struct AcquiredSwapchainImage {
     index: u32,
     pub image: vk::Image,
-    //pub image_view: vk::ImageView,
+    pub image_view: vk::ImageView,
     pub suboptimal: bool,
 }

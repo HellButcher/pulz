@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{
-        pass::PipelineBindPoint, resources::ResourceAssignments, PassDescription, RenderGraph,
+        pass::PipelineBindPoint, PassDescription, RenderGraph, RenderGraphAssignments,
         ResourceIndex,
     },
     texture::{Texture, TextureFormat, TextureUsage},
@@ -100,8 +100,8 @@ pub struct GraphicsPassDescriptorWithTextures {
 impl GraphicsPassDescriptorWithTextures {
     pub fn from_graph(
         graph: &RenderGraph,
+        assignments: &RenderGraphAssignments,
         pass: &PassDescription,
-        assignments: &ResourceAssignments<Texture>,
     ) -> Option<Self> {
         if pass.bind_point() != PipelineBindPoint::Graphics {
             return None;
@@ -120,8 +120,8 @@ impl GraphicsPassDescriptorWithTextures {
         for i in attachment_indices.iter().copied() {
             let a = &pass.textures()[i as usize];
             let resource_index = a.resource_index();
-            let (tex, &(format, dim, samples)) = assignments
-                .get(resource_index)
+            let (tex, format, samples, dim) = assignments
+                .get_texture(resource_index)
                 .expect("unassigned resource");
             let dim = dim.subimage_extents();
             if size == USize2::ZERO {

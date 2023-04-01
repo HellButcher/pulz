@@ -1,6 +1,6 @@
 use self::{
     pass::{run::PassExec, PipelineBindPoint},
-    resources::{ResourceDeps, ResourceSet},
+    resources::{ResourceAssignments, ResourceDeps, ResourceSet},
 };
 use crate::{
     buffer::Buffer,
@@ -40,6 +40,7 @@ pub struct PassDescription {
     buffers: ResourceDeps<Buffer>,
     begin_subpasses: usize,
     end_subpasses: usize, // exclusive!
+    active: bool,
 }
 
 pub struct RenderGraph {
@@ -61,6 +62,13 @@ pub struct RenderGraphBuilder {
     subpasses: Vec<SubPassDescription>,
     subpasses_run: Vec<PassExec<()>>,
     passes: Vec<PassDescription>,
+}
+
+pub struct RenderGraphAssignments {
+    hash: u64,
+    was_updated: bool,
+    texture_assignments: ResourceAssignments<Texture>,
+    buffer_assignments: ResourceAssignments<Buffer>,
 }
 
 impl RenderGraph {
@@ -133,6 +141,18 @@ impl RenderGraphBuilder {
             subpasses: Vec::new(),
             subpasses_run: Vec::new(),
             passes: Vec::new(),
+        }
+    }
+}
+
+impl RenderGraphAssignments {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            hash: 0,
+            was_updated: false,
+            texture_assignments: ResourceAssignments::new(),
+            buffer_assignments: ResourceAssignments::new(),
         }
     }
 }

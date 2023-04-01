@@ -16,6 +16,7 @@ pub trait ResourceAccess: Copy + Eq + Hash {
     type Usage: Copy
         + Clone
         + Debug
+        + Default
         + Eq
         + BitOr
         + BitOrAssign
@@ -27,29 +28,46 @@ pub trait ResourceAccess: Copy + Eq + Hash {
         + Sub
         + Hash;
 
-    type Meta;
+    type Format: PartialEq + Debug + Copy;
+    type Size: PartialEq + Copy;
 
     fn check_usage_is_pass_compatible(combined_usage: Self::Usage);
+
+    fn default_format(usage: Self::Usage) -> Self::Format;
 }
 
 impl ResourceAccess for Texture {
     type Usage = TextureUsage;
-    type Meta = (TextureFormat, TextureDimensions, u8);
+    type Format = TextureFormat;
+    type Size = TextureDimensions;
 
     fn check_usage_is_pass_compatible(combined_usage: Self::Usage) {
         if combined_usage.is_non_attachment() {
             panic!("Can't use texture as non-attachment resource multiple times in the same pass");
         }
     }
+
+    #[inline]
+    fn default_format(usage: Self::Usage) -> Self::Format {
+        if usage.contains(TextureUsage::DEPTH_STENCIL_ATTACHMENT) {
+            TextureFormat::Depth24PlusStencil8
+        } else {
+            TextureFormat::Rgba8UnormSrgb
+        }
+    }
 }
 
 impl ResourceAccess for Buffer {
     type Usage = BufferUsage;
-    type Meta = usize;
+    type Format = ();
+    type Size = usize;
 
     fn check_usage_is_pass_compatible(_combined_usage: Self::Usage) {
         panic!("Can't use buffer multiple times in the same pass");
     }
+
+    #[inline]
+    fn default_format(usage: Self::Usage) -> Self::Format {}
 }
 
 bitflags! {

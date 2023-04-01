@@ -1,40 +1,29 @@
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, VecDeque},
     hash::{Hash, Hasher},
 };
 
+use pulz_bitset::BitSet;
 use tracing::{debug, trace};
 
 use super::{
-    access::ResourceAccess, deps::DependencyMatrix, resources::Slot, RenderGraph,
-    RenderGraphBuilder,
+    access::ResourceAccess,
+    deps::DependencyMatrix,
+    resources::{GetExternalResource, Slot},
+    RenderGraph, RenderGraphBuilder,
 };
 use crate::{buffer::Buffer, texture::Texture};
-
-pub trait GetExternalResource<R: ResourceAccess> {
-    fn get_external_resource(&self) -> (R, R::Meta);
-}
-
-impl<R, F> GetExternalResource<R> for F
-where
-    R: ResourceAccess,
-    F: Fn() -> (R, R::Meta),
-{
-    fn get_external_resource(&self) -> (R, R::Meta) {
-        self()
-    }
-}
 
 pub trait GraphImport {
     type Resource: ResourceAccess;
 
-    fn import(&self) -> Box<dyn GetExternalResource<Self::Resource>>;
+    fn import(&self) -> Box<dyn GetExternalResource<Self::Resource> + 'static>;
 }
 
 pub trait GraphExport {
     type Resource: ResourceAccess;
 
-    fn export(&self) -> Box<dyn GetExternalResource<Self::Resource>>;
+    fn export(&self) -> Box<dyn GetExternalResource<Self::Resource> + 'static>;
 }
 
 impl RenderGraphBuilder {
@@ -59,6 +48,8 @@ impl RenderGraphBuilder {
         E: GraphExport<Resource = Texture>,
     {
         let f = export_to.export();
+        let last_written_by_pass = slot.last_written_by.0;
+        self.passes[last_written_by_pass as usize].active = true;
         self.textures.export(slot, f)
     }
 
@@ -67,6 +58,8 @@ impl RenderGraphBuilder {
         E: GraphExport<Resource = Buffer>,
     {
         let f = export_to.export();
+        let last_written_by_pass = slot.last_written_by.0;
+        self.passes[last_written_by_pass as usize].active = true;
         self.buffers.export(slot, f)
     }
 
@@ -131,28 +124,59 @@ impl RenderGraph {
         swap_graph_data(builder, self);
         self.hash = builder_hash;
 
-        // TODO: detect unused nodes / dead-stripping
+        let active = self.build_active_set();
 
-        let mut m = self.build_dependency_matrix();
+        let mut m = self.build_dependency_matrix(&active);
         m.remove_self_references();
 
         self.passes_topo_order = m.into_topological_order();
 
         debug!("Topological order: {:?}", self.passes_topo_order);
 
-        // TODO: resource aliasing (e.g. share Image resource when )
+        self.update_resource_topo_group_range();
 
         self.init = true;
     }
 
-    fn build_dependency_matrix(&self) -> DependencyMatrix {
+    fn build_active_set(&mut self) -> BitSet {
+        let mut todo = VecDeque::new();
+        let mut active = BitSet::with_capacity_for(self.passes.len());
+        for p in &self.passes {
+            if p.active {
+                todo.push_back(p.index);
+                active.insert(p.index as usize);
+            }
+        }
+        while let Some(next) = todo.pop_front() {
+            let p = &self.passes[next as usize];
+            p.textures.mark_deps(&mut active, &mut todo);
+            p.buffers.mark_deps(&mut active, &mut todo);
+        }
+        active
+    }
+
+    fn build_dependency_matrix(&self, active: &BitSet) -> DependencyMatrix {
         let mut m = DependencyMatrix::new(self.passes.len());
         // TODO: only mark used nodes
         for p in &self.passes {
-            p.textures.mark_pass_dependency_matrix(&mut m, p.index);
-            p.buffers.mark_pass_dependency_matrix(&mut m, p.index);
+            if active.contains(p.index as usize) {
+                p.textures.mark_pass_dependency_matrix(&mut m, p.index);
+                p.buffers.mark_pass_dependency_matrix(&mut m, p.index);
+            }
         }
         m
+    }
+
+    fn update_resource_topo_group_range(&mut self) {
+        for (i, group) in self.passes_topo_order.iter().enumerate() {
+            for p in group.iter().copied() {
+                let p = &self.passes[p];
+                p.textures
+                    .update_resource_topo_group_range(&mut self.textures, i as u16);
+                p.buffers
+                    .update_resource_topo_group_range(&mut self.buffers, i as u16);
+            }
+        }
     }
 }
 

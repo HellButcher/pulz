@@ -25,7 +25,7 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-use std::{ffi::CStr, sync::Arc};
+use std::{backtrace::Backtrace, ffi::CStr, sync::Arc};
 
 use ash::vk::{self, PipelineStageFlags};
 use bitflags::bitflags;
@@ -54,6 +54,37 @@ use pulz_window::{
     listener::{WindowSystemListener, WindowSystemListeners},
     RawWindow, Window, WindowId, Windows, WindowsMirror,
 };
+
+// wrapper object for printing backtrace, until provide() is stable
+pub struct VkError {
+    result: vk::Result,
+    backtrace: Backtrace,
+}
+
+impl From<vk::Result> for VkError {
+    fn from(result: vk::Result) -> Self {
+        Self {
+            result,
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+impl std::error::Error for VkError {}
+impl std::fmt::Debug for VkError {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <Self as std::fmt::Display>::fmt(&self, f)
+    }
+}
+impl std::fmt::Display for VkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}\nVkResult backtrace:\n{}",
+            self.result, self.backtrace
+        )
+    }
+}
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -89,7 +120,7 @@ pub enum Error {
     SwapchainImageAlreadyAcquired,
 
     #[error("Vulkan Error")]
-    VkError(#[from] vk::Result),
+    VkError(#[from] VkError),
 
     #[error("Allocation Error")]
     AllocationError(#[from] gpu_alloc::AllocationError),
@@ -113,11 +144,16 @@ impl From<ErrorNoExtension> for Error {
         Self::ExtensionNotSupported(e.0)
     }
 }
-
+impl From<vk::Result> for Error {
+    #[inline]
+    fn from(e: vk::Result) -> Self {
+        Self::from(VkError::from(e))
+    }
+}
 impl From<&vk::Result> for Error {
     #[inline]
     fn from(e: &vk::Result) -> Self {
-        Self::VkError(*e)
+        Self::from(*e)
     }
 }
 
@@ -142,13 +178,14 @@ impl Drop for AshRendererFull {
     }
 }
 
-bitflags!(
+bitflags! {
     /// Instance initialization flags.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
     pub struct AshRendererFlags: u32 {
         /// Generate debug information in shaders and objects.
         const DEBUG = 1 << 0;
     }
-);
+}
 
 struct Frame {
     // TODO: multi-threaded command recording: CommandPool per thread
@@ -156,6 +193,7 @@ struct Frame {
     finished_fence: vk::Fence, // signaled ad end of command-cueue, waited at beginning of frame
     finished_semaphore: vk::Semaphore, // semaphore used for presenting to the swapchain
     retired_swapchains: Vec<vk::SwapchainKHR>,
+    retired_image_views: Vec<vk::ImageView>,
 }
 
 impl Frame {
@@ -176,10 +214,15 @@ impl Frame {
             finished_fence: finished_fence.take(),
             finished_semaphore: finished_semaphore.take(),
             retired_swapchains: Vec::new(),
+            retired_image_views: Vec::new(),
         })
     }
 
     unsafe fn reset(&mut self, device: &AshDevice) -> Result<(), vk::Result> {
+        for image_view in self.retired_image_views.drain(..) {
+            device.destroy_image_view(image_view, None);
+        }
+
         if let Ok(ext_swapchain) = device.ext_swapchain() {
             for swapchain in self.retired_swapchains.drain(..) {
                 ext_swapchain.destroy_swapchain(swapchain, None);
@@ -214,14 +257,13 @@ impl Drop for Frame {
 impl AshRendererFull {
     fn from_device(device: Arc<AshDevice>) -> Self {
         let res = AshResources::new(&device);
-        let graph = AshRenderGraph::new(&device);
         Self {
             device,
             res,
             frames: Vec::with_capacity(Frame::NUM_FRAMES_IN_FLIGHT),
             current_frame: 0,
             surfaces: WindowsMirror::new(),
-            graph,
+            graph: AshRenderGraph::new(),
         }
     }
 
@@ -233,7 +275,8 @@ impl AshRendererFull {
                 continue;
             };
             //TODO: re-create also the surface, when SURFACE_LOST was returned in earlier calls.
-            //TODO: better resize check (don't compare size, but use a 'dirty'-flag)
+            //TODO: better resize check (don't compare size, but use a 'dirty'-flag, or listener)
+            //TODO: sync
             if window.size != surface_swapchain.size() {
                 info!(
                     "surface sized changed: {} => {}",
@@ -252,6 +295,7 @@ impl AshRendererFull {
                     .unwrap();
             }
         }
+        //TODO: sync
         for window_id in to_remove {
             self.surfaces.remove(window_id);
         }
@@ -301,25 +345,27 @@ impl AshRendererFull {
         &mut self,
         submission_group: &mut SubmissionGroup,
     ) -> Result<()> {
-        let count = self.get_num_unacquired_swapchains();
-        if count == 0 {
+        let unaquired_swapchains: Vec<_> = self
+            .surfaces
+            .iter()
+            .filter_map(|(id, s)| if s.is_acquired() { None } else { Some(id) })
+            .collect();
+        if unaquired_swapchains.is_empty() {
             return Ok(());
         }
 
         // TODO: try to clear with empty render-pass
         let _span = tracing::trace_span!("ClearImages").entered();
-        let frame = &mut self.frames[self.current_frame];
-        let mut encoder = frame.command_pool.encoder()?;
-        encoder.begin_debug_label("ClearImages");
 
-        let mut images = Vec::with_capacity(count);
-        for (_window_id, surface_swapchain) in &mut self.surfaces {
-            if !surface_swapchain.is_acquired() {
-                let sem = encoder.request_semaphore()?;
-                submission_group.wait(sem, PipelineStageFlags::TRANSFER);
-                if let Some(img) = surface_swapchain.acquire_next_image(0, sem)? {
-                    images.push((img.image, surface_swapchain.clear_value()));
-                }
+        let mut images = Vec::with_capacity(unaquired_swapchains.len());
+        for window_id in unaquired_swapchains.iter().copied() {
+            let sem = self.frames[self.current_frame]
+                .command_pool
+                .request_semaphore()?;
+            submission_group.wait(sem, PipelineStageFlags::TRANSFER);
+            if let Some(texture) = self.acquire_swapchain_image(window_id, 0, sem)? {
+                let image = self.res.textures[texture].0;
+                images.push((image, self.surfaces[window_id].clear_value()));
             }
         }
 
@@ -342,6 +388,11 @@ impl AshRendererFull {
                     .build()
             })
             .collect::<Vec<_>>();
+
+        let frame = &mut self.frames[self.current_frame];
+        let mut encoder = frame.command_pool.encoder()?;
+        encoder.begin_debug_label("ClearImages");
+
         unsafe {
             encoder.pipeline_barrier(
                 vk::PipelineStageFlags::TOP_OF_PIPE,
@@ -426,7 +477,9 @@ impl AshRendererFull {
         self.reconfigure_swapchains(windows);
         // TODO: maybe graph needs to consider updated swapchain format & dimensions?
 
-        self.graph.update(src_graph, &mut self.res).unwrap();
+        self.graph
+            .update(src_graph, &mut self.res, &self.surfaces)
+            .unwrap();
 
         let mut submission_group = self.begin_frame().unwrap();
         self.render_frame(&mut submission_group, src_graph, draw_phases)
@@ -477,10 +530,9 @@ impl AshRenderer {
         window_raw: &dyn RawWindow,
     ) -> Result<&mut AshRendererFull> {
         if let AshRendererInner::Full(renderer) = &mut self.0 {
-            renderer.surfaces.remove(window_id); // replaces old surface
             let surface = renderer.device.instance().new_surface(window_raw)?;
             let swapchain = renderer.device.new_swapchain(surface, window_descriptor)?;
-            renderer.surfaces.insert(window_id, swapchain);
+            renderer.insert_swapchain(swapchain, window_id)?;
         } else {
             let AshRendererInner::Early { instance, .. } = &self.0 else {
                 unreachable!()
@@ -489,7 +541,7 @@ impl AshRenderer {
             let device = instance.new_device(surface.raw())?;
             let swapchain = device.new_swapchain(surface, window_descriptor)?;
             let mut renderer = AshRendererFull::from_device(device);
-            renderer.surfaces.insert(window_id, swapchain);
+            renderer.insert_swapchain(swapchain, window_id)?;
             self.0 = AshRendererInner::Full(renderer);
         }
         let AshRendererInner::Full(renderer) = &mut self.0 else {
