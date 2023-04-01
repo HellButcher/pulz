@@ -25,7 +25,7 @@ impl Default for BufferDescriptor {
 }
 
 bitflags! {
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
     pub struct BufferUsage: u32 {
         const TRANSFER_SRC = 1;
         const TRANSFER_DST = 2;

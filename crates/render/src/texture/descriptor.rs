@@ -242,7 +242,7 @@ impl Default for TextureFormat {
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct TextureAspects: u32 {
         const COLOR = 1;
         const DEPTH = 2;
@@ -260,24 +260,24 @@ impl Default for TextureAspects {
 }
 
 bitflags! {
-  #[derive(Default, Serialize, Deserialize)]
-  pub struct TextureUsage: u32 {
-      const TRANSFER_SRC = 1;
-      const TRANSFER_DST = 2;
-      const SAMPLED = 4;
-      const STORAGE = 8;
-      const COLOR_ATTACHMENT = 16;
-      const DEPTH_STENCIL_ATTACHMENT = 32;
-      const INPUT_ATTACHMENT = 64;
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+    pub struct TextureUsage: u32 {
+        const TRANSFER_SRC = 1;
+        const TRANSFER_DST = 2;
+        const SAMPLED = 4;
+        const STORAGE = 8;
+        const COLOR_ATTACHMENT = 16;
+        const DEPTH_STENCIL_ATTACHMENT = 32;
+        const INPUT_ATTACHMENT = 64;
 
-      // modifiers
-      const BY_REGION = 128;
+        // modifiers
+        const BY_REGION = 128;
 
-      const NONE = 0;
-      const ALL_READ = Self::TRANSFER_SRC.bits | Self::SAMPLED.bits | Self::INPUT_ATTACHMENT.bits;
-      const ALL_WRITE = Self::TRANSFER_DST.bits | Self::STORAGE.bits | Self::COLOR_ATTACHMENT.bits | Self::DEPTH_STENCIL_ATTACHMENT.bits;
-      const ALL_ATTACHMENTS = Self::COLOR_ATTACHMENT.bits | Self::DEPTH_STENCIL_ATTACHMENT.bits | Self::INPUT_ATTACHMENT.bits;
-  }
+        const NONE = 0;
+        const ALL_READ = Self::TRANSFER_SRC.bits() | Self::SAMPLED.bits() | Self::INPUT_ATTACHMENT.bits();
+        const ALL_WRITE = Self::TRANSFER_DST.bits() | Self::STORAGE.bits() | Self::COLOR_ATTACHMENT.bits() | Self::DEPTH_STENCIL_ATTACHMENT.bits();
+        const ALL_ATTACHMENTS = Self::COLOR_ATTACHMENT.bits() | Self::DEPTH_STENCIL_ATTACHMENT.bits() | Self::INPUT_ATTACHMENT.bits();
+    }
 }
 
 impl TextureUsage {

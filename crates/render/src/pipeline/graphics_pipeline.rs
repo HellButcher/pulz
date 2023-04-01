@@ -452,7 +452,7 @@ pub enum BlendFactor {
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct ColorWrite: u32 {
         const RED = 1;
         const GREEN = 2;

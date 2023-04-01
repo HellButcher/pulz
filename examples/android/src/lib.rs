@@ -43,7 +43,9 @@ pub fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
     // #[cfg(debug_assertions)]
     // std::env::set_var("RUST_BACKTRACE", "1");
-    android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Info));
+    android_logger::init_once(
+        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+    );
 
     let event_loop = EventLoopBuilder::new().with_android_app(app).build();
     let (resources, _window, window_system) = init(&event_loop);

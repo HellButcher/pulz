@@ -53,6 +53,7 @@ impl ResourceAccess for Buffer {
 }
 
 bitflags! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Stage: u32 {
         // const TOP_OF_PIPE = 0x00000001;
         const DRAW_INDIRECT = 0x00000002;
@@ -81,6 +82,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
     pub struct ShaderStage: u32 {
         // SUBSET of Stage
         const VERTEX = 0x00000008;
@@ -97,9 +99,8 @@ bitflags! {
 
 impl ShaderStage {
     #[inline]
-    pub fn as_stage(self) -> Stage {
-        // SAFETY: bits are a subset of Stage
-        unsafe { Stage::from_bits_unchecked(self.bits) }
+    pub const fn as_stage(self) -> Stage {
+        Stage::from_bits_truncate(self.bits())
     }
 }
 

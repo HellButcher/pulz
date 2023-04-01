@@ -28,7 +28,7 @@ image = { workspace = true, default-features = false }
 slotmap = { workspace = true }
 bytemuck = { workspace = true }
 fnv = { workspace = true }
-bitflags = { workspace = true }
+bitflags = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 downcast-rs = { workspace = true }

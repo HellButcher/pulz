@@ -19,7 +19,7 @@ edition = "2024"
 rust-version = "1.86"
 
 [workspace.dependencies]
-glam = "0.22"
+glam = "0.23"
 serde = "1.0"
 raw-window-handle = "0.5"
 slotmap = "1.0"
@@ -27,7 +27,7 @@ typemap = "0.3"
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
-bitflags = "1.3"
+bitflags = "2.0"
 fnv = "1.0"
 radsort = "0.1"
 bytemuck = "1.13"
@@ -40,8 +40,8 @@ backtrace = "0.3"
 atomic_refcell = "0.1"
 palette = { version = "0.6", default-features = false }
 image = { version = "0.24", default-features = false }
-encase = { version = "0.4", features = ["glam"], default-features = false }
-encase_derive_impl = { version = "0.4" }
+encase = { version = "0.5", features = ["glam"], default-features = false }
+encase_derive_impl = { version = "0.5" }
 crossbeam-utils = "0.8"
 darling = "0.20"
 proc-macro2 = "1.0"
