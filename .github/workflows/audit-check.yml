@@ -10,6 +10,8 @@ on:
       - "**/Cargo.*"
   # and on pull-requests into the main-branch
   pull_request:
+    paths:
+      - "**/Cargo.*"
     branches:
       - main
 
@@ -21,7 +23,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/audit-check@v1
+      - uses: actions/checkout@v3
+      - uses: rustsec/audit-check@v1.4.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
