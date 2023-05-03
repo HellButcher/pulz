@@ -50,10 +50,7 @@ impl ComponentStructArgs {
     fn validate(self) -> Result<Self> {
         if self.sparse.is_present() && self.storage.is_some() {
             const MSG: &str = "either provide `sparse` or `storage`, but not both!";
-            return Err(Error::multiple(vec![
-                Error::custom(MSG).with_span(&self.sparse),
-                Error::custom(MSG).with_span(&self.storage),
-            ]));
+            return Err(Error::custom(MSG));
         }
         Ok(self)
     }
