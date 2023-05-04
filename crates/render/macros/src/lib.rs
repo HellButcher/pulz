@@ -15,7 +15,7 @@ mod compile_shader;
 pub fn derive_as_binding_layout(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     binding_layout::derive_as_binding_layout(input)
-        .unwrap_or_else(|err| err.to_compile_error())
+        .unwrap_or_else(|err| err.write_errors())
         .into()
 }
 

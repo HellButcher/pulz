@@ -207,7 +207,14 @@ impl GraphBackend for AshGraphBackend<'_> {
         TextureFormat,
         TextureDimensions,
     ) {
-        let swapchain = self.surfaces.get(window_id).expect("swapchain not initialized");
-        (swapchain.texture_id(), swapchain.texture_format(), TextureDimensions::D2(swapchain.size()))
+        let swapchain = self
+            .surfaces
+            .get(window_id)
+            .expect("swapchain not initialized");
+        (
+            swapchain.texture_id(),
+            swapchain.texture_format(),
+            TextureDimensions::D2(swapchain.size()),
+        )
     }
 }

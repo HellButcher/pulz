@@ -9,9 +9,11 @@ use pulz_window::{WindowDescriptor, WindowId};
 use pulz_window_winit::{winit, WinitWindowModule, WinitWindowSystem};
 use winit::{
     event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget},
-    platform::android::activity::AndroidApp,
     window::Window,
 };
+
+#[cfg(target_os = "android")]
+use platform::android::activity::AndroidApp;
 
 fn init(event_loop: &EventLoopWindowTarget<()>) -> (Resources, Rc<Window>, WinitWindowSystem) {
     info!("Initializing...");
@@ -38,6 +40,7 @@ fn setup_demo_scene(resources: &mut Resources, window: WindowId) {
         .insert(RenderTarget::Window(window));
 }
 
+#[cfg(target_os = "android")]
 #[no_mangle]
 pub fn android_main(app: AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;

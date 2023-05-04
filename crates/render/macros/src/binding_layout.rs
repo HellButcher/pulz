@@ -1,7 +1,7 @@
-use darling::{FromMeta, ToTokens};
+use darling::{export::NestedMeta, Error, Result, ToTokens, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, TokenStreamExt};
-use syn::{Attribute, DeriveInput, Error, Lit, Meta, NestedMeta, Result};
+use syn::{Attribute, Data, DeriveInput, Expr, Fields, Lit, LitInt, Meta};
 
 use crate::utils::resolve_render_crate;
 
@@ -45,6 +45,28 @@ pub fn derive_as_binding_layout(input: DeriveInput) -> Result<TokenStream> {
 
     let mut layouts = Vec::new();
 
+    let input_struct = match input.data {
+        Data::Struct(input_struct) => input_struct,
+        Data::Enum(_) => return Err(Error::unsupported_shape_with_expected("enum", &"struct")),
+        Data::Union(_) => return Err(Error::unsupported_shape_with_expected("union", &"struct")),
+    };
+    match input_struct.fields {
+        Fields::Unit => {}
+        Fields::Named(_fields) => {
+            // TODO: named fields
+        }
+        Fields::Unnamed(fields) => {
+            if fields.unnamed.len() == 1 {
+                // TODO: newtype / wrapper
+            } else {
+                return Err(Error::unsupported_shape_with_expected(
+                    "tuple",
+                    &"named struct",
+                ));
+            }
+        }
+    }
+
     if let Some(BindingLayoutArgs {
         binding_type,
         binding_index,
@@ -52,10 +74,7 @@ pub fn derive_as_binding_layout(input: DeriveInput) -> Result<TokenStream> {
     }) = BindingLayoutArgs::from_attributes(&input.attrs)?
     {
         if binding_type != BindingType::Uniform {
-            return Err(Error::new(
-                ident.span(),
-                "only uniform is allowed on struct",
-            ));
+            return Err(Error::custom("only uniform is allowed on struct").with_span(&ident));
         }
 
         layouts.push(quote! {
@@ -77,7 +96,7 @@ pub fn derive_as_binding_layout(input: DeriveInput) -> Result<TokenStream> {
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct BindingLayoutArgs {
     binding_type: BindingType,
-    binding_index: Lit,
+    binding_index: LitInt,
     options: BindingLayoutOptions,
 }
 
@@ -85,52 +104,80 @@ pub struct BindingLayoutArgs {
 pub struct BindingLayoutOptions {}
 
 impl BindingLayoutArgs {
-    fn from_attributes(attribs: &[Attribute]) -> Result<Option<Self>> {
+    fn from_attributes(attrs: &[Attribute]) -> Result<Option<Self>> {
+        let mut errors = Error::accumulator();
         let mut binding_type = None;
         let mut binding_index = None;
-        let mut options = BindingLayoutOptions::default();
-        for attr in attribs {
-            if let Some(ident) = attr.path.get_ident() {
+        let mut meta_list = Vec::new();
+        for attr in attrs {
+            if let Some(ident) = attr.path().get_ident() {
                 if let Some(t) = BindingType::from_ident(ident) {
-                    if binding_type.is_some() {
-                        return Err(Error::new(
-                            ident.span(),
-                            "only a single attribute is allowed",
-                        ));
+                    if binding_type.is_none() {
+                        binding_type = Some(t);
+                    } else if binding_type != Some(t) {
+                        errors.push(
+                            Error::custom("only a single attribute is allowed").with_span(ident),
+                        );
                     }
-                    binding_type = Some(t);
-                    match attr.parse_meta()? {
+                    match &attr.meta {
                         Meta::List(meta) => {
-                            let path = meta.path;
-                            let mut it = meta.nested.into_iter();
-                            if let Some(NestedMeta::Lit(lit)) = it.next() {
-                                binding_index = Some(lit);
-                                let more_args: Vec<_> = it.collect();
-                                options = BindingLayoutOptions::from_list(&more_args)?;
+                            let mut items = darling::export::NestedMeta::parse_meta_list(
+                                meta.tokens.to_token_stream(),
+                            )?;
+                            if let Some(NestedMeta::Lit(Lit::Int(index))) = items.first() {
+                                if binding_index.is_none() {
+                                    binding_index = Some(index.clone());
+                                } else {
+                                    errors.push(
+                                        Error::duplicate_field("binding_index").with_span(index),
+                                    );
+                                }
+                                meta_list.extend_from_slice(&items[1..]);
                             } else {
-                                return Err(Error::new_spanned(path, "a binding-index is missing"));
+                                meta_list.append(&mut items);
                             }
                         }
                         Meta::NameValue(meta) => {
-                            binding_index = Some(meta.lit);
+                            if binding_index.is_none() {
+                                if let Some(index) = errors.handle(parse_index(&meta.value)) {
+                                    binding_index = Some(index);
+                                }
+                            } else {
+                                errors.push(
+                                    Error::duplicate_field("binding_index").with_span(&meta.value),
+                                );
+                            }
                         }
-                        Meta::Path(path) => {
-                            return Err(Error::new_spanned(path, "a binding-index is missing"));
-                        }
+                        Meta::Path(path) => {}
                     }
-                    // TODO: parse index
                 }
             }
         }
-        if let Some(binding_type) = binding_type {
-            Ok(Some(BindingLayoutArgs {
-                binding_type,
-                binding_index: binding_index.unwrap(),
-                options,
-            }))
+        errors.finish()?;
+        let Some(binding_type) = binding_type else {
+            return Ok(None);
+        };
+        let Some(binding_index) = binding_index else {
+            return Err(Error::missing_field("binding_index"));
+        };
+        let options = BindingLayoutOptions::from_list(&meta_list)?;
+        Ok(Some(Self {
+            binding_type,
+            binding_index,
+            options,
+        }))
+    }
+}
+
+fn parse_index(expr: &Expr) -> Result<LitInt> {
+    if let Expr::Lit(lit) = expr {
+        if let Lit::Int(index) = &lit.lit {
+            Ok(index.clone())
         } else {
-            Ok(None)
+            Err(Error::unexpected_lit_type(&lit.lit))
         }
+    } else {
+        Err(Error::unexpected_expr_type(expr))
     }
 }
 
@@ -239,7 +286,7 @@ mod tests {
             args,
             Some(BindingLayoutArgs {
                 binding_type: BindingType::Uniform,
-                binding_index: Lit::Int(LitInt::new("2", Span::call_site())),
+                binding_index: LitInt::new("2", Span::call_site()),
                 options: BindingLayoutOptions {},
             })
         );

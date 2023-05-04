@@ -1,17 +1,21 @@
 use std::sync::Arc;
 
 use ash::{extensions::khr, vk};
-use pulz_render::{math::uvec2, texture::{Texture, TextureFormat}};
+use pulz_render::{
+    math::uvec2,
+    texture::{Texture, TextureFormat},
+};
 use pulz_window::{RawWindow, Size2, Window, WindowId};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use slotmap::Key;
 use tracing::debug;
 
 use crate::{
+    convert::VkInto,
     device::AshDevice,
     drop_guard::{Destroy, Guard},
     instance::AshInstance,
-    AshRendererFull, Error, Result, convert::VkInto,
+    AshRendererFull, Error, Result,
 };
 
 pub struct Surface {

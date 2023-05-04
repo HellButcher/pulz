@@ -2,9 +2,15 @@ use std::borrow::Cow;
 
 mod preprocessor;
 
-pub use ::encase::*;
-pub use ::pulz_render_macros::ShaderType;
 use serde::{Deserialize, Serialize};
+
+mod encase {
+    pub use ::encase::{private, ShaderSize, ShaderType};
+}
+pub use ::pulz_render_macros::ShaderType;
+
+#[doc(hidden)]
+pub use self::encase::*;
 
 crate::backend::define_gpu_resource!(ShaderModule, ShaderModuleDescriptor<'l>);
 

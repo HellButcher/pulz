@@ -99,8 +99,8 @@ pub fn convert_texture_view_descriptor(val: &TextureDescriptor) -> wgpu::Texture
 pub fn convert_image_data_layout(image: &ImageDataLayout) -> wgpu::ImageDataLayout {
     wgpu::ImageDataLayout {
         offset: 0,
-        bytes_per_row: std::num::NonZeroU32::new(image.bytes_per_row),
-        rows_per_image: std::num::NonZeroU32::new(image.rows_per_image),
+        bytes_per_row: Some(image.bytes_per_row),
+        rows_per_image: Some(image.rows_per_image),
     }
 }
 
