@@ -21,6 +21,7 @@
     // clippy::missing_panics_doc,
     clippy::wildcard_imports
 )]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo.png")]
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
@@ -69,15 +70,6 @@ impl WinitWindows {
         self.windows.get(id).map(Deref::deref)
     }
 
-    fn update_window_descriptor(
-        window_descriptor: &mut WindowDescriptor,
-        winit_window: &winit::window::Window,
-    ) {
-        window_descriptor.scale_factor = winit_window.scale_factor();
-        let phys_size: [u32; 2] = winit_window.inner_size().into();
-        window_descriptor.size = phys_size.into();
-    }
-
     fn close(&mut self, window_id: WindowId) -> bool {
         let Some(window) = self.windows.remove(window_id) else {
             return false;
@@ -94,6 +86,22 @@ impl std::ops::Index<WindowId> for WinitWindows {
     fn index(&self, id: WindowId) -> &Self::Output {
         &self.windows[id]
     }
+}
+
+fn update_window_descriptor(
+    window_descriptor: &mut WindowDescriptor,
+    winit_window: &winit::window::Window,
+) {
+    window_descriptor.scale_factor = winit_window.scale_factor();
+    let phys_size: [u32; 2] = winit_window.inner_size().into();
+    window_descriptor.size = phys_size.into();
+}
+
+fn descriptor_from_window(winit_window: &WinitWindow) -> WindowDescriptor {
+    let mut descriptor = WindowDescriptor::new();
+    descriptor.title = winit_window.title().into();
+    update_window_descriptor(&mut descriptor, winit_window);
+    descriptor
 }
 
 fn builder_for_descriptor(descriptor: &WindowDescriptor) -> winit::window::WindowBuilder {
@@ -137,14 +145,13 @@ impl WinitWindowModule {
     ) -> Result<Self, OsError> {
         let builder = builder_for_descriptor(&descriptor);
         let window = Rc::new(builder.build(event_loop)?);
-        WinitWindows::update_window_descriptor(&mut descriptor, &window);
+        update_window_descriptor(&mut descriptor, &window);
         Ok(Self { descriptor, window })
     }
 
     pub fn from_window(window: impl Into<Rc<WinitWindow>>) -> Self {
         let window: Rc<WinitWindow> = window.into();
-        let mut descriptor = WindowDescriptor::default();
-        WinitWindows::update_window_descriptor(&mut descriptor, &window);
+        let descriptor = descriptor_from_window(&window);
         Self { descriptor, window }
     }
 }
@@ -168,14 +175,14 @@ impl WinitWindowSystemMut<'_> {
     ) -> Result<(WindowId, Rc<WinitWindow>), OsError> {
         let builder = builder_for_descriptor(&descriptor);
         let window = Rc::new(builder.build(event_loop)?);
-        WinitWindows::update_window_descriptor(&mut descriptor, &window);
+        update_window_descriptor(&mut descriptor, &window);
         let window_id = self.add_winit_window_with_descriptor(descriptor, window.clone());
         Ok((window_id, window))
     }
 
-    pub fn add_winit_window(&mut self, window: Rc<WinitWindow>) -> WindowId {
-        let mut descriptor = WindowDescriptor::default();
-        WinitWindows::update_window_descriptor(&mut descriptor, &window);
+    pub fn add_winit_window(&mut self, window: impl Into<Rc<WinitWindow>>) -> WindowId {
+        let window: Rc<WinitWindow> = window.into();
+        let descriptor = descriptor_from_window(&window);
         self.add_winit_window_with_descriptor(descriptor, window)
     }
 
@@ -239,7 +246,7 @@ impl WinitWindowSystemMut<'_> {
             } else {
                 let builder = builder_for_descriptor(window_descr);
                 let winit_window = Rc::new(builder.build(event_loop)?);
-                WinitWindows::update_window_descriptor(window_descr, &winit_window);
+                update_window_descriptor(window_descr, &winit_window);
                 self.winit_windows.insert(window_id, winit_window.clone());
                 self.listeners
                     .call_on_created(res, window_id, window_descr, &winit_window);
@@ -386,7 +393,8 @@ impl WinitWindowSystem {
         target_os = "dragonfly",
         target_os = "freebsd",
         target_os = "netbsd",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        doc
     ))]
     pub fn run_return<T>(
         &mut self,
@@ -411,26 +419,29 @@ impl WinitWindowSystem {
         result
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", doc))]
     pub fn spawn<T>(mut self, mut resources: Resources, event_loop: EventLoop<T>) {
-        use winit::platform::web::EventLoopExtWebSys;
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::platform::web::EventLoopExtWebSys;
 
-        let schedule_id = resources.init_unsend::<Schedule>();
-        let mut schedule = resources.remove_id(schedule_id).unwrap();
+            let schedule_id = resources.init_unsend::<Schedule>();
+            let mut schedule = resources.remove_id(schedule_id).unwrap();
 
-        let event_loop_span = tracing::trace_span!("EventLoop");
+            let event_loop_span = tracing::trace_span!("EventLoop");
 
-        event_loop.spawn(move |event, event_loop, control_flow| {
-            let span = event_loop_span.enter();
-            self.handle_event(
-                &mut resources,
-                &mut schedule,
-                event,
-                event_loop,
-                control_flow,
-            );
-            drop(span);
-        })
+            event_loop.spawn(move |event, event_loop, control_flow| {
+                let span = event_loop_span.enter();
+                self.handle_event(
+                    &mut resources,
+                    &mut schedule,
+                    event,
+                    event_loop,
+                    control_flow,
+                );
+                drop(span);
+            })
+        }
     }
 }
 

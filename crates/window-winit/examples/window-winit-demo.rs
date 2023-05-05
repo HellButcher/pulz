@@ -37,7 +37,7 @@ fn main() {
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use wasm_bindgen::prelude::*;
-    use winit::platform::web::WindowExtWebSys;
+    use winit::platform::web::*;
 
     console_error_panic_hook::set_once();
     tracing_log::LogTracer::init().expect("unable to create log-tracer");
