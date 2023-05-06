@@ -73,7 +73,7 @@ impl std::error::Error for VkError {}
 impl std::fmt::Debug for VkError {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <Self as std::fmt::Display>::fmt(&self, f)
+        <Self as std::fmt::Display>::fmt(self, f)
     }
 }
 impl std::fmt::Display for VkError {
@@ -390,7 +390,7 @@ impl AshRendererFull {
             .collect::<Vec<_>>();
 
         let frame = &mut self.frames[self.current_frame];
-        let mut encoder = frame.command_pool.encoder()?;
+        let encoder = frame.command_pool.encoder()?;
         encoder.begin_debug_label("ClearImages");
 
         unsafe {

@@ -21,7 +21,6 @@ pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" 
 atomic_refcell = { workspace = true }
 serde = { workspace = true }
 ambassador = { workspace = true }
-typemap = { workspace = true }
 dynsequence = { workspace = true }
 palette = { workspace = true, features = ["std"], default-features = false }
 image = { workspace = true, default-features = false }

@@ -192,10 +192,10 @@ impl WgpuRendererFull {
     }
 
     fn run(&mut self, windows: &Windows, src_graph: &RenderGraph, _draw_phases: &DrawPhases) {
-        self.reconfigure_surfaces(&windows);
-        self.graph.update(&src_graph);
+        self.reconfigure_surfaces(windows);
+        self.graph.update(src_graph);
         self.aquire_swapchain_images();
-        self.run_graph(&src_graph);
+        self.run_graph(src_graph);
         self.present_swapchain_images();
     }
 }

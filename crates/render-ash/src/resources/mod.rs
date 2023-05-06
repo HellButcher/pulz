@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hasher, ops::Index, sync::Arc};
+use std::{ops::Index, sync::Arc};
 
 use ash::vk;
 use pulz_render::{
@@ -9,6 +9,7 @@ use pulz_render::{
     },
     shader::ShaderModule,
     texture::Texture,
+    utils::hash::U64HashMap,
 };
 use slotmap::SlotMap;
 
@@ -23,50 +24,17 @@ use self::{
     traits::{AshGpuResourceCreate, AshGpuResourceRemove},
 };
 
-#[derive(Default)]
-struct PreHashedHasherHasher(u64);
-type PreHashedHasherBuildHasher = std::hash::BuildHasherDefault<PreHashedHasherHasher>;
-
-impl Hasher for PreHashedHasherHasher {
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        let mut hash = self.0;
-        for byte in bytes.iter() {
-            hash <<= 8;
-            hash |= *byte as u64;
-        }
-        self.0 = hash;
-    }
-
-    #[inline]
-    fn write_u64(&mut self, i: u64) {
-        self.0 = i;
-    }
-
-    #[inline]
-    fn write_i64(&mut self, i: i64) {
-        self.0 = i as u64;
-    }
-}
-
-type PreHashedU64Map<V> = HashMap<u64, V, PreHashedHasherBuildHasher>;
-
 pub struct AshResources {
     device: Arc<AshDevice>,
     record: Option<Box<dyn RecordResource>>,
     pipeline_cache: vk::PipelineCache,
-    graphics_passes_cache: PreHashedU64Map<GraphicsPass>,
-    shader_modules_cache: PreHashedU64Map<ShaderModule>,
-    bind_group_layouts_cache: PreHashedU64Map<BindGroupLayout>,
-    pipeline_layouts_cache: PreHashedU64Map<PipelineLayout>,
-    graphics_pipelines_cache: PreHashedU64Map<GraphicsPipeline>,
-    compute_pipelines_cache: PreHashedU64Map<ComputePipeline>,
-    ray_tracing_pipelines_cache: PreHashedU64Map<RayTracingPipeline>,
+    graphics_passes_cache: U64HashMap<GraphicsPass>,
+    shader_modules_cache: U64HashMap<ShaderModule>,
+    bind_group_layouts_cache: U64HashMap<BindGroupLayout>,
+    pipeline_layouts_cache: U64HashMap<PipelineLayout>,
+    graphics_pipelines_cache: U64HashMap<GraphicsPipeline>,
+    compute_pipelines_cache: U64HashMap<ComputePipeline>,
+    ray_tracing_pipelines_cache: U64HashMap<RayTracingPipeline>,
     pub graphics_passes: SlotMap<GraphicsPass, vk::RenderPass>,
     pub shader_modules: SlotMap<ShaderModule, vk::ShaderModule>,
     pub bind_group_layouts: SlotMap<BindGroupLayout, vk::DescriptorSetLayout>,
@@ -83,13 +51,13 @@ impl AshResources {
         Self {
             device: device.clone(),
             record: None,
-            graphics_passes_cache: HashMap::default(),
-            shader_modules_cache: HashMap::default(),
-            bind_group_layouts_cache: HashMap::default(),
-            pipeline_layouts_cache: HashMap::default(),
-            graphics_pipelines_cache: HashMap::default(),
-            compute_pipelines_cache: HashMap::default(),
-            ray_tracing_pipelines_cache: HashMap::default(),
+            graphics_passes_cache: U64HashMap::default(),
+            shader_modules_cache: U64HashMap::default(),
+            bind_group_layouts_cache: U64HashMap::default(),
+            pipeline_layouts_cache: U64HashMap::default(),
+            graphics_pipelines_cache: U64HashMap::default(),
+            compute_pipelines_cache: U64HashMap::default(),
+            ray_tracing_pipelines_cache: U64HashMap::default(),
             pipeline_cache: vk::PipelineCache::null(),
             graphics_passes: SlotMap::with_key(),
             shader_modules: SlotMap::with_key(),

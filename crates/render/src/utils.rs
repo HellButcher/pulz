@@ -1,13 +1,67 @@
+pub mod hash {
+
+    #[derive(Default)]
+    pub struct SimpleU64Hasher(u64);
+    pub type SimpleU64BuildHasher = std::hash::BuildHasherDefault<SimpleU64Hasher>;
+
+    impl std::hash::Hasher for SimpleU64Hasher {
+        #[inline]
+        fn finish(&self) -> u64 {
+            self.0
+        }
+
+        #[inline]
+        fn write(&mut self, _bytes: &[u8]) {
+            panic!("PreHashedHasherHasher should only be used with u64")
+        }
+
+        #[inline]
+        fn write_u64(&mut self, i: u64) {
+            self.0 = i;
+        }
+
+        #[inline]
+        fn write_i64(&mut self, i: i64) {
+            self.0 = i as u64;
+        }
+    }
+
+    pub type U64HashMap<V> = std::collections::HashMap<u64, V, SimpleU64BuildHasher>;
+    pub type TypeIdHashMap<V> =
+        std::collections::HashMap<std::any::TypeId, V, SimpleU64BuildHasher>;
+}
+
 pub mod serde_slots {
-    use std::{cell::RefCell, marker::PhantomData};
+    use std::{
+        any::{Any, TypeId},
+        cell::RefCell,
+        marker::PhantomData,
+    };
 
-    use fnv::FnvHashMap;
+    use super::hash::{TypeIdHashMap, U64HashMap};
 
-    thread_local! { static CURENT_MAPPER: RefCell<typemap::TypeMap> = RefCell::new(typemap::TypeMap::new()) }
+    thread_local! {
+        static CURENT_MAPPER: RefCell<TypeIdHashMap<Box<dyn Any>>> = RefCell::new(TypeIdHashMap::default());
+    }
 
-    struct SlotTypeKey<K>(PhantomData<K>);
-    impl<K: slotmap::Key + 'static> typemap::Key for SlotTypeKey<K> {
-        type Value = FnvHashMap<u64, K>;
+    struct TypedEntry<K>(U64HashMap<K>);
+
+    impl<K> TypedEntry<K> {
+        fn new() -> Self {
+            Self(U64HashMap::default())
+        }
+        fn new_box_any() -> Box<dyn Any>
+        where
+            K: 'static,
+        {
+            Box::new(Self::new())
+        }
+        fn define(&mut self, k: u64, v: K) -> Option<K> {
+            self.0.insert(k, v)
+        }
+        fn resolve(&self, k: u64) -> Option<&K> {
+            self.0.get(&k)
+        }
     }
     pub struct SlotDeserializationMapper {
         _private: (),
@@ -19,13 +73,21 @@ pub mod serde_slots {
         pub fn define<K: slotmap::Key + 'static>(&mut self, old: u64, new: K) -> Option<K> {
             CURENT_MAPPER.with(|m| {
                 m.borrow_mut()
-                    .entry::<SlotTypeKey<K>>()
-                    .or_insert_with(Default::default)
-                    .insert(old, new)
+                    .entry(TypeId::of::<TypedEntry<K>>())
+                    .or_insert_with(TypedEntry::<K>::new_box_any)
+                    .downcast_mut::<TypedEntry<K>>()
+                    .expect("inconsistend typeid map")
+                    .define(old, new)
             })
         }
         pub fn resolve<K: slotmap::Key + 'static>(&self, old: u64) -> Option<K> {
-            CURENT_MAPPER.with(|m| m.borrow().get::<SlotTypeKey<K>>()?.get(&old).copied())
+            CURENT_MAPPER.with(|m| {
+                m.borrow()
+                    .get(&TypeId::of::<TypedEntry<K>>())?
+                    .downcast_ref::<TypedEntry<K>>()?
+                    .resolve(old)
+                    .copied()
+            })
         }
 
         pub fn with<F, R>(f: F) -> R
@@ -36,8 +98,8 @@ pub mod serde_slots {
             assert!(is_empty, "nested calls are not allowed");
             let mut tmp = Self::INSTANCE;
             let r = f(&mut tmp);
-            CURENT_MAPPER
-                .with(|m| std::mem::replace(&mut *m.borrow_mut(), typemap::TypeMap::new()));
+            // free the map
+            CURENT_MAPPER.with(|m| std::mem::take(&mut *m.borrow_mut()));
             r
         }
     }

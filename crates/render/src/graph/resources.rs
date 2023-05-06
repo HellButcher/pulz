@@ -282,10 +282,8 @@ impl<R: ResourceAccess> ResourceDeps<R> {
     pub(super) fn mark_deps(&self, marks: &mut BitSet, todo: &mut VecDeque<u16>) {
         for dep in &self.0 {
             let pass_index = dep.src_pass();
-            if pass_index != !0 {
-                if marks.insert(pass_index as usize) {
-                    todo.push_back(pass_index);
-                }
+            if pass_index != !0 && marks.insert(pass_index as usize) {
+                todo.push_back(pass_index);
             }
         }
     }

@@ -9,16 +9,16 @@ impl WgpuRenderGraph {
         Self
     }
 
-    pub fn update(&mut self, src_graph: &RenderGraph) {
+    pub fn update(&mut self, _src_graph: &RenderGraph) {
         todo!()
     }
 
     pub fn execute(
         &self,
-        src_graph: &RenderGraph,
+        _src_graph: &RenderGraph,
         encoder: wgpu::CommandEncoder,
     ) -> [wgpu::CommandBuffer; 1] {
-        let mut encoder = WgpuCommandEncoder(encoder);
+        let _encoder = WgpuCommandEncoder(encoder);
         todo!();
         // TODO
         [encoder.finish()]

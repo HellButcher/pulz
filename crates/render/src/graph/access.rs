@@ -67,7 +67,7 @@ impl ResourceAccess for Buffer {
     }
 
     #[inline]
-    fn default_format(usage: Self::Usage) -> Self::Format {}
+    fn default_format(_usage: Self::Usage) -> Self::Format {}
 }
 
 bitflags! {

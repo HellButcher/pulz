@@ -8,7 +8,6 @@ use pulz_render::{
 use pulz_window::{RawWindow, Size2, Window, WindowId};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use slotmap::Key;
-use tracing::debug;
 
 use crate::{
     convert::VkInto,

@@ -1,6 +1,8 @@
 use std::rc::Rc;
 
 use log::info;
+#[cfg(target_os = "android")]
+use platform::android::activity::AndroidApp;
 use pulz_ecs::prelude::*;
 use pulz_render::camera::{Camera, RenderTarget};
 use pulz_render_ash::AshRenderer;
@@ -11,9 +13,6 @@ use winit::{
     event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget},
     window::Window,
 };
-
-#[cfg(target_os = "android")]
-use platform::android::activity::AndroidApp;
 
 fn init(event_loop: &EventLoopWindowTarget<()>) -> (Resources, Rc<Window>, WinitWindowSystem) {
     info!("Initializing...");

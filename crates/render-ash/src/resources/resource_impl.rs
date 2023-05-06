@@ -12,7 +12,7 @@ use slotmap::SlotMap;
 
 use super::{
     traits::{AshGpuResource, AshGpuResourceCached, AshGpuResourceCreate, AshGpuResourceRemove},
-    AshResources, PreHashedU64Map,
+    AshResources, U64HashMap,
 };
 use crate::{
     convert::{CreateInfoConverter2, CreateInfoConverter6, VkInto},
@@ -101,7 +101,7 @@ impl AshGpuResource for GraphicsPass {
 }
 impl AshGpuResourceCached for GraphicsPass {
     #[inline]
-    fn get_hashs_mut(res: &mut AshResources) -> &mut PreHashedU64Map<Self> {
+    fn get_hashs_mut(res: &mut AshResources) -> &mut U64HashMap<Self> {
         &mut res.graphics_passes_cache
     }
 }
@@ -131,7 +131,7 @@ impl AshGpuResource for ShaderModule {
 }
 impl AshGpuResourceCached for ShaderModule {
     #[inline]
-    fn get_hashs_mut(res: &mut AshResources) -> &mut PreHashedU64Map<Self> {
+    fn get_hashs_mut(res: &mut AshResources) -> &mut U64HashMap<Self> {
         &mut res.shader_modules_cache
     }
 }
@@ -161,7 +161,7 @@ impl AshGpuResource for BindGroupLayout {
 }
 impl AshGpuResourceCached for BindGroupLayout {
     #[inline]
-    fn get_hashs_mut(res: &mut AshResources) -> &mut PreHashedU64Map<Self> {
+    fn get_hashs_mut(res: &mut AshResources) -> &mut U64HashMap<Self> {
         &mut res.bind_group_layouts_cache
     }
 }
@@ -191,7 +191,7 @@ impl AshGpuResource for PipelineLayout {
 }
 impl AshGpuResourceCached for PipelineLayout {
     #[inline]
-    fn get_hashs_mut(res: &mut AshResources) -> &mut PreHashedU64Map<Self> {
+    fn get_hashs_mut(res: &mut AshResources) -> &mut U64HashMap<Self> {
         &mut res.pipeline_layouts_cache
     }
 }
@@ -233,7 +233,7 @@ impl AshGpuResource for GraphicsPipeline {
 }
 impl AshGpuResourceCached for GraphicsPipeline {
     #[inline]
-    fn get_hashs_mut(res: &mut AshResources) -> &mut PreHashedU64Map<Self> {
+    fn get_hashs_mut(res: &mut AshResources) -> &mut U64HashMap<Self> {
         &mut res.graphics_pipelines_cache
     }
 }
@@ -275,7 +275,7 @@ impl AshGpuResource for ComputePipeline {
 }
 impl AshGpuResourceCached for ComputePipeline {
     #[inline]
-    fn get_hashs_mut(res: &mut AshResources) -> &mut PreHashedU64Map<Self> {
+    fn get_hashs_mut(res: &mut AshResources) -> &mut U64HashMap<Self> {
         &mut res.compute_pipelines_cache
     }
 }
@@ -315,7 +315,7 @@ impl AshGpuResource for RayTracingPipeline {
 }
 impl AshGpuResourceCached for RayTracingPipeline {
     #[inline]
-    fn get_hashs_mut(res: &mut AshResources) -> &mut PreHashedU64Map<Self> {
+    fn get_hashs_mut(res: &mut AshResources) -> &mut U64HashMap<Self> {
         &mut res.ray_tracing_pipelines_cache
     }
 }

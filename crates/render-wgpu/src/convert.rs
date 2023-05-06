@@ -446,7 +446,7 @@ fn convert_fragment_state<'l, 'r: 'l>(
 
     targets_tmp.reserve_exact(state.targets.len());
     for target in state.targets.as_ref() {
-        targets_tmp.push(convert_color_target_state(&target)?);
+        targets_tmp.push(convert_color_target_state(target)?);
     }
 
     Ok(wgpu::FragmentState {

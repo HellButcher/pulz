@@ -1,12 +1,16 @@
-use std::{hash::Hash, marker::PhantomData, ops::Deref};
+use std::{
+    any::{Any, TypeId},
+    hash::Hash,
+    marker::PhantomData,
+    ops::Deref,
+};
 
 use atomic_refcell::AtomicRefCell;
 use dynsequence::{dyn_sequence, DynSequence};
+use fnv::FnvHashMap as HashMap;
 use pulz_ecs::{prelude::*, resource::ResState, system::param::SystemParam};
 
-use crate::{backend::CommandEncoder, RenderSystemPhase};
-
-type HashMap<K, V> = std::collections::HashMap<K, V, fnv::FnvBuildHasher>;
+use crate::{backend::CommandEncoder, utils::hash::TypeIdHashMap, RenderSystemPhase};
 
 pub type DrawContext<'a> = &'a mut (dyn CommandEncoder + 'a);
 
@@ -65,11 +69,21 @@ pub trait PhaseItem: Send + Sync + Sized + 'static {
 #[doc(hidden)]
 pub struct DrawQueue<I: PhaseItem>(crossbeam_queue::SegQueue<(I::TargetKey, PhaseData<I>)>);
 
-struct KeyType<I: PhaseItem>(PhantomData<fn(&I)>);
-impl<I: PhaseItem> typemap::Key for KeyType<I> {
-    type Value = AtomicRefCell<HashMap<I::TargetKey, PhaseData<I>>>;
-}
+struct PhaseDataMap<I: PhaseItem>(AtomicRefCell<HashMap<I::TargetKey, PhaseData<I>>>);
 
+impl<I: PhaseItem> PhaseDataMap<I> {
+    fn new() -> Self {
+        Self(AtomicRefCell::new(HashMap::default()))
+    }
+
+    fn new_any() -> Box<dyn Any + Send + Sync> {
+        Box::new(Self::new())
+    }
+
+    fn get(&self, target_key: I::TargetKey) -> Option<atomic_refcell::AtomicRef<'_, PhaseData<I>>> {
+        atomic_refcell::AtomicRef::filter_map(self.0.borrow(), |v| v.get(&target_key))
+    }
+}
 pub struct PhaseData<I: PhaseItem> {
     drawables: DynDrawables,
     items: Vec<PhaseDataItem<I>>,
@@ -171,28 +185,39 @@ impl PhaseDraw<'_> {
     }
 }
 
-pub struct DrawPhases(typemap::ShareMap);
+pub struct DrawPhases(TypeIdHashMap<Box<dyn Any + Send + Sync>>);
+
+impl DrawPhases {
+    pub fn new() -> Self {
+        Self(TypeIdHashMap::default())
+    }
+}
+
 impl Default for DrawPhases {
     #[inline]
     fn default() -> Self {
-        Self(typemap::ShareMap::custom())
+        Self::new()
     }
 }
 
 impl DrawPhases {
+    fn get_map<I: PhaseItem>(&self) -> Option<&PhaseDataMap<I>> {
+        self.0
+            .get(&TypeId::of::<PhaseDataMap<I>>())?
+            .downcast_ref::<PhaseDataMap<I>>()
+    }
+
     pub fn get<I: PhaseItem>(
         &self,
         target_key: I::TargetKey,
     ) -> Option<atomic_refcell::AtomicRef<'_, PhaseData<I>>> {
-        self.0
-            .get::<KeyType<I>>()
-            .and_then(|v| atomic_refcell::AtomicRef::filter_map(v.borrow(), |v| v.get(&target_key)))
+        self.get_map::<I>()?.get(target_key)
     }
 
     fn register<I: PhaseItem>(&mut self) {
         self.0
-            .entry::<KeyType<I>>()
-            .or_insert_with(Default::default);
+            .entry(TypeId::of::<PhaseDataMap<I>>())
+            .or_insert_with(PhaseDataMap::<I>::new_any);
     }
 }
 
@@ -225,7 +250,7 @@ impl<I: PhaseItem> Default for DrawQueue<I> {
 }
 
 fn collect_and_sort_draws_system<I: PhaseItem>(queue: &mut DrawQueue<I>, phases: &DrawPhases) {
-    let mut phase_map = phases.0.get::<KeyType<I>>().unwrap().borrow_mut();
+    let mut phase_map = phases.get_map::<I>().unwrap().0.borrow_mut();
 
     // clear sequences
     for phase_data in phase_map.values_mut() {

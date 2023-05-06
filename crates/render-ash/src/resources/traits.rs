@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use pulz_render::backend::GpuResource;
 use slotmap::SlotMap;
 
-use super::{replay::AsResourceRecord, AshResources, PreHashedU64Map};
+use super::{replay::AsResourceRecord, AshResources, U64HashMap};
 use crate::{device::AshDevice, Result};
 
 pub trait AshGpuResource: GpuResource + 'static {
@@ -33,7 +33,7 @@ where
         hash_one(descr)
     }
 
-    fn get_hashs_mut(res: &mut AshResources) -> &mut PreHashedU64Map<Self>;
+    fn get_hashs_mut(res: &mut AshResources) -> &mut U64HashMap<Self>;
 }
 
 pub trait AshGpuResourceCreate: AshGpuResource {
