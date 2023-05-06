@@ -25,8 +25,6 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-use std::rc::Rc;
-
 use convert::ConversionError;
 use graph::WgpuRenderGraph;
 use pulz_ecs::prelude::*;
@@ -205,6 +203,7 @@ impl WgpuRendererFull {
 #[allow(clippy::large_enum_variant)]
 enum WgpuRendererInner {
     #[cfg(not(target_arch = "wasm32"))]
+    // for delaying full initialization until first surface is created.
     Early {
         instance: wgpu::Instance,
     },
@@ -228,11 +227,16 @@ impl WgpuRenderer {
         }
         #[cfg(target_arch = "wasm32")]
         {
+            // full-initialization on wasm32:
+            // Adapter-initialization is async, and we can not block on wasm.
+            // Delay of initialisation is not needed on wasm, because we don't
+            // depend on the surface being created for getting a compatible adapter.
             let adapter = Self::default_adapter(&instance, None).await?;
             let renderer = Self::for_adapter(instance, adapter).await?;
             return Ok(Self(WgpuRendererInner::Full(renderer)));
         }
         #[cfg(not(target_arch = "wasm32"))]
+        // Delay full initialisation until first surface is created.
         Ok(Self(WgpuRendererInner::Early { instance }))
     }
 
@@ -262,6 +266,7 @@ impl WgpuRenderer {
             let surface = Surface::create(&renderer.instance, window_descriptor, window_raw)?;
             renderer.surfaces.insert(window_id, surface);
         } else {
+            // Delayed initialization
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let WgpuRendererInner::Early { instance } = std::mem::replace(&mut self.0, WgpuRendererInner::Tmp) else {
@@ -324,8 +329,6 @@ impl WindowSystemListener for WgpuRendererInitWindowSystemListener {
             .init_window(window_id, window_desc, window_raw)
             .unwrap();
     }
-
-    #[cfg(not(target_arch = "wasm32"))]
     fn on_resumed(&self, res: &Resources) {
         let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
         renderer.init().unwrap();

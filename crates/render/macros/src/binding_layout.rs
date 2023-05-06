@@ -1,4 +1,4 @@
-use darling::{export::NestedMeta, Error, Result, ToTokens, FromMeta};
+use darling::{export::NestedMeta, Error, FromMeta, Result, ToTokens};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, TokenStreamExt};
 use syn::{Attribute, Data, DeriveInput, Expr, Fields, Lit, LitInt, Meta};
