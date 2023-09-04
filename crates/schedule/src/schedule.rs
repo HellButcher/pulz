@@ -103,7 +103,7 @@ impl DependencyGraph {
             loop {
                 let mut changed = false;
                 for node in self.nodes.iter() {
-                    // a node becomes READY, its parent is also READY, and if all its dependencies are COMPLETED.
+                    // a node becomes READY, if its parent is also READY, and if all its dependencies are COMPLETED.
                     if !ready.contains(node.index)
                         && (node.parent == !0 || ready.contains(node.parent))
                         && completed.contains_all(&node.dependencies)
@@ -302,10 +302,16 @@ impl Schedule {
         &mut self,
         system: impl IntoSystemDescriptor<Marker>,
     ) -> SystemEntryBuilder<'_> {
-        let i = self.add_system_inner(system.into_system_descriptor());
+        self._add_system(system.into_system_descriptor())
+    }
+
+    fn _add_system(&mut self, system: SystemDescriptor) -> SystemEntryBuilder<'_> {
+        self.dirty = true;
+        let index = self.systems.len();
+        self.systems.push(system);
         SystemEntryBuilder {
             graph: &mut self.graph,
-            id: SystemId(i),
+            id: SystemId(index),
             dependency_node: !0,
             phase: UndefinedSystemPhase::Undefined.as_label(),
         }
@@ -342,13 +348,6 @@ impl Schedule {
 
     fn has_exclusive_systems(&self) -> bool {
         self.systems.iter().any(|s| s.is_exclusive())
-    }
-
-    fn add_system_inner(&mut self, system: SystemDescriptor) -> usize {
-        self.dirty = true;
-        let index = self.systems.len();
-        self.systems.push(system);
-        index
     }
 
     fn get_system_accesses<'a>(

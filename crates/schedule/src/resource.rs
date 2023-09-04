@@ -12,7 +12,7 @@ use atomic_refcell::AtomicRefCell;
 pub use atomic_refcell::{AtomicRef as Res, AtomicRefMut as ResMut};
 use pulz_bitset::BitSet;
 
-use crate::system::param::{SystemParam, SystemParamFetch, SystemParamState};
+use crate::system::data::{SystemData, SystemDataFetch, SystemDataState};
 
 #[repr(transparent)]
 pub struct ResourceId<T = crate::Void>(usize, PhantomData<fn() -> T>);
@@ -88,11 +88,11 @@ struct Resource {
 unsafe impl Send for Resource {}
 unsafe impl Sync for Resource {}
 
-pub struct TakenRes<T> {
+pub struct RemovedResource<T> {
     id: ResourceId,
     value: Box<T>,
 }
-impl<T> TakenRes<T> {
+impl<T> RemovedResource<T> {
     #[inline]
     pub fn id(&self) -> ResourceId<T> {
         self.id.cast()
@@ -103,14 +103,14 @@ impl<T> TakenRes<T> {
         *self.value
     }
 }
-impl<T> Deref for TakenRes<T> {
+impl<T> Deref for RemovedResource<T> {
     type Target = T;
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
-impl<T> DerefMut for TakenRes<T> {
+impl<T> DerefMut for RemovedResource<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
@@ -162,7 +162,7 @@ impl Resource {
     }
 
     #[inline]
-    fn remove<T>(&mut self) -> Option<TakenRes<T>>
+    fn remove<T>(&mut self) -> Option<RemovedResource<T>>
     where
         T: 'static,
     {
@@ -174,11 +174,11 @@ impl Resource {
                 return None;
             }
         };
-        Some(TakenRes { id: self.id, value })
+        Some(RemovedResource { id: self.id, value })
     }
 
     #[inline]
-    fn insert_again<T>(&mut self, taken: TakenRes<T>)
+    fn insert_again<T>(&mut self, taken: RemovedResource<T>)
     where
         T: 'static,
     {
@@ -398,7 +398,7 @@ impl Resources {
     }
 
     #[inline]
-    pub fn remove<T>(&mut self) -> Option<TakenRes<T>>
+    pub fn remove<T>(&mut self) -> Option<RemovedResource<T>>
     where
         T: 'static,
     {
@@ -406,7 +406,7 @@ impl Resources {
     }
 
     #[inline]
-    pub fn remove_id<T>(&mut self, resource_id: ResourceId<T>) -> Option<TakenRes<T>>
+    pub fn remove_id<T>(&mut self, resource_id: ResourceId<T>) -> Option<RemovedResource<T>>
     where
         T: 'static,
     {
@@ -415,14 +415,14 @@ impl Resources {
             .and_then(Resource::remove)
     }
 
-    pub fn insert_again<T>(&mut self, taken: TakenRes<T>)
+    pub fn insert_again<T>(&mut self, removed: RemovedResource<T>)
     where
         T: 'static,
     {
         self.resources
-            .get_mut(taken.id.0)
+            .get_mut(removed.id.0)
             .unwrap()
-            .insert_again(taken)
+            .insert_again(removed)
     }
 }
 
@@ -438,6 +438,17 @@ pub struct ResourcesSend(Resources);
 
 // not send (souuld be dropped in original thread)
 unsafe impl Sync for ResourcesSend {}
+
+macro_rules! delegate_send {
+    ($v:vis fn $name:ident <$T:ident $(: $($bounds:ident)+)?> ([$($mut:tt)*] self $(, $aname:ident: $atype: ty)*) $( ->  $rtype:ty )?) => {
+        #[inline(always)]
+        $v fn $name<$T>($($mut)* self $(, $aname: $atype)*) $( -> $rtype )?
+            where $T: $( $($bounds + )+ )? Send + Sync + 'static
+        {
+            self.0.$name($($aname),*)
+        }
+    };
+}
 
 impl ResourcesSend {
     #[inline(always)]
@@ -455,74 +466,20 @@ impl ResourcesSend {
     /// variant and acces the items there.
     #[inline(always)]
     pub unsafe fn as_unsend(&self) -> &Resources {
-        // SAFETY: transmute is allowed because it is a newtype-struct with #[repr(transparent)].
+        let self_ptr: *const Self = self;
+        // SAFETY: cast is allowed because it is a newtype-struct with #[repr(transparent)].
         // Send -> Unsend is unsafe (see doc)
-        std::mem::transmute(self)
+        unsafe { &*(self_ptr as *const Resources) }
     }
 
-    #[inline(always)]
-    pub fn borrow_res<T>(&self) -> Option<Res<'_, T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        self.0.borrow_res()
-    }
-
-    #[inline(always)]
-    pub fn borrow_res_id<T>(&self, resource_id: ResourceId<T>) -> Option<Res<'_, T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        self.0.borrow_res_id(resource_id)
-    }
-
-    #[inline(always)]
-    pub fn borrow_res_mut<T>(&self) -> Option<ResMut<'_, T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        self.0.borrow_res_mut()
-    }
-
-    #[inline(always)]
-    pub fn borrow_res_mut_id<T>(&self, resource_id: ResourceId<T>) -> Option<ResMut<'_, T>>
-    where
-        T: Send + Sync + 'static,
-    {
-        self.0.borrow_res_mut_id(resource_id)
-    }
-
-    #[inline(always)]
-    pub fn get_copy<T>(&self) -> Option<T>
-    where
-        T: Copy + Send + Sync + 'static,
-    {
-        self.0.get_copy()
-    }
-
-    #[inline(always)]
-    pub fn get_copy_id<T>(&self, resource_id: ResourceId<T>) -> Option<T>
-    where
-        T: Copy + Send + Sync + 'static,
-    {
-        self.0.get_copy_id(resource_id)
-    }
-
-    #[inline(always)]
-    pub fn get_mut<T>(&mut self) -> Option<&'_ mut T>
-    where
-        T: Send + Sync + 'static,
-    {
-        self.0.get_mut()
-    }
-
-    #[inline(always)]
-    pub fn get_mut_id<T>(&mut self, resource_id: ResourceId<T>) -> Option<&'_ mut T>
-    where
-        T: Send + Sync + 'static,
-    {
-        self.0.get_mut_id(resource_id)
-    }
+    delegate_send!(pub fn borrow_res<T>([&]self) -> Option<Res<'_, T>>);
+    delegate_send!(pub fn borrow_res_id<T>([&]self, resource_id: ResourceId<T>) -> Option<Res<'_, T>>);
+    delegate_send!(pub fn borrow_res_mut<T>([&]self) -> Option<ResMut<'_, T>>);
+    delegate_send!(pub fn borrow_res_mut_id<T>([&]self, resource_id: ResourceId<T>) -> Option<ResMut<'_, T>>);
+    delegate_send!(pub fn get_copy<T: Copy>([&]self) -> Option<T>);
+    delegate_send!(pub fn get_copy_id<T: Copy>([&]self, resource_id: ResourceId<T>) -> Option<T>);
+    delegate_send!(pub fn get_mut<T: Copy>([&mut]self) -> Option<&'_ mut T>);
+    delegate_send!(pub fn get_mut_id<T: Copy>([&mut]self, resource_id: ResourceId<T>) -> Option<&'_ mut T>);
 }
 
 pub trait FromResources {
@@ -613,7 +570,7 @@ impl Default for ResourceAccess {
 #[doc(hidden)]
 pub struct ResState<T>(pub ResourceId<T>);
 
-impl<T> SystemParam for &'_ T
+impl<T> SystemData for &'_ T
 where
     T: 'static,
 {
@@ -627,7 +584,7 @@ where
     }
 }
 
-unsafe impl<T> SystemParamState for ResState<T>
+unsafe impl<T> SystemDataState for ResState<T>
 where
     T: 'static,
 {
@@ -642,7 +599,7 @@ where
     }
 }
 
-impl<'r, T: 'static> SystemParamFetch<'r> for Res<'r, T> {
+impl<'r, T: 'static> SystemDataFetch<'r> for Res<'r, T> {
     type State = ResState<T>;
 
     #[inline]
@@ -654,7 +611,7 @@ impl<'r, T: 'static> SystemParamFetch<'r> for Res<'r, T> {
 #[doc(hidden)]
 pub struct ResMutState<T>(pub ResourceId<T>);
 
-impl<T> SystemParam for &'_ mut T
+impl<T> SystemData for &'_ mut T
 where
     T: 'static,
 {
@@ -668,7 +625,7 @@ where
     }
 }
 
-unsafe impl<T> SystemParamState for ResMutState<T>
+unsafe impl<T> SystemDataState for ResMutState<T>
 where
     T: 'static,
 {
@@ -683,7 +640,7 @@ where
     }
 }
 
-impl<'r, T: 'static> SystemParamFetch<'r> for ResMut<'r, T> {
+impl<'r, T: 'static> SystemDataFetch<'r> for ResMut<'r, T> {
     type State = ResMutState<T>;
 
     #[inline]
@@ -695,7 +652,7 @@ impl<'r, T: 'static> SystemParamFetch<'r> for ResMut<'r, T> {
 #[doc(hidden)]
 pub struct OptionResState<T>(pub Option<ResourceId<T>>);
 
-impl<T> SystemParam for Option<&'_ T>
+impl<T> SystemData for Option<&'_ T>
 where
     T: 'static,
 {
@@ -709,7 +666,7 @@ where
     }
 }
 
-unsafe impl<T> SystemParamState for OptionResState<T>
+unsafe impl<T> SystemDataState for OptionResState<T>
 where
     T: 'static,
 {
@@ -726,7 +683,7 @@ where
     }
 }
 
-impl<'r, T: 'static> SystemParamFetch<'r> for Option<Res<'r, T>> {
+impl<'r, T: 'static> SystemDataFetch<'r> for Option<Res<'r, T>> {
     type State = OptionResState<T>;
 
     #[inline]
@@ -742,7 +699,7 @@ impl<'r, T: 'static> SystemParamFetch<'r> for Option<Res<'r, T>> {
 #[doc(hidden)]
 pub struct OptionResMutState<T>(pub Option<ResourceId<T>>);
 
-impl<T> SystemParam for Option<&'_ mut T>
+impl<T> SystemData for Option<&'_ mut T>
 where
     T: 'static,
 {
@@ -756,7 +713,7 @@ where
     }
 }
 
-unsafe impl<T> SystemParamState for OptionResMutState<T>
+unsafe impl<T> SystemDataState for OptionResMutState<T>
 where
     T: 'static,
 {
@@ -773,7 +730,7 @@ where
     }
 }
 
-impl<'r, T: 'static> SystemParamFetch<'r> for Option<ResMut<'r, T>> {
+impl<'r, T: 'static> SystemDataFetch<'r> for Option<ResMut<'r, T>> {
     type State = OptionResMutState<T>;
 
     #[inline]

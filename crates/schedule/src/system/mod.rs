@@ -1,6 +1,6 @@
 use crate::resource::{ResourceAccess, Resources, ResourcesSend};
 
-pub mod param;
+pub mod data;
 pub mod system_fn;
 
 /// # Safety
@@ -72,53 +72,37 @@ where
     }
 }
 
-pub trait IntoSystemDescriptor<Marker>: Sized {
-    fn into_system_descriptor(self) -> SystemDescriptor;
-}
-
-#[doc(hidden)]
-pub struct SystemFnMarker;
-impl<S, Marker> IntoSystemDescriptor<(SystemFnMarker, Marker)> for S
-where
-    S: IntoSystem<(), Marker>,
-    S::System: 'static,
-{
-    fn into_system_descriptor(self) -> SystemDescriptor {
-        SystemDescriptor {
-            system_variant: SystemVariant::Concurrent(
-                Box::new(self.into_system()),
-                ResourceAccess::new(),
-            ),
-            is_initialized: false,
-            is_send: false,
-        }
-    }
-}
-
-#[doc(hidden)]
-pub struct ExclusiveSystemFnMarker;
-impl<S, Marker> IntoSystemDescriptor<(ExclusiveSystemFnMarker, Marker)> for S
-where
-    S: IntoExclusiveSystem<(), Marker>,
-    S::System: 'static,
-{
-    fn into_system_descriptor(self) -> SystemDescriptor {
-        SystemDescriptor {
-            system_variant: SystemVariant::Exclusive(Box::new(self.into_exclusive_system())),
-            is_initialized: false,
-            is_send: false,
-        }
-    }
-}
-
 pub struct SystemDescriptor {
     pub(crate) system_variant: SystemVariant,
     // TODO: add a mechanism, that tracks identity of resource-set
     is_initialized: bool,
-    is_send: bool,
 }
 
 impl SystemDescriptor {
+    pub(crate) fn new<S, Marker>(s: S) -> Self
+    where
+        S: IntoSystem<(), Marker>,
+        S::System: 'static,
+    {
+        let system = s.into_system();
+        SystemDescriptor {
+            system_variant: SystemVariant::Concurrent(Box::new(system), ResourceAccess::new()),
+            is_initialized: false,
+        }
+    }
+
+    pub(crate) fn new_exclusive<S, Marker>(s: S) -> Self
+    where
+        S: IntoExclusiveSystem<(), Marker>,
+        S::System: 'static,
+    {
+        let system = s.into_exclusive_system();
+        SystemDescriptor {
+            system_variant: SystemVariant::Exclusive(Box::new(system)),
+            is_initialized: false,
+        }
+    }
+
     #[inline]
     pub fn is_concurrent(&self) -> bool {
         matches!(self.system_variant, SystemVariant::Concurrent(_, _))
@@ -127,6 +111,13 @@ impl SystemDescriptor {
     #[inline]
     pub fn is_exclusive(&self) -> bool {
         matches!(self.system_variant, SystemVariant::Exclusive(_))
+    }
+
+    pub fn is_send(&self) -> bool {
+        match &self.system_variant {
+            SystemVariant::Concurrent(s, _) => s.is_send(),
+            SystemVariant::Exclusive(s) => false,
+        }
     }
 
     #[inline]
@@ -153,7 +144,6 @@ impl SystemDescriptor {
                     system,
                 ))),
                 is_initialized: self.is_initialized,
-                is_send: self.is_send,
             },
         }
     }
@@ -165,19 +155,13 @@ impl SystemDescriptor {
         match self.system_variant {
             SystemVariant::Exclusive(ref mut system) => {
                 system.init(resources);
-                self.is_send = false;
             }
             SystemVariant::Concurrent(ref mut system, ref mut access) => {
                 system.init(resources);
                 system.update_access(resources, access);
-                self.is_send = system.is_send();
             }
         }
         self.is_initialized = true;
-    }
-
-    pub fn is_send(&self) -> bool {
-        self.is_send
     }
 
     pub fn run(&mut self, resources: &mut Resources) {
@@ -189,7 +173,7 @@ impl SystemDescriptor {
     }
 
     pub fn run_send(&mut self, resources: &ResourcesSend) {
-        assert!(self.is_initialized && self.is_send);
+        assert!(self.is_initialized && self.is_send());
         match self.system_variant {
             SystemVariant::Concurrent(ref mut system, _) => system.run_send(resources, ()),
             _ => panic!("exclusive systems are not `send`!"),
@@ -278,6 +262,36 @@ where
     #[inline]
     fn run(&mut self, resources: &mut Resources, args: Args) {
         self.0.run(resources, args)
+    }
+}
+
+pub trait IntoSystemDescriptor<Marker>: Sized {
+    fn into_system_descriptor(self) -> SystemDescriptor;
+}
+
+#[doc(hidden)]
+pub struct SystemFnMarker;
+impl<S, Marker> IntoSystemDescriptor<(SystemFnMarker, Marker)> for S
+where
+    S: IntoSystem<(), Marker>,
+    S::System: 'static,
+{
+    #[inline]
+    fn into_system_descriptor(self) -> SystemDescriptor {
+        SystemDescriptor::new(self)
+    }
+}
+
+#[doc(hidden)]
+pub struct ExclusiveSystemFnMarker;
+impl<S, Marker> IntoSystemDescriptor<(ExclusiveSystemFnMarker, Marker)> for S
+where
+    S: IntoExclusiveSystem<(), Marker>,
+    S::System: 'static,
+{
+    #[inline]
+    fn into_system_descriptor(self) -> SystemDescriptor {
+        SystemDescriptor::new_exclusive(self)
     }
 }
 
