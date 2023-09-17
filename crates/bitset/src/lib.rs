@@ -80,6 +80,42 @@ impl BitSet {
         Self(result)
     }
 
+    pub fn insert_range(&mut self, range: Range<usize>) {
+        let words_from = range.start >> SHIFT_DIV64;
+        let words_to = range.end >> SHIFT_DIV64;
+        let words_from_rest = range.start & MASK_MOD64;
+        let words_to_rest = range.end & MASK_MOD64;
+        let new_len = if words_to_rest == 0 {
+            words_to
+        } else {
+            words_to + 1
+        };
+        if self.0.len() < new_len {
+            self.0.resize(new_len, 0); // fill with zeros
+        }
+
+        match words_from.cmp(&words_to) {
+            std::cmp::Ordering::Equal => {
+                let mut value = !0u64;
+                value <<= words_from_rest;
+                value &= !((!0u64) << words_to_rest);
+                self.0[words_from] |= value;
+            }
+            std::cmp::Ordering::Less => {
+                let value = (!0u64) << words_from_rest;
+                self.0[words_from] |= value;
+
+                self.0[words_from + 1..words_to].fill(!0u64);
+
+                if words_to_rest != 0 {
+                    let value = !((!0u64) << words_to_rest);
+                    self.0[words_to] |= value;
+                }
+            }
+            std::cmp::Ordering::Greater => (),
+        }
+    }
+
     #[inline]
     fn split_value(value: usize) -> (usize, u64) {
         let index = value >> SHIFT_DIV64;
@@ -254,6 +290,19 @@ impl BitSet {
             }
         }
         self.normalize_after_remove();
+    }
+
+    pub fn retain(
+        &mut self,
+        range: impl std::ops::RangeBounds<usize>,
+        mut predicate: impl FnMut(usize) -> bool,
+    ) {
+        let (mut index, end) = Self::bounds_inclusive(range);
+        while let Some(i) = iter_next(&self.0, &mut index, end) {
+            if !predicate(i) {
+                self.remove(i);
+            }
+        }
     }
 
     pub fn is_disjoint(&self, other: &Self) -> bool {

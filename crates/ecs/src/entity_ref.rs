@@ -1,8 +1,8 @@
-use std::{any::Any, panic};
+use std::any::TypeId;
 
 use crate::{
     archetype::{Archetype, ArchetypeId},
-    component::{Component, ComponentId, ComponentMap, ComponentSet, Components, Ref, RefMut},
+    component::{Component, ComponentDetails, ComponentId, Ref, RefMut},
     entity::{Entity, EntityLocation},
     get_or_init_component,
     resource::{Res, ResMut, ResourceId, Resources},
@@ -61,10 +61,11 @@ impl<'w> EntityRef<'w> {
     where
         X: Component,
     {
-        if component_id.is_sparse() {
-            matches!(storage_dyn(self.res, &self.world.components, component_id), Some(storage) if storage.contains(self.entity, self.location.archetype_id, self.location.index))
+        let archetype = &self.world.archetypes[self.location.archetype_id];
+        if let Some(component) = self.world.components.get(component_id) {
+            X::Storage::fast_contains(self.res, self.entity, component, archetype)
         } else {
-            self.archetype().components.contains(component_id)
+            false
         }
     }
 
@@ -84,7 +85,8 @@ impl<'w> EntityRef<'w> {
     where
         T: Component,
     {
-        let storage = storage(self.res, &self.world.components, component_id)?;
+        let component = &self.world.components.get(component_id)?;
+        let storage = storage::<T>(self.res, component)?;
         Ref::filter_map(storage, |storage| {
             storage.get(self.entity, self.location.archetype_id, self.location.index)
         })
@@ -97,8 +99,6 @@ pub struct EntityMut<'w> {
     world: &'w mut WorldInner,
     entity: Entity,
     location: EntityLocation,
-    remove_components: ComponentSet,
-    insert_components: ComponentMap<Box<dyn Any>>,
 }
 
 impl<'w> EntityMut<'w> {
@@ -108,13 +108,15 @@ impl<'w> EntityMut<'w> {
         entity: Entity,
         location: EntityLocation,
     ) -> Self {
+        // reset temporaries
+        world.tmp_removed.clear();
+        world.tmp_inserted.clear();
+
         Self {
             res,
             world,
             entity,
             location,
-            remove_components: ComponentSet::new(),
-            insert_components: ComponentMap::new(),
         }
     }
 
@@ -144,15 +146,16 @@ impl<'w> EntityMut<'w> {
     where
         X: Component,
     {
-        if self.remove_components.contains(component_id) {
+        if self.world.tmp_removed.contains(component_id) {
             return false;
-        } else if self.insert_components.contains(component_id) {
+        } else if self.world.tmp_inserted.contains(component_id) {
             return true;
         }
-        if component_id.is_sparse() {
-            matches!(storage_dyn(self.res, &self.world.components, component_id), Some(storage) if storage.contains(self.entity, self.location.archetype_id, self.location.index))
+        let archetype = &self.world.archetypes[self.location.archetype_id];
+        if let Some(component) = self.world.components.get(component_id) {
+            X::Storage::fast_contains(self.res, self.entity, component, archetype)
         } else {
-            self.archetype().components.contains(component_id)
+            false
         }
     }
 
@@ -172,7 +175,8 @@ impl<'w> EntityMut<'w> {
     where
         T: Component,
     {
-        let storage = storage::<T>(self.res, &self.world.components, component_id)?;
+        let component = &self.world.components.get(component_id)?;
+        let storage = storage::<T>(self.res, component)?;
         Ref::filter_map(storage, |storage| {
             storage.get(self.entity, self.location.archetype_id, self.location.index)
         })
@@ -194,7 +198,8 @@ impl<'w> EntityMut<'w> {
     where
         T: Component,
     {
-        let storage = storage_mut::<T>(self.res, &self.world.components, component_id)?;
+        let component = &self.world.components.get(component_id)?;
+        let storage = storage_mut::<T>(self.res, component)?;
         RefMut::filter_map(storage, |storage| {
             storage.get_mut(self.entity, self.location.archetype_id, self.location.index)
         })
@@ -205,7 +210,7 @@ impl<'w> EntityMut<'w> {
     where
         T: Component,
     {
-        let component_id = get_or_init_component::<T>(self.res, &mut self.world.components).1;
+        let (_, component_id) = get_or_init_component::<T>(self.res, &mut self.world.components);
         self.insert_by_id(component_id, value)
     }
 
@@ -213,10 +218,13 @@ impl<'w> EntityMut<'w> {
     where
         T: Component,
     {
-        self.remove_components.remove(component_id);
-        // TODO: try to improve performance by using a pool inside 'world' for reducing allocations?
-        self.insert_components
-            .insert(component_id, Box::new(Some(value)));
+        self.world.tmp_removed.remove(component_id);
+        self.world.tmp_inserted.insert(component_id);
+        let component = &self.world.components.get(component_id).expect("component");
+        {
+            let mut storage = storage_mut::<T>(self.res, component).expect("storage");
+            storage.insert(self.entity, value);
+        }
         self
     }
 
@@ -232,18 +240,19 @@ impl<'w> EntityMut<'w> {
     }
 
     pub fn remove_by_id<X>(&mut self, component_id: ComponentId<X>) -> &mut Self {
-        self.insert_components.remove(component_id);
-        self.remove_components.insert(component_id);
+        self.world.tmp_inserted.remove(component_id);
+        self.world.tmp_removed.insert(component_id);
         self
     }
 
     pub fn clear(&mut self) -> &mut Self {
         // clear open operations
-        self.insert_components.clear();
+        self.world.tmp_inserted.clear();
 
         // mark all components for removal
-        self.remove_components = self.world.components.to_set();
-
+        self.world
+            .tmp_removed
+            .insert_range(0..self.world.components.len());
         self
     }
 
@@ -252,20 +261,20 @@ impl<'w> EntityMut<'w> {
     /// Like `clear`, but also removes the entity from the world.
     pub fn despawn(mut self) {
         // clear open operations
-        self.remove_components.clear();
-        self.insert_components.clear();
+        self.world.tmp_removed.clear();
+        self.world.tmp_inserted.clear();
 
         let location = self.location;
 
         // remove components and track removal
-        let track_removed = &mut self.world.removed;
+        // TODO: track_removed
         for component in &self.world.components.components {
             let id = component.id();
-            if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
+            if let Some(storage) = storage_mut_dyn(self.res, component) {
                 // remove
                 if storage.swap_remove(self.entity, location.archetype_id, location.index) {
                     // track
-                    track_removed.get_or_insert_default(id).push(self.entity);
+                    self.world.tmp_removed.insert(id);
                 }
             }
         }
@@ -295,93 +304,54 @@ impl<'w> EntityMut<'w> {
 impl<'w> Drop for EntityMut<'w> {
     fn drop(&mut self) {
         let old = self.location;
-        let components = &self.world.components;
         let old_archetype = self
             .world
             .archetypes
             .get(old.archetype_id)
             .expect("old.archetype");
 
-        // split & cleanup `remove_components`
-        // remove_dense will contain the components, that will be removed from the archetype
-        let mut remove_dense = Vec::new();
-        for id in std::mem::take(&mut self.remove_components).iter(components) {
-            if id.is_sparse() {
-                // apply removal of sparse components
-                if let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) {
-                    if storage.swap_remove(self.entity, old.archetype_id, old.index) {
-                        // track removal
-                        self.world
-                            .removed
-                            .get_or_insert_default(id)
-                            .push(self.entity);
+        let mut needs_update_archetype = false;
+
+        // remove components
+        // TODO: track_removed
+        self.world.tmp_removed.retain(|index| {
+            let component = &self.world.components.components[index];
+            if let Some(storage) = storage_mut_dyn(self.res, component) {
+                if storage.swap_remove(self.entity, old.archetype_id, old.index) {
+                    if component.archetype_component {
+                        needs_update_archetype = true;
                     }
+                    return true;
                 }
-            } else if old_archetype.components.contains(id) {
-                // remember removal of dense components
-                remove_dense.push(id);
-
-                // track removal
-                self.world
-                    .removed
-                    .get_or_insert_default(id)
-                    .push(self.entity);
             }
-        }
+            false
+        });
 
-        // split & cleanup `insert_components`
-        // insert_dense will contain the components, that will be added to the archetype
-        let mut insert_dense = Vec::new();
-        for (id, mut box_value) in std::mem::take(&mut self.insert_components).into_entries() {
-            if id.is_sparse() {
-                // apply insertion of sparse components
-                let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
-                    panic!("component {id:?} is not available as storage");
-                };
-                if storage
-                    .insert(self.entity, old.archetype_id, box_value.as_mut())
-                    .is_none()
-                {
-                    panic!(
-                        "unexpected type {:?} != {:?} of sparse component with id {:?}",
-                        box_value.type_id(),
-                        storage.component_type_id(),
-                        id
-                    );
+        // replace existing components
+        self.world.tmp_inserted.retain(|index| {
+            let component = &self.world.components.components[index];
+            let storage = storage_mut_dyn(self.res, component).expect("storage");
+            if !storage.flush_replace(old.archetype_id, old.index) {
+                if component.archetype_component {
+                    needs_update_archetype = true;
                 }
-            } else if old_archetype.components.contains(id) {
-                let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
-                    panic!("component {id:?} is not available as storage");
-                };
-                // update existing dense components
-                if !storage.replace(self.entity, old.archetype_id, old.index, box_value.as_mut()) {
-                    panic!(
-                        "unexpected type {:?} != {:?} of dense component with id {:?}",
-                        box_value.type_id(),
-                        storage.component_type_id(),
-                        id
-                    );
-                }
-            } else {
-                // remember new dense components
-                insert_dense.push((id, box_value));
+                return true;
             }
-        }
+            false
+        });
 
-        if remove_dense.is_empty() && insert_dense.is_empty() {
-            // no archetype change: stop here
+        if !needs_update_archetype {
             return;
         }
 
-        // find the new archetype by the components, that it will contain
+        // calculate new archetype
         let mut new_components = old_archetype.components.clone();
-        for rm in &remove_dense {
-            new_components.remove(*rm);
+        new_components.remove_set(&self.world.tmp_removed);
+        for component in self.world.tmp_inserted.iter_details(&self.world.components) {
+            if component.archetype_component {
+                new_components.insert(component.id());
+            }
         }
-        for (ins, _) in &insert_dense {
-            new_components.insert(*ins);
-        }
-
         let new_archetype_id = self.world.archetypes.get_or_insert(new_components);
         debug_assert_ne!(old.archetype_id, new_archetype_id);
 
@@ -392,42 +362,37 @@ impl<'w> Drop for EntityMut<'w> {
             .expect("unable to find archetypes");
         let new_index = new_archetype.len();
 
-        // move or remove old components
-        for id in old_archetype.components.iter(components) {
-            let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
-                panic!("component {id:?} is not available as storage");
-            };
+        // move old components
+        for component in old_archetype
+            .components
+            .iter_details(&self.world.components)
+        {
+            let id = component.id();
             if new_archetype.components.contains(id) {
-                let result = storage.swap_remove_and_insert_to(
-                    self.entity,
-                    old.archetype_id,
-                    old.index,
-                    new_archetype_id,
-                );
+                let storage = storage_mut_dyn(self.res, component).expect("storage");
+                let result =
+                    storage.swap_remove_and_insert(old.archetype_id, old.index, new_archetype_id);
                 assert_eq!(
                     Some(new_index),
                     result,
-                    "unexpected type of storage {:?} of dense component with id {:?}",
-                    storage.component_type_id(),
-                    id
+                    "unexpected index of component with id {:?}({})(swap_remove_and_insert)",
+                    id,
+                    component.name(),
                 );
-            } else {
-                storage.swap_remove(self.entity, old.archetype_id, old.index);
             }
         }
-        // insert new components
-        for (id, mut box_value) in insert_dense {
-            let Some(storage) = storage_mut_dyn(self.res, &self.world.components, id) else {
-                panic!("component {id:?} is not available as storage");
-            };
-            let result = storage.insert(self.entity, new_archetype_id, box_value.as_mut());
+
+        // insert new ones
+        for component in self.world.tmp_inserted.iter_details(&self.world.components) {
+            let id = component.id();
+            let storage = storage_mut_dyn(self.res, component).expect("storage");
+            let result = storage.flush_push(new_archetype_id);
             assert_eq!(
                 Some(new_index),
                 result,
-                "unexpected type {:?} != {:?} of dense component with id {:?}",
-                box_value.type_id(),
-                storage.component_type_id(),
-                id
+                "unexpected index of component {:?}({}) (flush push)",
+                id,
+                component.name(),
             );
         }
 
@@ -453,54 +418,33 @@ impl<'w> Drop for EntityMut<'w> {
     }
 }
 
-fn storage<'a, T>(
-    res: &'a Resources,
-    comps: &Components,
-    component_id: ComponentId<T>,
-) -> Option<Res<'a, T::Storage>>
+fn storage<'a, T>(res: &'a Resources, component: &ComponentDetails) -> Option<Res<'a, T::Storage>>
 where
     T: Component,
 {
-    let component = comps.get(component_id)?;
+    debug_assert_eq!(TypeId::of::<T>(), component.type_id());
     let storage_id: ResourceId<T::Storage> = component.storage_id.typed();
     res.borrow_res_id(storage_id)
 }
 
 fn storage_mut<'a, T>(
     res: &'a Resources,
-    comps: &Components,
-    component_id: ComponentId<T>,
+    component: &ComponentDetails,
 ) -> Option<ResMut<'a, T::Storage>>
 where
     T: Component,
 {
-    let component = comps.get(component_id)?;
+    debug_assert_eq!(TypeId::of::<T>(), component.type_id());
     let storage_id: ResourceId<T::Storage> = component.storage_id.typed();
     res.borrow_res_mut_id(storage_id)
 }
 
-fn storage_dyn<'a, X>(
-    res: &'a Resources,
-    comps: &Components,
-    component_id: ComponentId<X>,
-) -> Option<Res<'a, dyn AnyStorage>>
-where
-    X: 'static,
-{
-    let component = comps.get(component_id)?;
-    (component.any_getter)(res, component.storage_id)
-}
-
-fn storage_mut_dyn<'a, X>(
+fn storage_mut_dyn<'a>(
     res: &'a mut Resources,
-    comps: &Components,
-    component_id: ComponentId<X>,
-) -> Option<&'a mut dyn AnyStorage>
-where
-    X: 'static,
-{
-    let component = comps.get(component_id)?;
-    (component.any_getter_mut)(res, component.storage_id)
+    component: &ComponentDetails,
+) -> Option<&'a mut dyn AnyStorage> {
+    let any = res.get_mut_any(component.storage_id)?;
+    Some(unsafe { (component.storage_downcast_mut)(any) })
 }
 
 impl World<'_> {

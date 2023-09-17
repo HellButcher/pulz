@@ -25,6 +25,7 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
+use component::ComponentSet;
 pub use pulz_schedule::*;
 
 #[doc(hidden)]
@@ -36,12 +37,16 @@ pub mod query;
 
 pub mod entity;
 mod entity_ref;
+pub mod removed;
 pub mod storage;
 pub mod world;
 
 pub use component::Component;
 pub use entity::{Entity, EntityMut, EntityRef};
+use pulz_schedule::schedule::Schedule;
 pub use world::WorldExt;
+
+use crate::storage::AnyStorage;
 
 pub mod prelude {
     pub use pulz_schedule::prelude::*;
@@ -59,8 +64,10 @@ struct WorldInner {
     components: component::Components,
     archetypes: archetype::Archetypes,
 
+    tmp_removed: ComponentSet,
+    tmp_inserted: ComponentSet,
     // tracks removed components
-    removed: component::ComponentMap<Vec<Entity>>,
+    //removed: component::ComponentMap<Vec<Entity>>,
 }
 
 impl Default for WorldInner {
@@ -69,8 +76,17 @@ impl Default for WorldInner {
             entities: entity::Entities::new(),
             components: component::Components::new(),
             archetypes: archetype::Archetypes::new(),
-            removed: component::ComponentMap::new(),
+
+            tmp_removed: ComponentSet::new(),
+            tmp_inserted: ComponentSet::new(),
+            //removed: component::ComponentMap::new(),
         }
+    }
+}
+
+fn insert_sorted<T: Ord>(vec: &mut Vec<T>, value: T) {
+    if let Err(pos) = vec.binary_search(&value) {
+        vec.insert(pos, value);
     }
 }
 
@@ -87,7 +103,13 @@ where
         (component.storage_id.typed(), component_id)
     } else {
         let storage_id = res.init::<T::Storage>();
+        res.init_meta_id::<dyn AnyStorage, _>(storage_id);
         let component_id = comps.insert(storage_id, T::Storage::SPARSE).unwrap();
+        {
+            let schedule = res.get_mut::<Schedule>().unwrap();
+            <T::Storage as Storage>::install_systems(schedule);
+        }
+
         (storage_id, component_id)
     }
 }

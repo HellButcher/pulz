@@ -4,7 +4,7 @@ use crate::{
     label::CoreSystemPhase,
     resource::{Res, ResMut, ResMutState, ResState, Resources},
     schedule::Schedule,
-    system::param::SystemParam,
+    system::data::SystemData,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -173,7 +173,7 @@ impl<'w, T> Extend<T> for EventWriter<'w, T> {
     }
 }
 
-impl<T> SystemParam for EventSubscriber<'_, T>
+impl<T> SystemData for EventSubscriber<'_, T>
 where
     T: Send + Sync + 'static,
 {
@@ -193,7 +193,7 @@ where
 #[doc(hidden)]
 pub struct EventWriterFetch<'r, T>(ResMut<'r, Events<T>>);
 
-impl<T> SystemParam for EventWriter<'_, T>
+impl<T> SystemData for EventWriter<'_, T>
 where
     T: Send + Sync + 'static,
 {

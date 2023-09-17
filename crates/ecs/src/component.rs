@@ -1,13 +1,14 @@
 use std::{
-    any::TypeId,
+    any::{Any, TypeId},
     borrow::Cow,
     collections::btree_map::{BTreeMap, Entry},
     hash::Hash,
     marker::PhantomData,
+    ops::Range,
 };
 
 use crate::{
-    resource::{Res, ResMut, ResourceId, Resources},
+    resource::{Res, ResMut, ResourceId},
     storage::{AnyStorage, Storage},
 };
 
@@ -16,6 +17,7 @@ pub type RefMut<'w, T> = ResMut<'w, T>;
 
 use pulz_bitset::BitSet;
 pub use pulz_ecs_macros::Component;
+use pulz_schedule::meta::any_cast_mut_unchecked;
 
 pub trait Component: Send + Sync + 'static {
     type Storage: Storage<Component = Self>;
@@ -24,7 +26,7 @@ pub trait Component: Send + Sync + 'static {
 pub trait Bundle {}
 
 #[repr(transparent)]
-pub struct ComponentId<T = crate::Void>(isize, PhantomData<fn() -> T>);
+pub struct ComponentId<T = crate::Void>(usize, PhantomData<fn() -> T>);
 
 impl<T> std::fmt::Debug for ComponentId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,7 +36,7 @@ impl<T> std::fmt::Debug for ComponentId<T> {
 impl<T> Copy for ComponentId<T> {}
 impl<T> Clone for ComponentId<T> {
     fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
+        *self
     }
 }
 impl<T> Eq for ComponentId<T> {}
@@ -75,18 +77,8 @@ impl<T> ComponentId<T> {
     }
 
     #[inline]
-    pub fn is_sparse(self) -> bool {
-        self.0 < 0
-    }
-
-    #[inline]
     pub fn offset(self) -> usize {
-        // storage type is encoded inside the id: negative is sparse, positive is dense
-        if self.is_sparse() {
-            !(self.0 as usize)
-        } else {
-            self.0 as usize
-        }
+        self.0
     }
 }
 
@@ -104,9 +96,9 @@ pub struct ComponentDetails {
     id: ComponentId,
     name: Cow<'static, str>,
     type_id: TypeId,
+    pub(crate) archetype_component: bool,
     pub(crate) storage_id: ResourceId,
-    pub(crate) any_getter: fn(&Resources, ResourceId) -> Option<Res<'_, dyn AnyStorage>>,
-    pub(crate) any_getter_mut: fn(&mut Resources, ResourceId) -> Option<&mut dyn AnyStorage>,
+    pub(crate) storage_downcast_mut: unsafe fn(&mut dyn Any) -> &mut dyn AnyStorage,
 }
 
 impl ComponentDetails {
@@ -170,7 +162,7 @@ impl Components {
     pub(crate) fn insert<T>(
         &mut self,
         storage_id: ResourceId<T::Storage>,
-        sparse: bool,
+        _sparse: bool,
     ) -> Result<ComponentId<T>, ComponentId<T>>
     where
         T: Component,
@@ -180,18 +172,14 @@ impl Components {
         match self.by_type_id.entry(type_id) {
             Entry::Vacant(entry) => {
                 let index = components.len();
-                let id = if sparse {
-                    ComponentId(!index as isize, PhantomData) // make inverse (negative) => sparse
-                } else {
-                    ComponentId(index as isize, PhantomData) // keep positive => dense
-                };
+                let id = ComponentId(index, PhantomData);
                 components.push(ComponentDetails {
                     id,
                     name: Cow::Borrowed(std::any::type_name::<T>()),
                     type_id,
-                    storage_id: storage_id.untyped(),
-                    any_getter: storage_access::<T>,
-                    any_getter_mut: storage_access_mut::<T>,
+                    archetype_component: !<T::Storage as Storage>::SPARSE,
+                    storage_id: storage_id.untyped().typed(),
+                    storage_downcast_mut: any_cast_mut_unchecked::<dyn AnyStorage, T::Storage>,
                 });
                 entry.insert(id);
                 Ok(id.typed())
@@ -200,29 +188,15 @@ impl Components {
         }
     }
 
-    pub fn to_set(&self) -> ComponentSet {
-        ComponentSet(BitSet::from_range(0..self.components.len()))
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.components.len()
     }
-}
 
-fn storage_access<T: Component>(
-    res: &Resources,
-    id: ResourceId,
-) -> Option<Res<'_, dyn AnyStorage>> {
-    Some(Res::map(
-        res.borrow_res_id::<T::Storage>(id.typed())?,
-        |s| {
-            let d: &dyn AnyStorage = s;
-            d
-        },
-    ))
-}
-
-fn storage_access_mut<T: Component>(
-    res: &mut Resources,
-    id: ResourceId,
-) -> Option<&mut dyn AnyStorage> {
-    Some(res.get_mut_id::<T::Storage>(id.typed())?)
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.components.is_empty()
+    }
 }
 
 /// Bit-Set like structure
@@ -235,6 +209,7 @@ impl ComponentSet {
         Self(BitSet::new())
     }
 
+    #[inline]
     pub fn clear(&mut self) {
         self.0.clear()
     }
@@ -252,16 +227,40 @@ impl ComponentSet {
         self.0.remove(id.offset())
     }
 
+    pub fn retain(&mut self, f: impl FnMut(usize) -> bool) {
+        self.0.retain(.., f)
+    }
+
     pub fn offsets(&self) -> impl Iterator<Item = usize> + '_ {
         self.0.iter()
     }
 
-    pub fn iter<'l>(
+    #[inline]
+    pub fn is_disjoint(&self, other: &Self) -> bool {
+        self.0.is_disjoint(&other.0)
+    }
+
+    #[inline]
+    pub fn extend_set(&mut self, other: &Self) {
+        self.0.extend_bitset(&other.0)
+    }
+
+    #[inline]
+    pub fn remove_set(&mut self, other: &Self) {
+        self.0.remove_bitset(&other.0)
+    }
+
+    #[inline]
+    pub fn insert_range(&mut self, range: Range<usize>) {
+        self.0.insert_range(range)
+    }
+
+    pub fn iter_details<'l>(
         &'l self,
         components: &'l Components,
-    ) -> impl Iterator<Item = ComponentId> + 'l {
+    ) -> impl Iterator<Item = &'l ComponentDetails> + 'l {
         self.offsets()
-            .map(move |offset| components.components[offset].id)
+            .map(move |offset| &components.components[offset])
     }
 }
 

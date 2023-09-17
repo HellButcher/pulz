@@ -1,101 +1,86 @@
-use super::{param::SystemParamFetch, IntoExclusiveSystem, IntoSystem};
+use super::{data::SystemDataFetch, IntoExclusiveSystem, IntoSystem};
 use crate::{
-    resource::{FromResources, ResourceAccess, ResourceId, Resources},
+    resource::{ResourceAccess, Resources},
     system::{
-        param::{SystemParam, SystemParamState},
+        data::{SystemData, SystemDataState},
         ExclusiveSystem, System,
     },
 };
 
-struct SystemFnState<S: SystemParamState> {
-    param_state: S,
-    is_send: bool,
-}
-
-impl<S: SystemParamState> FromResources for SystemFnState<S> {
-    #[inline]
-    fn from_resources(resources: &mut Resources) -> Self {
-        let param_state = S::init(resources);
-        Self {
-            param_state,
-            is_send: false, // TODO
-        }
-    }
-}
-
-pub struct SystemFn<Args, P: SystemParam, F> {
+#[doc(hidden)]
+pub struct SystemFnImpl<Args, P: SystemData, F> {
     func: F,
     is_send: bool,
-    state_resource_id: Option<ResourceId<SystemFnState<P::State>>>,
+    state: Option<P::State>,
     _phantom: std::marker::PhantomData<fn(Args)>,
 }
 
-pub struct ExclusiveSystemFn<F> {
+#[doc(hidden)]
+pub struct ExclusiveSystemFnImpl<Args, F> {
     func: F,
+    _phantom: std::marker::PhantomData<fn(Args)>,
 }
 
-impl<Args, P, F> SystemFn<Args, P, F>
+impl<Args, P, F> SystemFnImpl<Args, P, F>
 where
-    P: SystemParam,
-    F: SystemParamFn<Args, P, ()>,
+    P: SystemData,
+    F: SystemFn<Args, P, ()>,
 {
     #[inline]
     pub fn new(func: F) -> Self {
         Self {
             func,
             is_send: false,
-            state_resource_id: None,
+            state: None,
             _phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<F> ExclusiveSystemFn<F>
+impl<Args, F> ExclusiveSystemFnImpl<Args, F>
 where
-    F: ExclusiveSystemParamFn<()>,
+    F: ExclusiveSystemFn<Args, ()>,
 {
     #[inline]
     pub fn new(func: F) -> Self {
-        Self { func }
+        Self {
+            func,
+            _phantom: std::marker::PhantomData,
+        }
     }
 }
 
 impl<Args, P, F> IntoSystem<Args, P> for F
 where
-    P: SystemParam,
-    F: SystemParamFn<Args, P, ()>,
+    P: SystemData,
+    F: SystemFn<Args, P, ()>,
 {
-    type System = SystemFn<Args, P, F>;
+    type System = SystemFnImpl<Args, P, F>;
     #[inline]
     fn into_system(self) -> Self::System {
-        SystemFn::<Args, P, F>::new(self)
+        SystemFnImpl::<Args, P, F>::new(self)
     }
 }
 
 // TODO: analyze safety
-unsafe impl<Args, P, F> System<Args> for SystemFn<Args, P, F>
+unsafe impl<Args, P, F> System<Args> for SystemFnImpl<Args, P, F>
 where
-    P: SystemParam,
-    F: SystemParamFn<Args, P, ()>,
+    P: SystemData,
+    F: SystemFn<Args, P, ()>,
 {
     #[inline]
     fn init(&mut self, resources: &mut Resources) {
-        let id = *self
-            .state_resource_id
-            .get_or_insert_with(|| resources.init::<SystemFnState<P::State>>());
-        // TODO: check this:
-        self.is_send = resources.borrow_res_id(id).unwrap().is_send;
+        if self.state.is_none() {
+            self.state = Some(P::State::init(resources));
+        }
+        self.is_send = false; // TODO
     }
 
     #[inline]
     fn run(&mut self, resources: &Resources, args: Args) {
-        let state_resource_id = self.state_resource_id.expect("not initialized");
-        let mut state = resources
-            .borrow_res_mut_id(state_resource_id)
-            .expect("state unavailable");
-        let mut params =
-            <P::Fetch<'_> as SystemParamFetch<'_>>::fetch(resources, &mut state.param_state);
-        SystemParamFn::call(&mut self.func, args, P::get(&mut params));
+        let state = self.state.as_mut().expect("not initialized");
+        let mut params = <P::Fetch<'_> as SystemDataFetch<'_>>::fetch(resources, state);
+        SystemFn::call(&mut self.func, args, P::get(&mut params));
     }
 
     fn is_send(&self) -> bool {
@@ -104,11 +89,8 @@ where
 
     #[inline]
     fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
-        let state_resource_id = self.state_resource_id.expect("not initialized");
-        let state = resources
-            .borrow_res_id(state_resource_id)
-            .expect("state unavailable");
-        state.param_state.update_access(resources, access);
+        let state = self.state.as_ref().expect("not initialized");
+        state.update_access(resources, access);
     }
 
     fn type_name(&self) -> &'static str {
@@ -116,25 +98,25 @@ where
     }
 }
 
-impl<F> IntoExclusiveSystem<(), ()> for F
+impl<Args, F> IntoExclusiveSystem<Args, ()> for F
 where
-    F: ExclusiveSystemParamFn<()> + 'static,
+    F: ExclusiveSystemFn<Args, ()> + 'static,
 {
-    type System = ExclusiveSystemFn<F>;
+    type System = ExclusiveSystemFnImpl<Args, F>;
     #[inline]
     fn into_exclusive_system(self) -> Self::System {
-        ExclusiveSystemFn { func: self }
+        ExclusiveSystemFnImpl::<Args, F>::new(self)
     }
 }
 
-impl<F> ExclusiveSystem<()> for ExclusiveSystemFn<F>
+impl<Args, F> ExclusiveSystem<Args> for ExclusiveSystemFnImpl<Args, F>
 where
-    F: ExclusiveSystemParamFn<()>,
+    F: ExclusiveSystemFn<Args, ()>,
 {
     fn init(&mut self, _resources: &mut Resources) {}
     #[inline]
-    fn run(&mut self, resources: &mut Resources, _args: ()) {
-        ExclusiveSystemParamFn::call(&mut self.func, resources)
+    fn run(&mut self, resources: &mut Resources, args: Args) {
+        ExclusiveSystemFn::call(&mut self.func, args, resources)
     }
 
     fn type_name(&self) -> &'static str {
@@ -142,7 +124,7 @@ where
     }
 }
 
-pub trait SystemParamFn<Args, P: SystemParam, Out>: Send + Sync + 'static {
+pub trait SystemFn<Args, P: SystemData, Out>: Send + Sync + 'static {
     fn call(&mut self, arg: Args, params: P::Item<'_>) -> Out;
 }
 
@@ -162,28 +144,17 @@ impl std::ops::DerefMut for ExclusiveResources<'_> {
     }
 }
 
-pub trait ExclusiveSystemParamFn<Out>: 'static {
-    fn call(&mut self, resources: &mut Resources) -> Out;
-}
-
-impl<Out, F> ExclusiveSystemParamFn<Out> for F
-where
-    F: 'static,
-    F: FnMut(ExclusiveResources<'_>) -> Out,
-{
-    #[inline]
-    fn call(&mut self, resources: &mut Resources) -> Out {
-        self(ExclusiveResources(resources))
-    }
+pub trait ExclusiveSystemFn<Args, Out>: 'static {
+    fn call(&mut self, args: Args, resources: &mut Resources) -> Out;
 }
 
 macro_rules! impl_system_fn_sub {
     ( [$(($arg_name:ident,$arg_index:tt)),*] [$(($name:ident,$index:tt)),*]) => (
 
-        impl<Out, F $(,$name)* $(,$arg_name)*> SystemParamFn<($($arg_name,)*), ($($name,)*),Out> for F
+        impl<Out, F $(,$name)* $(,$arg_name)*> SystemFn<($($arg_name,)*), ($($name,)*),Out> for F
         where
             F: Send + Sync + 'static,
-            $($name: SystemParam,)*
+            $($name: SystemData,)*
             F:
               FnMut($($arg_name,)* $($name),*) -> Out +
               FnMut($($arg_name,)* $($name::Item<'_>),*) -> Out,
@@ -196,6 +167,21 @@ macro_rules! impl_system_fn_sub {
     )
 }
 
+macro_rules! impl_exclusive_system_fn {
+    ( [$(($arg_name:ident,$arg_index:tt)),*]) => (
+
+        impl<Out, F $(,$arg_name)*> ExclusiveSystemFn<($($arg_name,)*),Out> for F
+        where
+            F: FnMut($($arg_name,)* ExclusiveResources<'_>) -> Out + 'static,
+        {
+            #[inline]
+            fn call(&mut self, _arg: ($($arg_name,)*), _res: &mut Resources) -> Out {
+              self($(_arg.$arg_index,)* ExclusiveResources(_res))
+            }
+        }
+    )
+}
+
 macro_rules! impl_system_fn {
     ([$($args:tt)*]) => (
         pulz_functional_utils::generate_variadic_array! {[B,#] impl_system_fn_sub!{[$($args)*]}}
@@ -203,17 +189,17 @@ macro_rules! impl_system_fn {
 }
 
 pulz_functional_utils::generate_variadic_array! {[0..9 A,#] impl_system_fn!{}}
+pulz_functional_utils::generate_variadic_array! {[0..9 A,#] impl_exclusive_system_fn!{}}
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use super::{
-        ExclusiveResources, ExclusiveSystemFn, ExclusiveSystemParamFn, SystemFn, SystemParamFn,
-    };
+    use super::{ExclusiveResources, ExclusiveSystemFnImpl, SystemFn, SystemFnImpl};
     use crate::{
+        prelude::IntoExclusiveSystem,
         resource::{ResourceAccess, Resources},
-        system::{IntoSystem, IntoSystemDescriptor, System, SystemDescriptor, SystemVariant},
+        system::{IntoSystem, System},
     };
 
     struct A(usize);
@@ -221,7 +207,7 @@ mod tests {
 
     fn system_0() {}
 
-    fn system_1(mut a: &mut A) {
+    fn system_1(a: &mut A) {
         a.0 += 1;
     }
 
@@ -236,55 +222,39 @@ mod tests {
 
     #[allow(unused)]
     fn trait_assertions() {
-        let _: Box<dyn SystemParamFn<_, _, _>> = Box::new(system_0);
-        let _ = SystemFn::new(system_0);
-        let _ = IntoSystemDescriptor::into_system_descriptor(system_0);
+        let _: Box<dyn SystemFn<_, _, _>> = Box::new(system_0);
+        let _ = SystemFnImpl::new(system_0);
+        let _ = IntoSystem::<(), _>::into_system(system_0);
 
-        let _: Box<dyn SystemParamFn<(), _, _>> = Box::new(system_1);
-        let _ = SystemFn::<(), _, _>::new(system_1);
-        let _ = IntoSystemDescriptor::into_system_descriptor(system_1);
+        let _: Box<dyn SystemFn<(), _, _>> = Box::new(system_1);
+        let _ = SystemFnImpl::<(), _, _>::new(system_1);
+        let _ = IntoSystem::<(), _>::into_system(system_1);
 
-        let _: Box<dyn ExclusiveSystemParamFn<_>> = Box::new(system_qry_init);
-        let _ = ExclusiveSystemFn::new(system_qry_init);
-        let _ = IntoSystemDescriptor::into_system_descriptor(system_qry_init);
+        let _ = ExclusiveSystemFnImpl::new(system_qry_init);
+        let _ = IntoExclusiveSystem::<(), _>::into_exclusive_system(system_qry_init);
 
-        let _: Box<dyn SystemParamFn<(), _, _>> = Box::new(system_2);
-        let _ = SystemFn::<(), _, _>::new(system_2);
-        let _ = IntoSystemDescriptor::into_system_descriptor(system_2);
-    }
-
-    fn run_system(sys: &mut SystemDescriptor, resources: &mut Resources) {
-        match sys.system_variant {
-            SystemVariant::Exclusive(ref mut system) => {
-                system.init(resources);
-                system.run(resources, ());
-            }
-            SystemVariant::Concurrent(ref mut system, ref mut access) => {
-                system.init(resources);
-                system.update_access(resources, access);
-                system.run(resources, ());
-            }
-        }
+        let _: Box<dyn SystemFn<(), _, _>> = Box::new(system_2);
+        let _ = SystemFnImpl::<(), _, _>::new(system_2);
+        let _ = IntoSystem::<(), _>::into_system(system_2);
     }
 
     #[test]
     fn test_system_query() {
         let mut resources = Resources::new();
+        resources.insert(A(11));
+        resources.insert(B(12));
 
-        let mut init_sys = IntoSystemDescriptor::into_system_descriptor(system_qry_init);
-        run_system(&mut init_sys, &mut resources);
+        resources.run(system_qry_init);
 
         assert_eq!(22, resources.get_mut::<A>().unwrap().0);
         assert_eq!(11, resources.get_mut::<B>().unwrap().0);
 
-        let mut sys1 = IntoSystemDescriptor::into_system_descriptor(system_1);
-        run_system(&mut sys1, &mut resources);
+        resources.run(system_1);
 
         assert_eq!(23, resources.get_mut::<A>().unwrap().0);
         assert_eq!(11, resources.get_mut::<B>().unwrap().0);
 
-        let mut sys2 = IntoSystemDescriptor::into_system_descriptor(system_2);
-        run_system(&mut sys2, &mut resources);
+        resources.run(system_2);
 
         assert_eq!(23, resources.get_mut::<A>().unwrap().0);
         assert_eq!(34, resources.get_mut::<B>().unwrap().0);
@@ -295,7 +265,7 @@ mod tests {
         let value = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let sys_a = {
             let value = value.clone();
-            move |mut a: &mut A| {
+            move |a: &mut A| {
                 value.store(a.0, std::sync::atomic::Ordering::Release);
                 a.0 += 10;
             }
@@ -304,15 +274,7 @@ mod tests {
         let mut resources = Resources::new();
         resources.insert(A(11));
 
-        let mut sys = IntoSystemDescriptor::into_system_descriptor(sys_a);
-        match sys.system_variant {
-            SystemVariant::Concurrent(ref mut system, ref mut access) => {
-                system.init(&mut resources);
-                system.update_access(&resources, access);
-                system.run(&resources, ());
-            }
-            _ => unreachable!("unexpected value"),
-        }
+        resources.run(sys_a);
 
         assert_eq!(11, value.load(std::sync::atomic::Ordering::Acquire));
 
@@ -324,7 +286,7 @@ mod tests {
         let value = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let sys_a = {
             let value = value.clone();
-            move |a: &mut usize, mut b: &mut A| {
+            move |a: &mut usize, b: &mut A| {
                 *a += 5;
                 value.store(b.0, std::sync::atomic::Ordering::Release);
                 b.0 += 10;

@@ -388,7 +388,7 @@ macro_rules! impl_call_fn {
             F: FnMut($($big),*) -> O,
         {
             #[inline]
-            fn call_mut<'o>(&'o mut self, _args: ($($big,)*)) -> O {
+            fn call_mut(&mut self, _args: ($($big,)*)) -> O {
                 self($(_args.$index),*)
             }
         }
@@ -399,7 +399,7 @@ macro_rules! impl_call_fn {
             //for<'o> F: CallFnOutput<'o, ($($big,)*), Output=O>,
         {
             #[inline]
-            fn call<'o>(&'o self, _args: ($($big,)*)) -> O {
+            fn call(&self, _args: ($($big,)*)) -> O {
                 self($(_args.$index),*)
             }
         }

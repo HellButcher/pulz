@@ -1,24 +1,22 @@
 use crate::resource::{ResourceAccess, Resources};
 
-pub trait SystemParam: Sized {
-    type State: SystemParamState;
-    type Fetch<'r>: SystemParamFetch<'r, State = Self::State>;
+pub trait SystemData {
+    type State: SystemDataState;
+    type Fetch<'r>: SystemDataFetch<'r, State = Self::State>;
     type Item<'a>;
     fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a>;
 }
 
 /// # Safety
 /// update_access should mark all used resources with ther usage.
-pub unsafe trait SystemParamState: Sized + Send + Sync + 'static {
+pub unsafe trait SystemDataState: Sized + Send + Sync + 'static {
     fn init(resources: &mut Resources) -> Self;
 
     fn update_access(&self, resources: &Resources, access: &mut ResourceAccess);
 }
 
-/// # Safety
-/// update_access should mark all used resources with ther usage.
-pub trait SystemParamFetch<'r> {
-    type State: SystemParamState;
+pub trait SystemDataFetch<'r> {
+    type State: SystemDataState;
 
     fn fetch(res: &'r Resources, state: &'r mut Self::State) -> Self;
 }
@@ -26,10 +24,10 @@ pub trait SystemParamFetch<'r> {
 macro_rules! impl_system_param {
     ([$($(($name:ident,$index:tt)),+)?]) => (
 
-        impl$(<$($name),+>)? SystemParam for ($($($name,)+)?)
+        impl$(<$($name),+>)? SystemData for ($($($name,)+)?)
         $(
             where
-                $($name : SystemParam),+
+                $($name : SystemData),+
         )?
         {
             type State = ($($($name::State,)+)?) ;
@@ -42,10 +40,10 @@ macro_rules! impl_system_param {
             }
         }
 
-        unsafe impl$(<$($name),+>)? SystemParamState for ($($($name,)+)?)
+        unsafe impl$(<$($name),+>)? SystemDataState for ($($($name,)+)?)
         $(
             where
-                $($name : SystemParamState),+
+                $($name : SystemDataState),+
         )?
         {
             #[inline]
@@ -60,10 +58,10 @@ macro_rules! impl_system_param {
         }
 
 
-        impl<'r $($(,$name)+)?> SystemParamFetch<'r> for ($($($name,)+)?)
+        impl<'r $($(,$name)+)?> SystemDataFetch<'r> for ($($($name,)+)?)
         $(
             where
-                $($name : SystemParamFetch<'r>),+
+                $($name : SystemDataFetch<'r>),+
         )?
         {
             type State = ($($($name::State,)+)?) ;

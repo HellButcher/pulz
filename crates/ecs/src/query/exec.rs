@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use pulz_schedule::system::param::SystemParamFetch;
+use pulz_schedule::system::data::SystemDataFetch;
 
 use super::QueryParamState;
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
     entity::Entity,
     query::{QueryItem, QueryParam, QueryParamFetch, QueryState},
     resource::{Res, ResourceAccess, ResourceId, Resources},
-    system::param::{SystemParam, SystemParamState},
+    system::data::{SystemData, SystemDataState},
     WorldInner,
 };
 
@@ -228,7 +228,7 @@ pub struct QuerySystemParamState<S: QueryParamState>(ResourceId<QueryState<S>>);
 #[doc(hidden)]
 pub struct QuerySystemParamFetch<'r, S: QueryParamState>(&'r Resources, ResourceId<QueryState<S>>);
 
-impl<Q> SystemParam for Query<'_, Q>
+impl<Q> SystemData for Query<'_, Q>
 where
     Q: QueryParam + 'static,
 {
@@ -241,7 +241,7 @@ where
     }
 }
 
-unsafe impl<S: QueryParamState> SystemParamState for QuerySystemParamState<S> {
+unsafe impl<S: QueryParamState> SystemDataState for QuerySystemParamState<S> {
     #[inline]
     fn init(resources: &mut Resources) -> Self {
         Self(resources.init::<QueryState<S>>())
@@ -256,7 +256,7 @@ unsafe impl<S: QueryParamState> SystemParamState for QuerySystemParamState<S> {
     }
 }
 
-impl<'r, S: QueryParamState> SystemParamFetch<'r> for QuerySystemParamFetch<'r, S> {
+impl<'r, S: QueryParamState> SystemDataFetch<'r> for QuerySystemParamFetch<'r, S> {
     type State = QuerySystemParamState<S>;
     fn fetch(res: &'r Resources, state: &'r mut Self::State) -> Self {
         Self(res, state.0)

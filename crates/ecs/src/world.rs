@@ -9,7 +9,7 @@ use crate::{
     entity::{Entities, Entity},
     get_or_init_component,
     query::{Query, QueryParam},
-    resource::{Res, Resources, TakenRes},
+    resource::{RemovedResource, Res, Resources},
     WorldInner,
 };
 
@@ -55,7 +55,7 @@ impl Deref for World<'_> {
 
 pub struct WorldMut<'a> {
     pub(crate) res: &'a mut Resources,
-    pub(crate) world: ManuallyDrop<TakenRes<WorldInner>>,
+    pub(crate) world: ManuallyDrop<RemovedResource<WorldInner>>,
 }
 
 impl WorldMut<'_> {
