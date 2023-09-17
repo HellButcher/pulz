@@ -26,7 +26,7 @@ impl<T: ?Sized> Copy for ResourceId<T> {}
 impl<T: ?Sized> Clone for ResourceId<T> {
     #[inline]
     fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
+        *self
     }
 }
 impl<T: ?Sized> Eq for ResourceId<T> {}

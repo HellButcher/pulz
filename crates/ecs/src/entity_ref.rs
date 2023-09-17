@@ -1,4 +1,4 @@
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 
 use crate::{
     archetype::{Archetype, ArchetypeId},
@@ -437,16 +437,6 @@ where
     debug_assert_eq!(TypeId::of::<T>(), component.type_id());
     let storage_id: ResourceId<T::Storage> = component.storage_id.typed();
     res.borrow_res_mut_id(storage_id)
-}
-
-fn storage_dyn<'a>(
-    res: &'a Resources,
-    component: &ComponentDetails,
-) -> Option<Res<'a, dyn AnyStorage>> {
-    Some(Res::map(
-        res.borrow_res_any(component.storage_id)?,
-        |a| unsafe { (component.storage_downcast_ref)(a) },
-    ))
 }
 
 fn storage_mut_dyn<'a>(

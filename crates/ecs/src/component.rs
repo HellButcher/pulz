@@ -8,7 +8,6 @@ use std::{
 };
 
 use crate::{
-    removed::RemovedComponents,
     resource::{Res, ResMut, ResourceId},
     storage::{AnyStorage, Storage},
 };
@@ -18,7 +17,7 @@ pub type RefMut<'w, T> = ResMut<'w, T>;
 
 use pulz_bitset::BitSet;
 pub use pulz_ecs_macros::Component;
-use pulz_schedule::meta::{any_cast_mut_unchecked, any_cast_ref_unchecked};
+use pulz_schedule::meta::any_cast_mut_unchecked;
 
 pub trait Component: Send + Sync + 'static {
     type Storage: Storage<Component = Self>;
@@ -37,7 +36,7 @@ impl<T> std::fmt::Debug for ComponentId<T> {
 impl<T> Copy for ComponentId<T> {}
 impl<T> Clone for ComponentId<T> {
     fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
+        *self
     }
 }
 impl<T> Eq for ComponentId<T> {}
@@ -99,8 +98,6 @@ pub struct ComponentDetails {
     type_id: TypeId,
     pub(crate) archetype_component: bool,
     pub(crate) storage_id: ResourceId,
-    pub(crate) removed_id: ResourceId,
-    pub(crate) storage_downcast_ref: unsafe fn(&dyn Any) -> &dyn AnyStorage,
     pub(crate) storage_downcast_mut: unsafe fn(&mut dyn Any) -> &mut dyn AnyStorage,
 }
 
@@ -165,7 +162,6 @@ impl Components {
     pub(crate) fn insert<T>(
         &mut self,
         storage_id: ResourceId<T::Storage>,
-        removed_id: ResourceId<RemovedComponents<T>>,
         _sparse: bool,
     ) -> Result<ComponentId<T>, ComponentId<T>>
     where
@@ -183,8 +179,6 @@ impl Components {
                     type_id,
                     archetype_component: !<T::Storage as Storage>::SPARSE,
                     storage_id: storage_id.untyped().typed(),
-                    removed_id: removed_id.untyped(),
-                    storage_downcast_ref: any_cast_ref_unchecked::<dyn AnyStorage, T::Storage>,
                     storage_downcast_mut: any_cast_mut_unchecked::<dyn AnyStorage, T::Storage>,
                 });
                 entry.insert(id);
@@ -197,6 +191,11 @@ impl Components {
     #[inline]
     pub fn len(&self) -> usize {
         self.components.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.components.is_empty()
     }
 }
 

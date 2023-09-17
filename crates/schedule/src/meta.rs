@@ -38,6 +38,8 @@ macro_rules! impl_any_cast {
     )+};
 }
 
+/// # Safety
+/// argument must actually be of correct type
 pub unsafe fn any_cast_ref_unchecked<T, B>(any: &dyn Any) -> &T
 where
     T: AnyCast<B> + ?Sized + 'static,
@@ -55,10 +57,13 @@ where
         };
         v
     } else {
-        unsafe { &*(any as *const dyn Any as *const B) }
+        let any: *const dyn Any = any;
+        unsafe { &*(any as *const B) }
     })
 }
 
+/// # Safety
+/// argument must actually be of correct type
 pub unsafe fn any_cast_mut_unchecked<T, B>(any: &mut dyn Any) -> &mut T
 where
     T: AnyCastMut<B> + ?Sized + 'static,
@@ -77,7 +82,8 @@ where
         };
         v
     } else {
-        unsafe { &mut *(any as *mut dyn Any as *mut B) }
+        let any: *mut dyn Any = any;
+        unsafe { &mut *(any as *mut B) }
     })
 }
 

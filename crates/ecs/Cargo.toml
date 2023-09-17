@@ -17,4 +17,3 @@ pulz-ecs-macros = { version = "0.1.0-alpha", path = "macros" }
 pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
 
 slotmap = { workspace = true }
-fnv = { workspace = true }
