@@ -1,13 +1,14 @@
 use std::any::{Any, TypeId};
 
-type HashMap<K, V> = std::collections::HashMap<K, V, fnv::FnvBuildHasher>;
-
-use pulz_schedule::{impl_any_cast, resource::Resources};
+use pulz_schedule::{
+    impl_any_cast, label::CoreSystemPhase, resource::Resources, schedule::Schedule,
+};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
 use crate::{
     archetype::{Archetype, ArchetypeId},
     component::ComponentDetails,
+    insert_sorted,
     resource::FromResources,
     Entity,
 };
@@ -16,6 +17,9 @@ pub trait Storage: Send + Sync + Any + FromResources {
     const SPARSE: bool;
 
     type Component;
+
+    #[inline]
+    fn install_systems(_schedule: &mut Schedule) {}
 
     #[inline]
     fn component_type_id() -> TypeId {
@@ -291,8 +295,112 @@ where
     }
 }
 
-fn take_option_t<T: 'static>(value: &mut dyn Any) -> Option<T> {
-    value.downcast_mut::<Option<T>>()?.take()
+pub struct Tracked<S> {
+    base: S,
+    pub(crate) removed: Vec<Entity>,
+}
+
+impl<S> Tracked<S> {
+    fn reset(&mut self) {
+        self.removed.clear();
+    }
+}
+
+impl<S: FromResources> FromResources for Tracked<S> {
+    #[inline]
+    fn from_resources(resources: &mut Resources) -> Self {
+        Self {
+            base: S::from_resources(resources),
+            removed: Vec::new(),
+        }
+    }
+}
+
+impl<S: Storage> Storage for Tracked<S> {
+    const SPARSE: bool = S::SPARSE;
+    type Component = S::Component;
+
+    fn install_systems(schedule: &mut Schedule) {
+        schedule
+            .add_system(Self::reset)
+            .into_phase(CoreSystemPhase::First);
+    }
+
+    #[inline]
+    fn fast_contains(
+        res: &Resources,
+        entity: Entity,
+        component: &ComponentDetails,
+        archetype: &Archetype,
+    ) -> bool {
+        S::fast_contains(res, entity, component, archetype)
+    }
+
+    #[inline]
+    fn contains(&self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool {
+        self.base.contains(entity, archetype, index)
+    }
+
+    #[inline]
+    fn swap_remove(
+        &mut self,
+        entity: Entity,
+        archetype: ArchetypeId,
+        index: usize,
+    ) -> Option<Self::Component> {
+        let old = self.base.swap_remove(entity, archetype, index)?;
+        insert_sorted(&mut self.removed, entity);
+        Some(old)
+    }
+
+    #[inline]
+    fn insert(&mut self, entity: Entity, value: Self::Component) {
+        self.base.insert(entity, value)
+    }
+
+    #[inline]
+    fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool {
+        self.base.flush_replace(archetype, index)
+    }
+
+    #[inline]
+    fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize> {
+        self.base.flush_push(archetype)
+    }
+
+    #[inline]
+    fn swap_remove_and_insert(
+        &mut self,
+        remove_from_archetype: ArchetypeId,
+        remove_from_index: usize,
+        insert_to_archetype: ArchetypeId,
+    ) -> Option<usize> {
+        self.base.swap_remove_and_insert(
+            remove_from_archetype,
+            remove_from_index,
+            insert_to_archetype,
+        )
+    }
+
+    #[inline]
+    fn get(
+        &self,
+        entity: Entity,
+        archetype: ArchetypeId,
+        index: usize,
+    ) -> Option<&Self::Component> {
+        self.base.get(entity, archetype, index)
+    }
+
+    #[inline]
+    fn get_mut(
+        &mut self,
+        entity: Entity,
+        archetype: ArchetypeId,
+        index: usize,
+    ) -> Option<&mut Self::Component> {
+        self.base.get_mut(entity, archetype, index)
+    }
 }
 
 impl<S> AnyStorage for S

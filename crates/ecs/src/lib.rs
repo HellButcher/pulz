@@ -43,9 +43,10 @@ pub mod world;
 
 pub use component::Component;
 pub use entity::{Entity, EntityMut, EntityRef};
+use pulz_schedule::schedule::Schedule;
 pub use world::WorldExt;
 
-use crate::{removed::RemovedComponents, storage::AnyStorage};
+use crate::storage::AnyStorage;
 
 pub mod prelude {
     pub use pulz_schedule::prelude::*;
@@ -83,6 +84,12 @@ impl Default for WorldInner {
     }
 }
 
+fn insert_sorted<T: Ord>(vec: &mut Vec<T>, value: T) {
+    if let Err(pos) = vec.binary_search(&value) {
+        vec.insert(pos, value);
+    }
+}
+
 fn get_or_init_component<'a, T>(
     res: &'a mut resource::Resources,
     comps: &'a mut component::Components,
@@ -96,11 +103,13 @@ where
         (component.storage_id.typed(), component_id)
     } else {
         let storage_id = res.init::<T::Storage>();
-        let removed_id = res.init::<RemovedComponents<T>>();
         res.init_meta_id::<dyn AnyStorage, _>(storage_id);
-        let component_id = comps
-            .insert(storage_id, removed_id, T::Storage::SPARSE)
-            .unwrap();
+        let component_id = comps.insert(storage_id, T::Storage::SPARSE).unwrap();
+        {
+            let schedule = res.get_mut::<Schedule>().unwrap();
+            <T::Storage as Storage>::install_systems(schedule);
+        }
+
         (storage_id, component_id)
     }
 }

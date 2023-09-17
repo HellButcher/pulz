@@ -23,13 +23,17 @@ pub fn derive_component(input: DeriveInput) -> Result<TokenStream> {
             storage.clone()
         }
     } else if args.sparse.is_present() {
-        parse_quote!(#crate_ecs::storage::HashMapStorage)
+        parse_quote!(#crate_ecs::storage::SparseStorage)
     } else {
-        parse_quote!(#crate_ecs::storage::DenseStorage)
+        parse_quote!(#crate_ecs::storage::ArchetypeStorage)
     };
+    let mut storage: syn::Type = parse_quote!(#storage<Self>);
+    if args.tracked.is_present() {
+        storage = parse_quote!(#crate_ecs::storage::Tracked<#storage>);
+    }
     Ok(quote! {
         impl #impl_generics #crate_ecs::component::Component for #ident #ty_generics #where_clause {
-            type Storage = #storage<Self>;
+            type Storage = #storage;
         }
     })
 }
@@ -43,6 +47,7 @@ pub fn derive_component(input: DeriveInput) -> Result<TokenStream> {
 )]
 pub struct ComponentStructArgs {
     sparse: Flag,
+    tracked: Flag,
     storage: SpannedValue<Option<Path>>,
 }
 
