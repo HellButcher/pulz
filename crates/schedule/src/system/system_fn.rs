@@ -16,7 +16,7 @@ pub struct SystemFnImpl<Args, P: SystemData, F> {
 }
 
 #[doc(hidden)]
-pub struct ExclusiveSystemFnImpl<Args,F> {
+pub struct ExclusiveSystemFnImpl<Args, F> {
     func: F,
     _phantom: std::marker::PhantomData<fn(Args)>,
 }
@@ -37,13 +37,13 @@ where
     }
 }
 
-impl<Args, F> ExclusiveSystemFnImpl<Args,F>
+impl<Args, F> ExclusiveSystemFnImpl<Args, F>
 where
     F: ExclusiveSystemFn<Args, ()>,
 {
     #[inline]
     pub fn new(func: F) -> Self {
-        Self { 
+        Self {
             func,
             _phantom: std::marker::PhantomData,
         }
@@ -98,18 +98,18 @@ where
     }
 }
 
-impl<Args,F> IntoExclusiveSystem<Args, ()> for F
+impl<Args, F> IntoExclusiveSystem<Args, ()> for F
 where
     F: ExclusiveSystemFn<Args, ()> + 'static,
 {
-    type System = ExclusiveSystemFnImpl<Args,F>;
+    type System = ExclusiveSystemFnImpl<Args, F>;
     #[inline]
     fn into_exclusive_system(self) -> Self::System {
         ExclusiveSystemFnImpl::<Args, F>::new(self)
     }
 }
 
-impl<Args,F> ExclusiveSystem<Args> for ExclusiveSystemFnImpl<Args,F>
+impl<Args, F> ExclusiveSystem<Args> for ExclusiveSystemFnImpl<Args, F>
 where
     F: ExclusiveSystemFn<Args, ()>,
 {
@@ -143,7 +143,6 @@ impl std::ops::DerefMut for ExclusiveResources<'_> {
         self.0
     }
 }
-
 
 pub trait ExclusiveSystemFn<Args, Out>: 'static {
     fn call(&mut self, args: Args, resources: &mut Resources) -> Out;
@@ -196,13 +195,11 @@ pulz_functional_utils::generate_variadic_array! {[0..9 A,#] impl_exclusive_syste
 mod tests {
     use std::sync::Arc;
 
-    use super::{
-        ExclusiveSystemFnImpl, SystemFnImpl,
-        SystemFn, ExclusiveResources,
-    };
+    use super::{ExclusiveResources, ExclusiveSystemFnImpl, SystemFn, SystemFnImpl};
     use crate::{
+        prelude::IntoExclusiveSystem,
         resource::{ResourceAccess, Resources},
-        system::{IntoSystem, System, SystemDescriptor, SystemVariant}, prelude::IntoExclusiveSystem,
+        system::{IntoSystem, System},
     };
 
     struct A(usize);
@@ -210,7 +207,7 @@ mod tests {
 
     fn system_0() {}
 
-    fn system_1(mut a: &mut A) {
+    fn system_1(a: &mut A) {
         a.0 += 1;
     }
 
@@ -227,18 +224,18 @@ mod tests {
     fn trait_assertions() {
         let _: Box<dyn SystemFn<_, _, _>> = Box::new(system_0);
         let _ = SystemFnImpl::new(system_0);
-        let _ = IntoSystem::<(),_>::into_system(system_0);
+        let _ = IntoSystem::<(), _>::into_system(system_0);
 
         let _: Box<dyn SystemFn<(), _, _>> = Box::new(system_1);
         let _ = SystemFnImpl::<(), _, _>::new(system_1);
-        let _ = IntoSystem::<(),_>::into_system(system_1);
+        let _ = IntoSystem::<(), _>::into_system(system_1);
 
         let _ = ExclusiveSystemFnImpl::new(system_qry_init);
-        let _ = IntoExclusiveSystem::<(),_>::into_exclusive_system(system_qry_init);
+        let _ = IntoExclusiveSystem::<(), _>::into_exclusive_system(system_qry_init);
 
         let _: Box<dyn SystemFn<(), _, _>> = Box::new(system_2);
         let _ = SystemFnImpl::<(), _, _>::new(system_2);
-        let _ = IntoSystem::<(),_>::into_system(system_2);
+        let _ = IntoSystem::<(), _>::into_system(system_2);
     }
 
     #[test]
@@ -268,7 +265,7 @@ mod tests {
         let value = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let sys_a = {
             let value = value.clone();
-            move |mut a: &mut A| {
+            move |a: &mut A| {
                 value.store(a.0, std::sync::atomic::Ordering::Release);
                 a.0 += 10;
             }
@@ -289,7 +286,7 @@ mod tests {
         let value = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let sys_a = {
             let value = value.clone();
-            move |a: &mut usize, mut b: &mut A| {
+            move |a: &mut usize, b: &mut A| {
                 *a += 5;
                 value.store(b.0, std::sync::atomic::Ordering::Release);
                 b.0 += 10;

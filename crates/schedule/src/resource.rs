@@ -15,49 +15,49 @@ use pulz_bitset::BitSet;
 use crate::system::data::{SystemData, SystemDataFetch, SystemDataState};
 
 #[repr(transparent)]
-pub struct ResourceId<T = crate::Void>(usize, PhantomData<fn() -> T>);
+pub struct ResourceId<T: ?Sized = crate::Void>(usize, PhantomData<fn(&T)>);
 
-impl<T> std::fmt::Debug for ResourceId<T> {
+impl<T: ?Sized> std::fmt::Debug for ResourceId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("ComponentId").field(&self.0).finish()
     }
 }
-impl<T> Copy for ResourceId<T> {}
-impl<T> Clone for ResourceId<T> {
+impl<T: ?Sized> Copy for ResourceId<T> {}
+impl<T: ?Sized> Clone for ResourceId<T> {
     #[inline]
     fn clone(&self) -> Self {
         Self(self.0, PhantomData)
     }
 }
-impl<T> Eq for ResourceId<T> {}
-impl<T> Ord for ResourceId<T> {
+impl<T: ?Sized> Eq for ResourceId<T> {}
+impl<T: ?Sized> Ord for ResourceId<T> {
     #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.cmp(&other.0)
     }
 }
-impl<T> PartialEq<Self> for ResourceId<T> {
+impl<T: ?Sized> PartialEq<Self> for ResourceId<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
     }
 }
-impl<T> PartialOrd<Self> for ResourceId<T> {
+impl<T: ?Sized> PartialOrd<Self> for ResourceId<T> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(&other.0)
     }
 }
-impl<T> Hash for ResourceId<T> {
+impl<T: ?Sized> Hash for ResourceId<T> {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state)
     }
 }
 
-impl<T> ResourceId<T> {
+impl<T: ?Sized> ResourceId<T> {
     #[inline(always)]
-    fn cast<X>(self) -> ResourceId<X> {
+    fn cast<X: ?Sized>(self) -> ResourceId<X> {
         ResourceId(self.0, PhantomData)
     }
 
@@ -71,7 +71,7 @@ impl ResourceId {
     #[inline]
     pub fn typed<T>(self) -> ResourceId<T>
     where
-        T: 'static,
+        T: ?Sized + 'static,
     {
         self.cast()
     }
@@ -130,6 +130,19 @@ impl Resource {
     }
 
     #[inline]
+    fn borrow_any(&self) -> Option<Res<'_, dyn Any>> {
+        Some(Res::map(self.value.as_ref()?.borrow(), Box::deref))
+    }
+
+    #[inline]
+    fn borrow_any_mut(&self) -> Option<ResMut<'_, dyn Any>> {
+        Some(ResMut::map(
+            self.value.as_ref()?.borrow_mut(),
+            Box::deref_mut,
+        ))
+    }
+
+    #[inline]
     fn borrow<T>(&self) -> Option<Res<'_, T>>
     where
         T: 'static,
@@ -162,6 +175,11 @@ impl Resource {
     }
 
     #[inline]
+    fn get_any(&mut self) -> Option<&mut dyn Any> {
+        Some(self.value.as_mut()?.get_mut().deref_mut())
+    }
+
+    #[inline]
     fn remove<T>(&mut self) -> Option<RemovedResource<T>>
     where
         T: 'static,
@@ -191,6 +209,7 @@ impl Resource {
 pub struct Resources {
     resources: Vec<Resource>,
     by_type_id: BTreeMap<TypeId, ResourceId>,
+    pub(crate) meta_by_type_id: BTreeMap<TypeId, Box<dyn Any + Send + Sync>>,
     pub(crate) modules: BTreeSet<TypeId>,
     _unsend: PhantomData<NonNull<()>>,
 }
@@ -201,6 +220,7 @@ impl Resources {
         let mut res = Self {
             resources: Vec::new(),
             by_type_id: BTreeMap::new(),
+            meta_by_type_id: BTreeMap::new(),
             modules: BTreeSet::new(),
             _unsend: PhantomData,
         };
@@ -273,7 +293,8 @@ impl Resources {
     {
         let (id, res) = self.get_resource::<T>();
         res.is_send = true;
-        res.value = Some(AtomicRefCell::new(Box::new(value)));
+        let boxed: Box<dyn Any> = Box::new(value);
+        res.value = Some(AtomicRefCell::new(boxed));
         id
     }
 
@@ -343,7 +364,20 @@ impl Resources {
     where
         T: 'static,
     {
-        self.resources.get(resource_id.0).and_then(Resource::borrow)
+        self.resources.get(resource_id.0)?.borrow()
+    }
+
+    pub fn borrow_res_meta<T>(&self, resource_id: ResourceId<T>) -> Option<Res<'_, T>>
+    where
+        T: ?Sized + 'static,
+    {
+        let r = self.resources.get(resource_id.0)?;
+        let meta = self.get_meta::<T>()?;
+        Res::filter_map(r.borrow_any()?, |v| meta.convert_ref(v))
+    }
+
+    pub fn borrow_res_any(&self, resource_id: ResourceId) -> Option<Res<'_, dyn Any>> {
+        self.resources.get(resource_id.0)?.borrow_any()
     }
 
     #[inline]
@@ -358,9 +392,20 @@ impl Resources {
     where
         T: 'static,
     {
-        self.resources
-            .get(resource_id.0)
-            .and_then(Resource::borrow_mut)
+        self.resources.get(resource_id.0)?.borrow_mut()
+    }
+
+    pub fn borrow_res_mut_meta<T>(&self, resource_id: ResourceId<T>) -> Option<ResMut<'_, T>>
+    where
+        T: ?Sized + 'static,
+    {
+        let r = self.resources.get(resource_id.0)?;
+        let meta = self.get_meta::<T>()?;
+        ResMut::filter_map(r.borrow_any_mut()?, |v| meta.convert_mut(v))
+    }
+
+    pub fn borrow_res_any_mut(&self, resource_id: ResourceId) -> Option<ResMut<'_, dyn Any>> {
+        self.resources.get(resource_id.0)?.borrow_any_mut()
     }
 
     #[inline]
@@ -395,6 +440,12 @@ impl Resources {
         self.resources
             .get_mut(resource_id.0)
             .and_then(Resource::get_mut)
+    }
+
+    pub fn get_mut_any(&mut self, resource_id: ResourceId) -> Option<&'_ mut dyn Any> {
+        self.resources
+            .get_mut(resource_id.0)
+            .and_then(Resource::get_any)
     }
 
     #[inline]

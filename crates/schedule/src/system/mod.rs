@@ -85,7 +85,7 @@ impl SystemDescriptor {
         S::System: 'static,
     {
         let system = s.into_system();
-        SystemDescriptor {
+        Self {
             system_variant: SystemVariant::Concurrent(Box::new(system), ResourceAccess::new()),
             is_initialized: false,
         }
@@ -97,7 +97,7 @@ impl SystemDescriptor {
         S::System: 'static,
     {
         let system = s.into_exclusive_system();
-        SystemDescriptor {
+        Self {
             system_variant: SystemVariant::Exclusive(Box::new(system)),
             is_initialized: false,
         }
@@ -116,7 +116,7 @@ impl SystemDescriptor {
     pub fn is_send(&self) -> bool {
         match &self.system_variant {
             SystemVariant::Concurrent(s, _) => s.is_send(),
-            SystemVariant::Exclusive(s) => false,
+            SystemVariant::Exclusive(_s) => false,
         }
     }
 

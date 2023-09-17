@@ -38,7 +38,7 @@ unsafe impl<T: Component> QueryParamState for QryRefState<T> {
 
     #[inline]
     fn matches_archetype(&self, archetype: &Archetype) -> bool {
-        self.component_id.is_sparse() || archetype.contains_component_id(self.component_id)
+        <T::Storage as Storage>::SPARSE || archetype.contains_component_id(self.component_id)
     }
 }
 
@@ -98,7 +98,7 @@ unsafe impl<T: Component> QueryParamState for QryRefMutState<T> {
 
     #[inline]
     fn matches_archetype(&self, archetype: &Archetype) -> bool {
-        self.component_id.is_sparse() || archetype.contains_component_id(self.component_id)
+        <T::Storage as Storage>::SPARSE || archetype.contains_component_id(self.component_id)
     }
 }
 

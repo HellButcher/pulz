@@ -2131,7 +2131,7 @@ mod tests {
 
     #[test]
     fn test_arena_from_iter() {
-        let a = vec!["test", "foo", "bar"];
+        let a = ["test", "foo", "bar"];
         let b: Arena<_> = a.iter().collect();
         assert_eq!(3, b.len());
     }
