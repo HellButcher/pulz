@@ -156,8 +156,8 @@ impl AshRenderGraph {
         if src_graph.was_updated() || src_graph.hash() != self.hash || formats_changed {
             self.do_update(src_graph, res)?;
             debug!(
-                "graph updated: topo={:?}, barriers={:?}",
-                self.topo, self.barriers
+                "graph updated: topo={:?}, barriers={:?}, formats_changed={:?}",
+                self.topo, self.barriers, formats_changed,
             );
             Ok(true)
         } else {
@@ -289,8 +289,9 @@ impl AshRenderGraph {
             }
             // TODO: compute passes, raytracing-passes
 
-            if let Some(_barrier) = self.barriers.get(topo_index) {
+            if let Some(barrier) = self.barriers.get(topo_index) {
                 // TODO: add barriers
+                todo!("implement barriers {barrier:?}");
             }
         }
 

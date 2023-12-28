@@ -724,7 +724,8 @@ impl PhysicalResources {
 
         let new_hash = {
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            self.hash(&mut hasher);
+            self.textures.hash(&mut hasher);
+            self.buffers.hash(&mut hasher);
             hasher.finish()
         };
         let changed = self.hash != new_hash;
