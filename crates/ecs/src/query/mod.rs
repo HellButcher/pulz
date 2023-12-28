@@ -58,7 +58,7 @@ mod filter;
 pub use fetch::*;
 pub use filter::*;
 use pulz_schedule::resource::{
-    FromResources, ResourceAccess, ResourceId, Resources, ResourcesSend,
+    FromResourcesMut, ResourceAccess, ResourceId, Resources, ResourcesSend,
 };
 
 struct QueryState<S>
@@ -159,8 +159,8 @@ where
     }
 }
 
-impl<S: QueryParamState> FromResources for QueryState<S> {
-    fn from_resources(resources: &mut Resources) -> Self {
+impl<S: QueryParamState> FromResourcesMut for QueryState<S> {
+    fn from_resources_mut(resources: &mut Resources) -> Self {
         Self::new(resources)
     }
 }

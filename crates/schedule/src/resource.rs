@@ -310,12 +310,12 @@ impl Resources {
 
     pub fn try_init<T>(&mut self) -> Result<ResourceId<T>, ResourceId<T>>
     where
-        T: Send + Sync + FromResources + 'static,
+        T: Send + Sync + FromResourcesMut + 'static,
     {
         if let Some(id) = self.id::<T>() {
             Err(id)
         } else {
-            let value = T::from_resources(self);
+            let value = T::from_resources_mut(self);
             Ok(self.insert(value))
         }
     }
@@ -323,7 +323,7 @@ impl Resources {
     #[inline]
     pub fn init<T>(&mut self) -> ResourceId<T>
     where
-        T: Send + Sync + FromResources + 'static,
+        T: Send + Sync + FromResourcesMut + 'static,
     {
         match self.try_init() {
             Ok(id) | Err(id) => id,
@@ -332,12 +332,12 @@ impl Resources {
 
     pub fn try_init_unsend<T>(&mut self) -> Result<ResourceId<T>, ResourceId<T>>
     where
-        T: FromResources + 'static,
+        T: FromResourcesMut + 'static,
     {
         if let Some(id) = self.id::<T>() {
             Err(id)
         } else {
-            let value = T::from_resources(self);
+            let value = T::from_resources_mut(self);
             Ok(self.insert_unsend(value))
         }
     }
@@ -345,7 +345,7 @@ impl Resources {
     #[inline]
     pub fn init_unsend<T>(&mut self) -> ResourceId<T>
     where
-        T: FromResources + 'static,
+        T: FromResourcesMut + 'static,
     {
         match self.try_init_unsend() {
             Ok(id) | Err(id) => id,
@@ -534,13 +534,23 @@ impl ResourcesSend {
 }
 
 pub trait FromResources {
-    fn from_resources(resources: &mut Resources) -> Self;
+    fn from_resources(resources: &Resources) -> Self;
+}
+pub trait FromResourcesMut {
+    fn from_resources_mut(resources: &mut Resources) -> Self;
 }
 
 impl<T: Default> FromResources for T {
     #[inline]
-    fn from_resources(_resources: &mut Resources) -> Self {
+    fn from_resources(_resources: &Resources) -> Self {
         T::default()
+    }
+}
+
+impl<T: FromResources> FromResourcesMut for T {
+    #[inline]
+    fn from_resources_mut(resources: &mut Resources) -> Self {
+        T::from_resources(resources)
     }
 }
 

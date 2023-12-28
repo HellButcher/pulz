@@ -9,11 +9,11 @@ use crate::{
     archetype::{Archetype, ArchetypeId},
     component::ComponentDetails,
     insert_sorted,
-    resource::FromResources,
+    resource::FromResourcesMut,
     Entity,
 };
 
-pub trait Storage: Send + Sync + Any + FromResources {
+pub trait Storage: Send + Sync + Any + FromResourcesMut {
     const SPARSE: bool;
 
     type Component;
@@ -306,11 +306,11 @@ impl<S> Tracked<S> {
     }
 }
 
-impl<S: FromResources> FromResources for Tracked<S> {
+impl<S: FromResourcesMut> FromResourcesMut for Tracked<S> {
     #[inline]
-    fn from_resources(resources: &mut Resources) -> Self {
+    fn from_resources_mut(resources: &mut Resources) -> Self {
         Self {
-            base: S::from_resources(resources),
+            base: S::from_resources_mut(resources),
             removed: Vec::new(),
         }
     }

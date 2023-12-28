@@ -40,7 +40,7 @@ pub mod system;
 pub mod prelude {
     pub use crate::{
         module::{Module, ModuleWithOutput},
-        resource::{FromResources, Res, ResMut, ResourceId, Resources},
+        resource::{FromResources, FromResourcesMut, Res, ResMut, ResourceId, Resources},
         schedule::Schedule,
         system::{IntoExclusiveSystem, IntoSystem},
     };
