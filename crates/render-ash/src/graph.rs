@@ -77,7 +77,7 @@ impl PhysicalResourceResolver for AshPhysicalResourceResolver<'_> {
                 self.submission_group
                     .wait(sem, PipelineStageFlags::TRANSFER);
                 let aquired_texture = surface
-                    .acquire_next_image(self.res, 0, sem)
+                    .acquire_next_image(self.res, sem)
                     .expect("aquire failed")
                     .expect("aquire failed(2)");
 

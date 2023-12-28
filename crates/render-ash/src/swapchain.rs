@@ -9,7 +9,7 @@ use pulz_window::{
     HasRawWindowAndDisplayHandle, Size2, Window, WindowDescriptor, WindowId, Windows,
 };
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
-use tracing::info;
+use tracing::{info, debug};
 
 use crate::{
     convert::VkInto,
@@ -532,6 +532,7 @@ impl AshSurfaceSwapchain {
     }
 
     fn configure(&mut self, res: &mut AshResources) -> Result<()> {
+        debug!("re-creating swapchain, recreate={:?}", self.swapchain_raw != vk::SwapchainKHR::null());
         // check swapchain support
         res.device().ext_swapchain()?;
 
@@ -663,19 +664,16 @@ impl AshSurfaceSwapchain {
     pub(crate) fn acquire_next_image(
         &mut self,
         res: &mut AshResources,
-        timeout: u64,
         signal_semaphore: vk::Semaphore,
     ) -> Result<Option<AcquiredSwapchainImage>> {
         if self.is_acquired() {
             return Err(Error::SwapchainImageAlreadyAcquired);
         }
 
-        // TODO: better sync mechanism
-
         let result = unsafe {
             match res.device().ext_swapchain()?.acquire_next_image(
                 self.swapchain_raw,
-                timeout,
+                !0,
                 signal_semaphore,
                 vk::Fence::null(),
             ) {
@@ -684,7 +682,7 @@ impl AshSurfaceSwapchain {
                     self.configure(res)?;
                     res.device().ext_swapchain()?.acquire_next_image(
                         self.swapchain_raw,
-                        timeout,
+                        !0,
                         signal_semaphore,
                         vk::Fence::null(),
                     )
@@ -783,19 +781,6 @@ impl AshRendererFull {
             }
             true
         });
-    }
-
-    pub(crate) fn acquire_swapchain_image(
-        &mut self,
-        window_id: WindowId,
-        timeout: u64,
-        signal_semaphore: vk::Semaphore,
-    ) -> Result<Option<Texture>> {
-        let _ = tracing::trace_span!("AquireImage").entered();
-        let surface_swapchain = self.surfaces.get_mut(window_id).expect("swapchain");
-        Ok(surface_swapchain
-            .acquire_next_image(&mut self.res, timeout, signal_semaphore)?
-            .map(|swapchain_image| swapchain_image.texture))
     }
 
     pub(crate) fn get_num_acquired_swapchains(&self) -> usize {

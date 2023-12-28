@@ -329,9 +329,9 @@ impl AshRendererFull {
                 .command_pool
                 .request_semaphore()?;
             submission_group.wait(sem, PipelineStageFlags::TRANSFER);
-            if let Some(texture) = self.acquire_swapchain_image(window_id, 0, sem)? {
-                let image = self.res.textures[texture].0;
-                images.push((image, self.surfaces[window_id].clear_value()));
+            let surface = &mut self.surfaces[window_id];
+            if let Some(acquired) = surface.acquire_next_image(&mut self.res,  sem)? {
+                images.push((acquired.image, surface.clear_value()));
             }
         }
 
