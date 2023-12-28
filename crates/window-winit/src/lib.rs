@@ -31,13 +31,13 @@ use std::{ops::Deref, rc::Rc};
 use fnv::FnvHashMap;
 use pulz_ecs::prelude::*;
 use pulz_window::{
-    listener::WindowSystemListeners, Size2, WindowDescriptor, WindowId, Windows, WindowsMirror,
+    listener::WindowSystemListener, Size2, WindowDescriptor, WindowId, Windows, WindowsMirror,
 };
 use tracing::{debug, info, warn};
 pub use winit;
 use winit::{
     dpi::PhysicalSize,
-    error::OsError,
+    error::{EventLoopError, OsError},
     event::{Event, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
     window::{Window as WinitWindow, WindowId as WinitWindowId},
@@ -122,14 +122,13 @@ fn builder_for_descriptor(descriptor: &WindowDescriptor) -> winit::window::Windo
 
 pub struct WinitWindowSystem {
     windows_id: ResourceId<Windows>,
-    listeners_id: ResourceId<WindowSystemListeners>,
     winit_windows_id: ResourceId<WinitWindows>,
+    schedule_id: ResourceId<Schedule>,
     active: bool,
 }
 
 pub struct WinitWindowSystemMut<'l> {
     windows: ResMut<'l, Windows>,
-    listeners: ResMut<'l, WindowSystemListeners>,
     winit_windows: ResMut<'l, WinitWindows>,
 }
 
@@ -206,27 +205,24 @@ impl WinitWindowSystemMut<'_> {
         &mut self,
         res: &Resources,
         window_id: WinitWindowId,
-        event: WindowEvent<'_>,
+        event: WindowEvent,
     ) {
         if let Some(window_id) = self.winit_windows.window_id_map.get(&window_id).copied() {
             if matches!(event, WindowEvent::Destroyed) {
+                debug!("Window {:?} destroyed", window_id);
                 self.close(res, window_id);
             } else if let Some(window) = self.windows.get_mut(window_id) {
                 match event {
                     WindowEvent::CloseRequested => {
+                        debug!("Window {:?} close requested", window_id);
                         window.close_requested = true;
                     }
                     WindowEvent::Resized(size) => {
                         let phys_size: [u32; 2] = size.into();
                         window.size = phys_size.into();
                     }
-                    WindowEvent::ScaleFactorChanged {
-                        scale_factor,
-                        new_inner_size,
-                    } => {
-                        let phys_size: [u32; 2] = (*new_inner_size).into();
+                    WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                         window.scale_factor = scale_factor;
-                        window.size = phys_size.into();
                     }
                     _ => {}
                 }
@@ -234,25 +230,22 @@ impl WinitWindowSystemMut<'_> {
         }
     }
 
-    fn handle_created<T>(
-        &mut self,
-        res: &Resources,
-        event_loop: &EventLoopWindowTarget<T>,
-    ) -> Result<(), OsError> {
+    fn handle_created<T>(&mut self, res: &Resources, event_loop: &EventLoopWindowTarget<T>) {
         while let Some((window_id, window_descr)) = self.windows.pop_next_created_window() {
-            if let Some(winit_window) = self.winit_windows.get(window_id) {
-                self.listeners
-                    .call_on_created(res, window_id, window_descr, winit_window);
+            let winit_window = if let Some(w) = self.winit_windows.windows.get(window_id) {
+                Rc::clone(w)
             } else {
                 let builder = builder_for_descriptor(window_descr);
-                let winit_window = Rc::new(builder.build(event_loop)?);
+                let winit_window =
+                    Rc::new(builder.build(event_loop).expect("unable to create window"));
                 update_window_descriptor(window_descr, &winit_window);
                 self.winit_windows.insert(window_id, winit_window.clone());
-                self.listeners
-                    .call_on_created(res, window_id, window_descr, &winit_window);
+                winit_window
             };
+            res.foreach_meta_mut(move |l: &mut dyn WindowSystemListener| {
+                l.on_created(window_id, &window_descr, winit_window.clone());
+            });
         }
-        Ok(())
     }
 
     // close all windows where the close_requested flag is not cleared
@@ -276,7 +269,8 @@ impl WinitWindowSystemMut<'_> {
 
     fn close(&mut self, res: &Resources, window_id: WindowId) -> bool {
         if self.winit_windows.get(window_id).is_some() {
-            self.listeners.call_on_closed(res, window_id);
+            debug!("Window {:?} closing", window_id);
+            res.foreach_meta_mut(|l: &mut dyn WindowSystemListener| l.on_closed(window_id));
             self.windows.close(window_id);
             self.winit_windows.close(window_id);
             true
@@ -289,12 +283,12 @@ impl WinitWindowSystemMut<'_> {
 impl WinitWindowSystem {
     fn install(res: &mut Resources) -> Self {
         let windows_id = res.init::<Windows>();
-        let listeners_id = res.init_unsend::<WindowSystemListeners>();
         let winit_windows_id = res.init_unsend::<WinitWindows>();
+        let schedule_id = res.init_unsend::<Schedule>();
         Self {
             windows_id,
-            listeners_id,
             winit_windows_id,
+            schedule_id,
             active: false,
         }
     }
@@ -302,87 +296,90 @@ impl WinitWindowSystem {
     fn as_mut<'l>(&self, res: &'l Resources) -> WinitWindowSystemMut<'l> {
         WinitWindowSystemMut {
             windows: res.borrow_res_mut_id(self.windows_id).unwrap(),
-            listeners: res.borrow_res_mut_id(self.listeners_id).unwrap(),
             winit_windows: res.borrow_res_mut_id(self.winit_windows_id).unwrap(),
         }
     }
 
-    fn listeners_mut<'l>(&self, res: &'l Resources) -> ResMut<'l, WindowSystemListeners> {
-        res.borrow_res_mut_id(self.listeners_id).unwrap()
-    }
-
     pub fn handle_event<T>(
         &mut self,
-        resources: &mut Resources,
-        schedule: &mut Schedule,
-        event: Event<'_, T>,
+        res: &mut Resources,
+        event: Event<T>,
         event_loop: &EventLoopWindowTarget<T>,
-        control_flow: &mut ControlFlow,
     ) {
-        *control_flow = winit::event_loop::ControlFlow::Poll;
-
         match event {
             Event::NewEvents(StartCause::Init) => {
                 info!("event loop started...");
             }
             Event::Resumed => {
                 info!("resumed");
-                self.active = true;
-                let mut s = self.as_mut(resources);
-                s.handle_created(resources, event_loop).unwrap();
-                s.listeners.call_on_resumed(resources);
-                *control_flow = winit::event_loop::ControlFlow::Poll;
+                if !self.active {
+                    self.active = true;
+                    let mut s = self.as_mut(res);
+                    s.handle_created(res, event_loop);
+                    res.foreach_meta_mut(|l: &mut dyn WindowSystemListener| l.on_resumed());
+                }
+                event_loop.set_control_flow(ControlFlow::Poll);
             }
             Event::WindowEvent { window_id, event } => {
-                self.as_mut(resources)
-                    .handle_window_event(resources, window_id, event);
+                self.as_mut(res).handle_window_event(res, window_id, event);
             }
             Event::Suspended => {
                 info!("suspended");
-                self.active = false;
-                self.listeners_mut(resources).call_on_suspended(resources);
-                *control_flow = winit::event_loop::ControlFlow::Wait;
-            }
-            Event::MainEventsCleared => {
                 if self.active {
-                    self.as_mut(resources)
-                        .handle_created(resources, event_loop)
-                        .unwrap();
-                    schedule.run(resources);
-                    if self.as_mut(resources).handle_close(resources) {
+                    self.active = false;
+                    res.foreach_meta_mut(|l: &mut dyn WindowSystemListener| l.on_suspended());
+                }
+                event_loop.set_control_flow(ControlFlow::Wait);
+            }
+            Event::AboutToWait => {
+                if self.active {
+                    self.as_mut(res).handle_created(res, event_loop);
+                    let mut schedule = res.remove_id(self.schedule_id).unwrap();
+                    schedule.run(res);
+                    res.insert_again(schedule);
+                    if self.as_mut(res).handle_close(res) {
                         // all windows closed
-                        *control_flow = winit::event_loop::ControlFlow::Exit;
+                        event_loop.exit();
                     }
                 }
             }
-            Event::LoopDestroyed => {
+            Event::LoopExiting => {
                 info!("event loop ended");
                 if self.active {
                     self.active = false;
-                    self.listeners_mut(resources).call_on_suspended(resources);
+                    res.foreach_meta_mut(|l: &mut dyn WindowSystemListener| l.on_suspended());
                 }
             }
             _ => {}
         }
     }
 
-    pub fn run<T>(mut self, mut resources: Resources, event_loop: EventLoop<T>) -> ! {
-        let schedule_id = resources.init_unsend::<Schedule>();
-        let mut schedule = resources.remove_id(schedule_id).unwrap();
-
+    pub fn event_handler<'a, T>(
+        &'a mut self,
+        res: &'a mut Resources,
+    ) -> impl FnMut(Event<T>, &EventLoopWindowTarget<T>) + 'a {
         let event_loop_span = tracing::trace_span!("EventLoop");
-
-        event_loop.run(move |event, event_loop, control_flow| {
+        move |event, event_loop| {
             let span = event_loop_span.enter();
-            self.handle_event(
-                &mut resources,
-                &mut schedule,
-                event,
-                event_loop,
-                control_flow,
-            );
+            self.handle_event(res, event, event_loop);
             drop(span);
-        })
+        }
+    }
+
+    #[cfg(any(not(target_arch = "wasm32"), doc))]
+    pub fn run<T>(
+        mut self,
+        resources: &mut Resources,
+        event_loop: EventLoop<T>,
+    ) -> Result<(), EventLoopError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            event_loop.run(self.event_handler(resources))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(())
+        }
     }
 
     #[cfg(any(
@@ -396,26 +393,14 @@ impl WinitWindowSystem {
         target_os = "openbsd",
         doc
     ))]
-    pub fn run_return<T>(
+    pub fn pump_events<T>(
         &mut self,
         resources: &mut Resources,
         event_loop: &mut EventLoop<T>,
-    ) -> i32 {
-        use winit::platform::run_return::EventLoopExtRunReturn;
-
-        let schedule_id = resources.init_unsend::<Schedule>();
-        let mut schedule = resources.remove_id(schedule_id).unwrap();
-
-        let event_loop_span = tracing::trace_span!("EventLoop");
-
-        let result = event_loop.run_return(|event, event_loop, control_flow| {
-            let span = event_loop_span.enter();
-            self.handle_event(resources, &mut schedule, event, event_loop, control_flow);
-            drop(span);
-        });
-
-        resources.insert_again(schedule);
-
+        timeout: Option<std::time::Duration>,
+    ) -> winit::platform::pump_events::PumpStatus {
+        use winit::platform::pump_events::EventLoopExtPumpEvents;
+        let result = event_loop.pump_events(timeout, self.event_handler(resources));
         result
     }
 
@@ -424,23 +409,7 @@ impl WinitWindowSystem {
         #[cfg(target_arch = "wasm32")]
         {
             use winit::platform::web::EventLoopExtWebSys;
-
-            let schedule_id = resources.init_unsend::<Schedule>();
-            let mut schedule = resources.remove_id(schedule_id).unwrap();
-
-            let event_loop_span = tracing::trace_span!("EventLoop");
-
-            event_loop.spawn(move |event, event_loop, control_flow| {
-                let span = event_loop_span.enter();
-                self.handle_event(
-                    &mut resources,
-                    &mut schedule,
-                    event,
-                    event_loop,
-                    control_flow,
-                );
-                drop(span);
-            })
+            event_loop.spawn(self.handler(&mut resources))
         }
     }
 }

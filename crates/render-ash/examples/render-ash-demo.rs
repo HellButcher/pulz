@@ -15,13 +15,14 @@ fn init() -> (Resources, EventLoop<()>, Rc<Window>, WinitWindowSystem) {
     info!("Initializing...");
     let mut resources = Resources::new();
     resources.install(CoreShadingModule);
-    resources.install(AshRenderer::new().unwrap());
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let (window_system, window_id, window) =
         WinitWindowModule::new(WindowDescriptor::default(), &event_loop)
             .unwrap()
             .install(&mut resources);
+
+    resources.install(AshRenderer::new().unwrap());
 
     // let mut schedule = resources.remove::<Schedule>().unwrap();
     // schedule.init(&mut resources);
@@ -51,9 +52,9 @@ fn main() {
         .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .init();
 
-    let (resources, event_loop, _window, window_system) = init();
+    let (mut resources, event_loop, _window, window_system) = init();
 
-    window_system.run(resources, event_loop);
+    window_system.run(&mut resources, event_loop).unwrap();
 }
 
 #[cfg(target_arch = "wasm32")]

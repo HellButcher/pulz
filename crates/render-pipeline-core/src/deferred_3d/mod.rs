@@ -10,6 +10,7 @@ use pulz_render::{
         resources::{Slot, WriteSlot},
         RenderGraphBuilder,
     },
+    math::Mat4,
     texture::Texture,
     RenderSystemPhase,
 };
@@ -22,9 +23,10 @@ impl DeferredShadingModule {
         builder: &mut RenderGraphBuilder,
         cams_qry: Query<'_, (&Camera, &RenderTarget, Entity)>,
     ) {
-        for (_camera, render_target, entity) in cams_qry {
+        for (camera, render_target, entity) in cams_qry {
             let output = builder.add_pass(DeferredShadingPass {
                 view_camera: entity,
+                projection: camera.projection_matrix,
             });
 
             builder.export_texture(output.read(), render_target);
@@ -45,6 +47,7 @@ impl Module for DeferredShadingModule {
 
 pub struct DeferredShadingPass {
     view_camera: Entity,
+    projection: Mat4,
 }
 
 impl PassGroup for DeferredShadingPass {

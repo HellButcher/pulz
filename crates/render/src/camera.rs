@@ -1,9 +1,12 @@
 use pulz_assets::{Assets, Handle};
 use pulz_ecs::prelude::*;
-use pulz_transform::math::{size2, Mat4, Size2, USize2};
-use pulz_window::{Window, WindowId, Windows};
+use pulz_transform::math::{size2, Mat4, Size2};
+use pulz_window::WindowId;
 
-use crate::texture::Image;
+use crate::{
+    surface::{Surface, WindowSurfaces},
+    texture::Image,
+};
 
 trait AsProjectionMatrix {
     fn as_projection_matrix(&self) -> Mat4;
@@ -211,7 +214,6 @@ pub struct Camera {
     pub order: isize,
     zorder_optimization: bool,
     pub projection_matrix: Mat4,
-    target_info: Option<RenderTargetInfo>,
 }
 
 impl Camera {
@@ -220,95 +222,40 @@ impl Camera {
             order: 0,
             zorder_optimization: false,
             projection_matrix: Mat4::IDENTITY,
-            target_info: None,
         }
-    }
-    pub fn to_logical_size(&self, physical_size: USize2) -> Size2 {
-        let scale_factor = self.target_info.as_ref().map_or(1.0, |t| t.scale_factor);
-        (physical_size.as_dvec2() / scale_factor).as_vec2()
-    }
-
-    #[inline]
-    pub fn logical_target_size(&self) -> Option<Size2> {
-        self.target_info
-            .as_ref()
-            .map(|t| self.to_logical_size(t.physical_size))
-    }
-
-    #[inline]
-    pub fn physical_target_size(&self) -> Option<USize2> {
-        self.target_info.as_ref().map(|t| t.physical_size)
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Copy, Clone, Debug)]
 pub enum RenderTarget {
     Window(WindowId),
     Image(Handle<Image>),
 }
 
-#[derive(Copy, Clone, PartialEq)]
-struct RenderTargetInfo {
-    pub physical_size: USize2,
-    pub scale_factor: f64,
-}
-
-impl RenderTargetInfo {
-    #[inline]
-    fn from_window(window: &Window) -> Self {
-        Self {
-            physical_size: window.size,
-            scale_factor: window.scale_factor,
-        }
-    }
-
-    #[inline]
-    fn from_image(image: &Image) -> Self {
-        Self {
-            physical_size: image.descriptor.dimensions.subimage_extents(),
-            scale_factor: 1.0,
+impl RenderTarget {
+    pub fn resolve(&self, surfaces: &WindowSurfaces, _images: &Assets<Image>) -> Option<Surface> {
+        match self {
+            RenderTarget::Window(window_id) => surfaces.get(*window_id).copied(),
+            RenderTarget::Image(_image_handle) => todo!("surface from image asset"),
         }
     }
 }
 
-pub fn update_cameras(
-    windows: Res<'_, Windows>,
-    images: Res<'_, Assets<Image>>,
-    mut cameras: Query<
-        '_,
-        (
-            &'_ mut Camera,
-            Option<&'_ mut Projection>,
-            Option<&'_ RenderTarget>,
-        ),
-    >,
+pub fn update_projections_from_render_targets(
+    window_surfaces: &'_ WindowSurfaces,
+    images: &'_ Assets<Image>,
+    mut projections: Query<'_, (&'_ mut Projection, &'_ RenderTarget)>,
 ) {
-    for (camera, projection, render_target) in cameras.iter() {
-        let target_info = match render_target {
-            None => None,
-            Some(&RenderTarget::Window(window_id)) => {
-                windows.get(window_id).map(RenderTargetInfo::from_window)
-            }
-            Some(&RenderTarget::Image(image_handle)) => {
-                images.get(image_handle).map(RenderTargetInfo::from_image)
-            }
-        };
-        let changed = target_info != camera.target_info;
-        if changed {
-            camera.target_info = target_info;
-
-            if let Some(target_info) = target_info {
-                let logical_size =
-                    (target_info.physical_size.as_dvec2() / target_info.scale_factor).as_vec2();
-                // TODO: viewport size?
-
-                // update projection
-                if let Some(projection) = projection {
-                    projection.update_viewport(logical_size);
-                    camera.zorder_optimization = projection.zorder_optimization();
-                    camera.projection_matrix = projection.as_projection_matrix();
-                }
-            }
+    for (projection, render_target) in projections.iter() {
+        if let Some(surface) = render_target.resolve(&window_surfaces, &images) {
+            projection.update_viewport(surface.logical_size());
         }
+    }
+}
+
+pub fn update_cameras_from_projections(mut cameras: Query<'_, (&'_ mut Camera, &'_ Projection)>) {
+    for (camera, projection) in cameras.iter() {
+        camera.zorder_optimization = projection.zorder_optimization();
+        camera.projection_matrix = projection.as_projection_matrix();
     }
 }

@@ -1,6 +1,8 @@
+use core::fmt;
+
 use self::{
     pass::{run::PassExec, PipelineBindPoint},
-    resources::{ResourceAssignments, ResourceDeps, ResourceSet},
+    resources::{ExtendedResourceData, ResourceDeps, ResourceSet},
 };
 use crate::{
     buffer::Buffer,
@@ -22,7 +24,7 @@ type SubPassIndex = (u16, u16);
 const PASS_UNDEFINED: PassIndex = !0;
 const SUBPASS_UNDEFINED: SubPassIndex = (!0, !0);
 
-#[derive(Hash)]
+#[derive(Hash, Debug)]
 pub struct SubPassDescription {
     pass_index: PassIndex,
     name: &'static str,
@@ -31,7 +33,7 @@ pub struct SubPassDescription {
     input_attachments: Vec<ResourceIndex>,
 }
 
-#[derive(Hash)]
+#[derive(Hash, Debug)]
 pub struct PassDescription {
     index: PassIndex,
     name: &'static str,
@@ -48,7 +50,9 @@ pub struct RenderGraph {
     hash: u64,
     was_updated: bool,
     textures: ResourceSet<Texture>,
+    textures_ext: Vec<ExtendedResourceData>,
     buffers: ResourceSet<Buffer>,
+    buffers_ext: Vec<ExtendedResourceData>,
     subpasses: Vec<SubPassDescription>,
     subpasses_exec: Vec<PassExec<()>>,
     passes: Vec<PassDescription>,
@@ -64,13 +68,6 @@ pub struct RenderGraphBuilder {
     passes: Vec<PassDescription>,
 }
 
-pub struct RenderGraphAssignments {
-    hash: u64,
-    was_updated: bool,
-    texture_assignments: ResourceAssignments<Texture>,
-    buffer_assignments: ResourceAssignments<Buffer>,
-}
-
 impl RenderGraph {
     #[inline]
     const fn new() -> Self {
@@ -79,7 +76,9 @@ impl RenderGraph {
             hash: 0,
             was_updated: false,
             textures: ResourceSet::new(),
+            textures_ext: Vec::new(),
             buffers: ResourceSet::new(),
+            buffers_ext: Vec::new(),
             subpasses: Vec::new(),
             subpasses_exec: Vec::new(),
             passes: Vec::new(),
@@ -145,18 +144,6 @@ impl RenderGraphBuilder {
     }
 }
 
-impl RenderGraphAssignments {
-    #[inline]
-    pub const fn new() -> Self {
-        Self {
-            hash: 0,
-            was_updated: false,
-            texture_assignments: ResourceAssignments::new(),
-            buffer_assignments: ResourceAssignments::new(),
-        }
-    }
-}
-
 impl Default for RenderGraphBuilder {
     #[inline]
     fn default() -> Self {
@@ -168,6 +155,23 @@ impl Default for RenderGraph {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl fmt::Debug for RenderGraph {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RenderGraph")
+            .field("init", &self.init)
+            .field("hash", &self.hash)
+            .field("was_updated", &self.was_updated)
+            .field("textures", &self.textures)
+            .field("textures_ext", &self.textures_ext)
+            .field("buffers", &self.buffers)
+            .field("buffers_ext", &self.buffers_ext)
+            .field("subpasses", &self.subpasses)
+            .field("passes", &self.passes)
+            .field("passes_topo_order", &self.passes_topo_order)
+            .finish()
     }
 }
 

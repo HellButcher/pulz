@@ -13,7 +13,12 @@ use pulz_render::{
 };
 use slotmap::SlotMap;
 
-use crate::{device::AshDevice, Result};
+use crate::{
+    alloc::{AshAllocator, GpuMemoryBlock},
+    device::AshDevice,
+    instance::AshInstance,
+    Result,
+};
 
 mod replay;
 mod resource_impl;
@@ -21,11 +26,12 @@ mod traits;
 
 use self::{
     replay::RecordResource,
-    traits::{AshGpuResourceCreate, AshGpuResourceRemove},
+    traits::{
+        AshGpuResource, AshGpuResourceCollection, AshGpuResourceCreate, AshGpuResourceRemove,
+    },
 };
-
 pub struct AshResources {
-    device: Arc<AshDevice>,
+    pub alloc: AshAllocator,
     record: Option<Box<dyn RecordResource>>,
     pipeline_cache: vk::PipelineCache,
     graphics_passes_cache: U64HashMap<GraphicsPass>,
@@ -42,14 +48,28 @@ pub struct AshResources {
     pub graphics_pipelines: SlotMap<GraphicsPipeline, vk::Pipeline>,
     pub compute_pipelines: SlotMap<ComputePipeline, vk::Pipeline>,
     pub ray_tracing_pipelines: SlotMap<RayTracingPipeline, vk::Pipeline>,
-    pub buffers: SlotMap<Buffer, vk::Buffer>,
-    pub textures: SlotMap<Texture, (vk::Image, vk::ImageView)>,
+    pub buffers: SlotMap<Buffer, (vk::Buffer, Option<GpuMemoryBlock>)>,
+    pub textures: SlotMap<Texture, (vk::Image, vk::ImageView, Option<GpuMemoryBlock>)>,
+    frame_garbage: Vec<AshFrameGarbage>,
+    current_frame: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct AshFrameGarbage {
+    pub buffers: Vec<vk::Buffer>,
+    pub images: Vec<vk::Image>,
+    pub image_views: Vec<vk::ImageView>,
+    pub swapchains: Vec<vk::SwapchainKHR>,
+    pub memory: Vec<GpuMemoryBlock>,
 }
 
 impl AshResources {
-    pub fn new(device: &Arc<AshDevice>) -> Self {
-        Self {
-            device: device.clone(),
+    pub fn new(device: &Arc<AshDevice>, num_frames_in_flight: usize) -> Result<Self> {
+        let alloc = AshAllocator::new(device)?;
+        let mut frame_garbage = Vec::with_capacity(num_frames_in_flight);
+        frame_garbage.resize_with(num_frames_in_flight, AshFrameGarbage::default);
+        Ok(Self {
+            alloc,
             record: None,
             graphics_passes_cache: U64HashMap::default(),
             shader_modules_cache: U64HashMap::default(),
@@ -68,12 +88,19 @@ impl AshResources {
             ray_tracing_pipelines: SlotMap::with_key(),
             buffers: SlotMap::with_key(),
             textures: SlotMap::with_key(),
-        }
+            frame_garbage,
+            current_frame: 0,
+        })
+    }
+
+    #[inline]
+    pub fn instance(&self) -> &AshInstance {
+        &self.alloc.instance()
     }
 
     #[inline]
     pub fn device(&self) -> &AshDevice {
-        &self.device
+        &self.alloc.device()
     }
 
     pub fn with_pipeline_cache(mut self, initial_data: &[u8]) -> Result<Self> {
@@ -84,11 +111,12 @@ impl AshResources {
     pub fn set_pipeline_cache(&mut self, initial_data: &[u8]) -> Result<()> {
         unsafe {
             if self.pipeline_cache != vk::PipelineCache::null() {
-                self.device
+                self.alloc
+                    .device()
                     .destroy_pipeline_cache(self.pipeline_cache, None);
                 self.pipeline_cache = vk::PipelineCache::null();
             }
-            self.pipeline_cache = self.device.create_pipeline_cache(
+            self.pipeline_cache = self.alloc.device().create_pipeline_cache(
                 &vk::PipelineCacheCreateInfo::builder()
                     .initial_data(initial_data)
                     .build(),
@@ -103,7 +131,10 @@ impl AshResources {
             return Ok(Vec::new());
         }
         unsafe {
-            let data = self.device.get_pipeline_cache_data(self.pipeline_cache)?;
+            let data = self
+                .alloc
+                .device()
+                .get_pipeline_cache_data(self.pipeline_cache)?;
             Ok(data)
         }
     }
@@ -117,56 +148,105 @@ impl AshResources {
     }
 
     #[inline]
-    pub fn get_raw<R>(&self, key: R) -> Option<R::Raw>
+    pub fn get_raw<R>(&self, key: R) -> Option<&R::Raw>
     where
         R: AshGpuResourceCreate,
     {
-        R::get_raw(self, key).copied()
+        R::slotmap(self).get(key)
     }
 
     #[inline]
-    pub fn clear<R>(&mut self)
-    where
-        R: AshGpuResourceCreate,
-    {
-        R::clear(self)
-    }
-
-    #[inline]
-    pub fn remove<R>(&mut self, key: R) -> bool
+    pub fn destroy<R>(&mut self, key: R) -> bool
     where
         R: AshGpuResourceRemove,
     {
-        R::remove(self, key)
+        R::destroy(self, key)
     }
 
-    pub fn clear_all(&mut self) {
-        self.clear::<RayTracingPipeline>();
-        self.clear::<ComputePipeline>();
-        self.clear::<GraphicsPipeline>();
-        self.clear::<BindGroupLayout>();
-        self.clear::<ShaderModule>();
-        self.clear::<GraphicsPass>();
-        self.clear::<Texture>();
-        self.clear::<Buffer>();
+    pub(crate) fn clear_garbage(&mut self) -> Result<()> {
+        unsafe {
+            self.alloc.device().device_wait_idle()?;
+            for garbage in &mut self.frame_garbage {
+                garbage.clear_frame(&mut self.alloc);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn clear_all(&mut self) -> Result<()> {
+        self.clear_garbage()?;
+        // SAFETY: clear save, because clear garbage waits until device is idle
+        unsafe {
+            self.ray_tracing_pipelines.clear_destroy(&mut self.alloc);
+            self.ray_tracing_pipelines_cache.clear();
+            self.compute_pipelines.clear_destroy(&mut self.alloc);
+            self.compute_pipelines_cache.clear();
+            self.graphics_pipelines.clear_destroy(&mut self.alloc);
+            self.graphics_pipelines_cache.clear();
+            self.pipeline_layouts.clear_destroy(&mut self.alloc);
+            self.pipeline_layouts_cache.clear();
+            self.bind_group_layouts.clear_destroy(&mut self.alloc);
+            self.bind_group_layouts_cache.clear();
+            self.shader_modules.clear_destroy(&mut self.alloc);
+            self.shader_modules_cache.clear();
+            self.graphics_passes.clear_destroy(&mut self.alloc);
+            self.graphics_passes_cache.clear();
+            self.textures.clear_destroy(&mut self.alloc);
+            self.buffers.clear_destroy(&mut self.alloc);
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub(crate) fn current_frame_garbage_mut(&mut self) -> &mut AshFrameGarbage {
+        &mut self.frame_garbage[self.current_frame]
+    }
+
+    /// # SAFETY
+    /// caller must ensure, that the next frame has finished
+    pub(crate) unsafe fn next_frame_and_clear_garbage(&mut self) {
+        self.current_frame = (self.current_frame + 1) % self.frame_garbage.len();
+        self.frame_garbage[self.current_frame].clear_frame(&mut self.alloc);
     }
 }
 
-impl<R: AshGpuResourceCreate> Index<R> for AshResources {
+impl AshFrameGarbage {
+    unsafe fn clear_frame(&mut self, alloc: &mut AshAllocator) {
+        let device = alloc.device();
+        self.image_views
+            .drain(..)
+            .for_each(|r| device.destroy_image_view(r, None));
+        self.images
+            .drain(..)
+            .for_each(|r| device.destroy_image(r, None));
+        self.buffers
+            .drain(..)
+            .for_each(|r| device.destroy_buffer(r, None));
+        if let Ok(ext_swapchain) = device.ext_swapchain() {
+            self.swapchains
+                .drain(..)
+                .for_each(|r| ext_swapchain.destroy_swapchain(r, None));
+        }
+        self.memory.drain(..).for_each(|r| alloc.dealloc(r));
+    }
+}
+
+impl<R: AshGpuResource> Index<R> for AshResources {
     type Output = R::Raw;
     #[inline]
     fn index(&self, index: R) -> &Self::Output {
-        R::get_raw(self, index).expect("invalid resource")
+        R::slotmap(self).get(index).expect("invalid resource")
     }
 }
 
 impl Drop for AshResources {
     #[inline]
     fn drop(&mut self) {
-        self.clear_all();
+        self.clear_all().unwrap();
         if self.pipeline_cache != vk::PipelineCache::null() {
             unsafe {
-                self.device
+                self.alloc
+                    .device()
                     .destroy_pipeline_cache(self.pipeline_cache, None);
             }
         }

@@ -4,21 +4,13 @@ use ash::{extensions::khr, vk};
 use pulz_render::graph::pass::PipelineBindPoint;
 use tracing::{debug, info, warn};
 
-use crate::{
-    instance::{AshInstance, VK_API_VERSION},
-    Error, ErrorNoExtension, Result,
-};
-
-pub type GpuAllocator = gpu_alloc::GpuAllocator<vk::DeviceMemory>;
-pub type GpuMemoryBlock = gpu_alloc::MemoryBlock<vk::DeviceMemory>;
-pub use gpu_alloc::AllocationError;
+use crate::{instance::AshInstance, Error, ErrorNoExtension, Result};
 
 pub struct AshDevice {
+    device_raw: ash::Device,
     instance: Arc<AshInstance>,
     physical_device: vk::PhysicalDevice,
-    device_raw: ash::Device,
     device_extensions: Vec<&'static CStr>,
-    gpu_allocator: GpuAllocator,
     ext_swapchain: Option<khr::Swapchain>,
     ext_sync2: Option<khr::Synchronization2>,
     ext_raytracing_pipeline: Option<khr::RayTracingPipeline>,
@@ -51,24 +43,17 @@ impl AshDevice {
         indices: QueueFamilyIndices,
         device_extensions: Vec<&'static CStr>,
     ) -> Result<Arc<Self>> {
-        let gpu_alloc_props =
-            unsafe { gpu_alloc_ash::device_properties(instance, VK_API_VERSION, physical_device)? };
-
         let (device_raw, queues) = instance.create_logical_device(
             physical_device,
             indices,
             device_extensions.iter().copied(),
         )?;
 
-        // TODO: Config
-        let gpu_alloc_config = gpu_alloc::Config::i_am_potato();
-
         let mut device = Self {
             instance: instance.clone(),
             physical_device,
             device_raw,
             device_extensions,
-            gpu_allocator: GpuAllocator::new(gpu_alloc_config, gpu_alloc_props),
             ext_swapchain: None,
             ext_sync2: None,
             ext_raytracing_pipeline: None,
@@ -91,6 +76,11 @@ impl AshDevice {
     #[inline]
     pub fn instance(&self) -> &AshInstance {
         &self.instance
+    }
+
+    #[inline]
+    pub fn instance_arc(&self) -> Arc<AshInstance> {
+        self.instance.clone()
     }
 
     #[inline]
@@ -129,38 +119,6 @@ impl AshDevice {
         self.ext_raytracing_pipeline
             .as_ref()
             .ok_or(ErrorNoExtension(khr::RayTracingPipeline::name()))
-    }
-
-    #[inline]
-    pub unsafe fn alloc(
-        &mut self,
-        request: gpu_alloc::Request,
-    ) -> Result<GpuMemoryBlock, AllocationError> {
-        self.gpu_allocator.alloc(
-            gpu_alloc_ash::AshMemoryDevice::wrap(&self.device_raw),
-            request,
-        )
-    }
-
-    #[inline]
-    pub unsafe fn alloc_with_dedicated(
-        &mut self,
-        request: gpu_alloc::Request,
-        dedicated: gpu_alloc::Dedicated,
-    ) -> Result<GpuMemoryBlock, AllocationError> {
-        self.gpu_allocator.alloc_with_dedicated(
-            gpu_alloc_ash::AshMemoryDevice::wrap(&self.device_raw),
-            request,
-            dedicated,
-        )
-    }
-
-    #[inline]
-    pub unsafe fn dealloc(&mut self, block: GpuMemoryBlock) {
-        self.gpu_allocator.dealloc(
-            gpu_alloc_ash::AshMemoryDevice::wrap(&self.device_raw),
-            block,
-        )
     }
 
     #[inline]

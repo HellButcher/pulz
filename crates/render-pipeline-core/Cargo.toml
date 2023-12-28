@@ -14,3 +14,4 @@ pulz-ecs = { path = "../ecs" }
 pulz-render = { path = "../render" }
 
 radsort = { workspace = true }
+tracing = { workspace = true }

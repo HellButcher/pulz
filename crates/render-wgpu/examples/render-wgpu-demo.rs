@@ -15,13 +15,14 @@ async fn init() -> (Resources, EventLoop<()>, Rc<Window>, WinitWindowSystem) {
     info!("Initializing...");
     let mut resources = Resources::new();
     resources.install(CoreShadingModule);
-    resources.install(WgpuRenderer::new().await.unwrap());
 
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new().unwrap();
     let (window_system, window_id, window) =
         WinitWindowModule::new(WindowDescriptor::default(), &event_loop)
             .unwrap()
             .install(&mut resources);
+
+    WgpuRenderer::new().await.unwrap().install(&mut resources);
 
     // let mut schedule = resources.remove::<Schedule>().unwrap();
     // schedule.init(&mut resources);
@@ -43,8 +44,7 @@ fn setup_demo_scene(resources: &mut Resources, window: WindowId) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[async_std::main]
-async fn main() {
+fn main() {
     // todo: run blocking!
     use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -53,9 +53,11 @@ async fn main() {
         .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .init();
 
-    let (resources, event_loop, _window, window_system) = init().await;
+    pollster::block_on(async move {
+        let (mut resources, event_loop, _window, window_system) = init().await;
 
-    window_system.run(resources, event_loop);
+        window_system.run(&mut resources, event_loop).unwrap();
+    })
 }
 
 #[cfg(target_arch = "wasm32")]

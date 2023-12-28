@@ -1,6 +1,9 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
-use pulz_window::{RawWindow, Size2, Window};
+use pulz_window::{HasRawWindowAndDisplayHandle, Size2, Window};
 use tracing::info;
 
 pub struct Surface {
@@ -8,20 +11,22 @@ pub struct Surface {
     size: Size2,
     vsync: bool,
     format: wgpu::TextureFormat,
+    window: Rc<dyn HasRawWindowAndDisplayHandle>,
 }
 
 impl Surface {
     pub fn create(
         instance: &wgpu::Instance,
-        window: &Window,
-        window_handle: &dyn RawWindow,
+        window_descriptor: &Window,
+        window: Rc<dyn HasRawWindowAndDisplayHandle>,
     ) -> Result<Self, wgpu::CreateSurfaceError> {
-        let surface = unsafe { instance.create_surface(&window_handle)? };
+        let surface = unsafe { instance.create_surface(&*window)? };
         Ok(Self {
             surface,
-            size: window.size,
-            vsync: window.vsync,
+            size: window_descriptor.size,
+            vsync: window_descriptor.vsync,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            window,
         })
     }
 

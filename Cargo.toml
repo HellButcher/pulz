@@ -19,31 +19,45 @@ edition = "2024"
 rust-version = "1.86"
 
 [workspace.dependencies]
-glam = "0.23"
+glam = "0.24"
 serde = "1.0"
-raw-window-handle = "0.5"
+raw-window-handle = "0.5.2"
 slotmap = "1.0"
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
-bitflags = "2.2"
+bitflags = "2.4"
 fnv = "1.0"
 radsort = "0.1"
-bytemuck = "1.13"
+bytemuck = "1.14"
+blink-alloc = "0.3"
 downcast-rs = "1.2"
-dynsequence = { version = "0.1.0-alpha.3" }
+dynsequence = { version = "0.1.0-alpha.4" }
 ambassador = "0.3"
-blocking = "1.3"
+blocking = "1.5"
 threadpool = "1.8"
 backtrace = "0.3"
+gametime = "0.3"
 atomic_refcell = "0.1"
 palette = { version = "0.7", default-features = false }
 image = { version = "0.24", default-features = false }
-encase = { version = "0.5", features = ["glam"], default-features = false }
-encase_derive_impl = { version = "0.5" }
+encase = { version = "0.6", features = ["glam"], default-features = false }
+encase_derive_impl = { version = "0.6" }
 crossbeam-utils = "0.8"
+crossbeam-queue = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-wasm = "0.2"
+tracing-log = "0.2"
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+ndk = "0.8"
+ndk-glue = "0.7"
 darling = "0.20"
 proc-macro2 = "1.0"
 syn = "2.0"
 quote = "1.0"
 proc-macro-crate = "3.3"
+

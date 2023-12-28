@@ -25,7 +25,7 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-use std::{backtrace::Backtrace, ffi::CStr, sync::Arc};
+use std::{backtrace::Backtrace, ffi::CStr, rc::Rc, sync::Arc};
 
 use ash::vk::{self, PipelineStageFlags};
 use bitflags::bitflags;
@@ -37,8 +37,8 @@ use pulz_ecs::prelude::*;
 use pulz_render::{draw::DrawPhases, graph::RenderGraph, RenderModule, RenderSystemPhase};
 use resources::AshResources;
 use thiserror::Error;
-use tracing::info;
 
+mod alloc;
 mod convert;
 mod debug_utils;
 mod device;
@@ -51,8 +51,8 @@ mod shader;
 mod swapchain;
 
 use pulz_window::{
-    listener::{WindowSystemListener, WindowSystemListeners},
-    RawWindow, Window, WindowId, Windows, WindowsMirror,
+    listener::WindowSystemListener, HasRawWindowAndDisplayHandle, Window, WindowId, Windows,
+    WindowsMirror,
 };
 
 // wrapper object for printing backtrace, until provide() is stable
@@ -164,7 +164,7 @@ struct AshRendererFull {
     res: AshResources,
     frames: Vec<Frame>,
     current_frame: usize,
-    surfaces: WindowsMirror<swapchain::SurfaceSwapchain>,
+    surfaces: WindowsMirror<swapchain::AshSurfaceSwapchain>,
     graph: AshRenderGraph,
 }
 
@@ -173,8 +173,11 @@ impl Drop for AshRendererFull {
         unsafe {
             self.device.device_wait_idle().unwrap();
         }
+        for (_, swapchain) in self.surfaces.drain() {
+            swapchain.destroy_with_surface(&mut self.res).unwrap();
+        }
         self.frames.clear();
-        self.res.clear_all();
+        self.res.clear_all().unwrap();
     }
 }
 
@@ -192,8 +195,6 @@ struct Frame {
     command_pool: AshCommandPool,
     finished_fence: vk::Fence, // signaled ad end of command-cueue, waited at beginning of frame
     finished_semaphore: vk::Semaphore, // semaphore used for presenting to the swapchain
-    retired_swapchains: Vec<vk::SwapchainKHR>,
-    retired_image_views: Vec<vk::ImageView>,
 }
 
 impl Frame {
@@ -213,24 +214,11 @@ impl Frame {
             command_pool,
             finished_fence: finished_fence.take(),
             finished_semaphore: finished_semaphore.take(),
-            retired_swapchains: Vec::new(),
-            retired_image_views: Vec::new(),
         })
     }
 
-    unsafe fn reset(&mut self, device: &AshDevice) -> Result<(), vk::Result> {
-        for image_view in self.retired_image_views.drain(..) {
-            device.destroy_image_view(image_view, None);
-        }
-
-        if let Ok(ext_swapchain) = device.ext_swapchain() {
-            for swapchain in self.retired_swapchains.drain(..) {
-                ext_swapchain.destroy_swapchain(swapchain, None);
-            }
-        }
-
+    unsafe fn reset(&mut self, _device: &AshDevice) -> Result<(), vk::Result> {
         self.command_pool.reset()?;
-
         Ok(())
     }
 }
@@ -239,11 +227,6 @@ impl Drop for Frame {
     fn drop(&mut self) {
         unsafe {
             let device = self.command_pool.device();
-            if let Ok(ext_swapchain) = device.ext_swapchain() {
-                for swapchain in self.retired_swapchains.drain(..) {
-                    ext_swapchain.destroy_swapchain(swapchain, None);
-                }
-            }
             if self.finished_fence != vk::Fence::null() {
                 device.destroy_fence(self.finished_fence, None);
             }
@@ -255,50 +238,16 @@ impl Drop for Frame {
 }
 
 impl AshRendererFull {
-    fn from_device(device: Arc<AshDevice>) -> Self {
-        let res = AshResources::new(&device);
-        Self {
+    fn from_device(device: Arc<AshDevice>) -> Result<Self> {
+        let res = AshResources::new(&device, Frame::NUM_FRAMES_IN_FLIGHT)?;
+        Ok(Self {
             device,
             res,
             frames: Vec::with_capacity(Frame::NUM_FRAMES_IN_FLIGHT),
             current_frame: 0,
             surfaces: WindowsMirror::new(),
             graph: AshRenderGraph::new(),
-        }
-    }
-
-    fn reconfigure_swapchains(&mut self, windows: &Windows) {
-        let mut to_remove = Vec::new();
-        for (window_id, surface_swapchain) in self.surfaces.iter_mut() {
-            let Some(window) = windows.get(window_id) else {
-                to_remove.push(window_id);
-                continue;
-            };
-            //TODO: re-create also the surface, when SURFACE_LOST was returned in earlier calls.
-            //TODO: better resize check (don't compare size, but use a 'dirty'-flag, or listener)
-            //TODO: sync
-            if window.size != surface_swapchain.size() {
-                info!(
-                    "surface sized changed: {} => {}",
-                    surface_swapchain.size(),
-                    window.size
-                );
-                surface_swapchain
-                    .configure_with(
-                        window.size,
-                        if window.vsync {
-                            vk::PresentModeKHR::MAILBOX
-                        } else {
-                            vk::PresentModeKHR::IMMEDIATE
-                        },
-                    )
-                    .unwrap();
-            }
-        }
-        //TODO: sync
-        for window_id in to_remove {
-            self.surfaces.remove(window_id);
-        }
+        })
     }
 
     fn begin_frame(&mut self) -> Result<SubmissionGroup> {
@@ -320,6 +269,7 @@ impl AshRendererFull {
         // cleanup old frame
         unsafe {
             frame.reset(&self.device)?;
+            self.res.next_frame_and_clear_garbage();
         }
 
         Ok(SubmissionGroup::new())
@@ -334,8 +284,24 @@ impl AshRendererFull {
         let _span = tracing::trace_span!("RunGraph").entered();
         let frame = &mut self.frames[self.current_frame];
 
-        self.graph
-            .execute(src_graph, submission_group, &mut frame.command_pool, phases)?;
+        let span_update = tracing::trace_span!("Update").entered();
+        self.graph.update(
+            src_graph,
+            submission_group,
+            &mut self.res,
+            &mut frame.command_pool,
+            &mut self.surfaces,
+        )?;
+        drop(span_update);
+
+        let span_exec = tracing::trace_span!("Execute").entered();
+        self.graph.execute(
+            src_graph,
+            submission_group,
+            &mut frame.command_pool,
+            phases,
+        )?;
+        drop(span_exec);
 
         Ok(())
     }
@@ -395,7 +361,7 @@ impl AshRendererFull {
 
         unsafe {
             encoder.pipeline_barrier(
-                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER | vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::PipelineStageFlags::TRANSFER,
                 &[],
                 &[],
@@ -430,7 +396,7 @@ impl AshRendererFull {
         unsafe {
             encoder.pipeline_barrier(
                 vk::PipelineStageFlags::TRANSFER,
-                vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER | vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 &[],
                 &[],
                 &barriers,
@@ -475,13 +441,9 @@ impl AshRendererFull {
 
     fn run(&mut self, windows: &mut Windows, src_graph: &RenderGraph, draw_phases: &DrawPhases) {
         self.reconfigure_swapchains(windows);
-        // TODO: maybe graph needs to consider updated swapchain format & dimensions?
-
-        self.graph
-            .update(src_graph, &mut self.res, &self.surfaces)
-            .unwrap();
 
         let mut submission_group = self.begin_frame().unwrap();
+
         self.render_frame(&mut submission_group, src_graph, draw_phases)
             .unwrap();
         self.end_frame(submission_group).unwrap();
@@ -514,7 +476,7 @@ impl AshRenderer {
     fn init(&mut self) -> Result<&mut AshRendererFull> {
         if let AshRendererInner::Early { instance, .. } = &self.0 {
             let device = instance.new_device(vk::SurfaceKHR::null())?;
-            let renderer = AshRendererFull::from_device(device);
+            let renderer = AshRendererFull::from_device(device)?;
             self.0 = AshRendererInner::Full(renderer);
         }
         let AshRendererInner::Full(renderer) = &mut self.0 else {
@@ -527,21 +489,22 @@ impl AshRenderer {
         &mut self,
         window_id: WindowId,
         window_descriptor: &Window,
-        window_raw: &dyn RawWindow,
+        window: Rc<dyn HasRawWindowAndDisplayHandle>,
     ) -> Result<&mut AshRendererFull> {
         if let AshRendererInner::Full(renderer) = &mut self.0 {
-            let surface = renderer.device.instance().new_surface(window_raw)?;
-            let swapchain = renderer.device.new_swapchain(surface, window_descriptor)?;
-            renderer.insert_swapchain(swapchain, window_id)?;
+            let device = renderer.device.clone();
+            // SAVETY: window is kept alive
+            let surface = unsafe { device.instance().new_surface(&*window)? };
+            renderer.init_swapchain(window_id, window_descriptor, window, surface)?;
         } else {
             let AshRendererInner::Early { instance, .. } = &self.0 else {
                 unreachable!()
             };
-            let surface = instance.new_surface(&window_raw)?;
+            // SAVETY: window is kept alive
+            let surface = unsafe { instance.new_surface(&*window)? };
             let device = instance.new_device(surface.raw())?;
-            let swapchain = device.new_swapchain(surface, window_descriptor)?;
-            let mut renderer = AshRendererFull::from_device(device);
-            renderer.insert_swapchain(swapchain, window_id)?;
+            let mut renderer = AshRendererFull::from_device(device)?;
+            renderer.init_swapchain(window_id, window_descriptor, window, surface)?;
             self.0 = AshRendererInner::Full(renderer);
         }
         let AshRendererInner::Full(renderer) = &mut self.0 else {
@@ -559,34 +522,29 @@ impl AshRenderer {
     }
 }
 
-struct AshRendererInitWindowSystemListener(ResourceId<AshRenderer>);
-
-impl WindowSystemListener for AshRendererInitWindowSystemListener {
+impl WindowSystemListener for AshRenderer {
     fn on_created(
-        &self,
-        res: &Resources,
+        &mut self,
         window_id: WindowId,
         window_desc: &Window,
-        window_raw: &dyn RawWindow,
+        window: Rc<dyn HasRawWindowAndDisplayHandle>,
     ) {
-        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
-        renderer
-            .init_window(window_id, window_desc, window_raw)
-            .unwrap();
+        self.init_window(window_id, window_desc, window).unwrap();
     }
-    fn on_resumed(&self, res: &Resources) {
-        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
-        renderer.init().unwrap();
+    fn on_resumed(&mut self) {
+        self.init().unwrap();
     }
-    fn on_closed(&self, res: &Resources, window_id: WindowId) {
-        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
-        let AshRendererInner::Full(renderer) = &mut renderer.0 else { return };
-        renderer.surfaces.remove(window_id);
+    fn on_closed(&mut self, window_id: WindowId) {
+        let AshRendererInner::Full(renderer) = &mut self.0 else {
+            return;
+        };
+        renderer.destroy_swapchain(window_id).unwrap();
     }
-    fn on_suspended(&self, res: &Resources) {
-        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
-        let AshRendererInner::Full(renderer) = &mut renderer.0 else { return };
-        renderer.surfaces.clear();
+    fn on_suspended(&mut self) {
+        let AshRendererInner::Full(renderer) = &mut self.0 else {
+            return;
+        };
+        renderer.destroy_all_swapchains().unwrap();
     }
 }
 
@@ -598,11 +556,8 @@ impl ModuleWithOutput for AshRenderer {
     }
 
     fn install_resources(self, res: &mut Resources) -> &mut Self {
-        let listeners_id = res.init_unsend::<WindowSystemListeners>();
         let resource_id = res.insert_unsend(self);
-        res.get_mut_id(listeners_id)
-            .unwrap()
-            .insert(AshRendererInitWindowSystemListener(resource_id));
+        res.init_meta_id::<dyn WindowSystemListener, _>(resource_id);
         res.get_mut_id(resource_id).unwrap()
     }
 

@@ -91,6 +91,11 @@ impl<'a, D: Destroy> Guard<'a, D> {
     pub fn as_ref(&self) -> &D {
         &self.item
     }
+
+    #[inline]
+    pub fn as_mut(&mut self) -> &mut D {
+        &mut self.item
+    }
 }
 
 impl<'a, I, D: Destroy + std::ops::Index<I>> std::ops::Index<I> for Guard<'a, D> {
@@ -184,6 +189,7 @@ impl_create_destroy! {
         vk::Semaphore : (destroy_semaphore, create_semaphore vk::SemaphoreCreateInfo),
         vk::Event : (destroy_event, create_event vk::EventCreateInfo),
         vk::CommandPool : (destroy_command_pool, create_command_pool vk::CommandPoolCreateInfo),
+        vk::Buffer : (destroy_buffer, create_buffer vk::BufferCreateInfo),
         vk::Image : (destroy_image, create_image vk::ImageCreateInfo),
         vk::ImageView : (destroy_image_view, create_image_view vk::ImageViewCreateInfo),
         vk::Framebuffer : (destroy_framebuffer, create_framebuffer vk::FramebufferCreateInfo),

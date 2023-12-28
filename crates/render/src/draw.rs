@@ -8,7 +8,7 @@ use std::{
 use atomic_refcell::AtomicRefCell;
 use dynsequence::{dyn_sequence, DynSequence};
 use fnv::FnvHashMap as HashMap;
-use pulz_ecs::{prelude::*, resource::ResState, system::param::SystemParam};
+use pulz_ecs::{prelude::*, resource::ResState, system::data::SystemData};
 
 use crate::{backend::CommandEncoder, utils::hash::TypeIdHashMap, RenderSystemPhase};
 
@@ -299,7 +299,7 @@ impl<I: PhaseItem> Drop for DrawTarget<'_, I> {
     }
 }
 
-impl<I: PhaseItem> SystemParam for Draw<'_, I> {
+impl<I: PhaseItem> SystemData for Draw<'_, I> {
     type State = ResState<DrawQueue<I>>;
     type Fetch<'r> = Res<'r, DrawQueue<I>>;
     type Item<'a> = Draw<'a, I>;

@@ -9,27 +9,23 @@ use tracing::{debug, trace};
 use super::{
     access::ResourceAccess,
     deps::DependencyMatrix,
-    resources::{GetExternalResource, Slot},
+    resources::{ExtendedResourceData, Slot},
     RenderGraph, RenderGraphBuilder,
 };
 use crate::{buffer::Buffer, texture::Texture};
 
-pub trait GraphImport {
-    type Resource: ResourceAccess;
-
-    fn import(&self) -> Box<dyn GetExternalResource<Self::Resource> + 'static>;
+pub trait GraphImport<R: ResourceAccess> {
+    fn import(&self) -> R::ExternHandle;
 }
 
-pub trait GraphExport {
-    type Resource: ResourceAccess;
-
-    fn export(&self) -> Box<dyn GetExternalResource<Self::Resource> + 'static>;
+pub trait GraphExport<R: ResourceAccess> {
+    fn export(&self) -> R::ExternHandle;
 }
 
 impl RenderGraphBuilder {
     pub fn import_texture<I>(&mut self, import_from: &I) -> Slot<Texture>
     where
-        I: GraphImport<Resource = Texture>,
+        I: GraphImport<Texture>,
     {
         let f = import_from.import();
         self.textures.import(f)
@@ -37,7 +33,7 @@ impl RenderGraphBuilder {
 
     pub fn import_buffer<I>(&mut self, import_from: &I) -> Slot<Buffer>
     where
-        I: GraphImport<Resource = Buffer>,
+        I: GraphImport<Buffer>,
     {
         let f = import_from.import();
         self.buffers.import(f)
@@ -45,7 +41,7 @@ impl RenderGraphBuilder {
 
     pub fn export_texture<E>(&mut self, slot: Slot<Texture>, export_to: &E)
     where
-        E: GraphExport<Resource = Texture>,
+        E: GraphExport<Texture>,
     {
         let f = export_to.export();
         let last_written_by_pass = slot.last_written_by.0;
@@ -55,7 +51,7 @@ impl RenderGraphBuilder {
 
     pub fn export_buffer<E>(&mut self, slot: Slot<Buffer>, export_to: &E)
     where
-        E: GraphExport<Resource = Buffer>,
+        E: GraphExport<Buffer>,
     {
         let f = export_to.export();
         let last_written_by_pass = slot.last_written_by.0;
@@ -88,7 +84,9 @@ impl RenderGraph {
         self.init = false;
         self.was_updated = true;
         self.textures.reset();
+        self.textures_ext.clear();
         self.buffers.reset();
+        self.buffers_ext.clear();
         self.subpasses.clear();
         self.subpasses_exec.clear();
         self.passes.clear();
@@ -168,13 +166,17 @@ impl RenderGraph {
     }
 
     fn update_resource_topo_group_range(&mut self) {
+        self.textures_ext
+            .resize_with(self.textures.len(), ExtendedResourceData::new);
+        self.buffers_ext
+            .resize_with(self.buffers.len(), ExtendedResourceData::new);
         for (i, group) in self.passes_topo_order.iter().enumerate() {
             for p in group.iter().copied() {
                 let p = &self.passes[p];
                 p.textures
-                    .update_resource_topo_group_range(&mut self.textures, i as u16);
+                    .update_resource_topo_group_range(&mut self.textures_ext, i as u16);
                 p.buffers
-                    .update_resource_topo_group_range(&mut self.buffers, i as u16);
+                    .update_resource_topo_group_range(&mut self.buffers_ext, i as u16);
             }
         }
     }

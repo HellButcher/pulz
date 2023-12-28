@@ -1,8 +1,9 @@
 use std::{
     collections::VecDeque,
-    hash::{self, Hash},
+    hash::{Hash, Hasher},
     marker::PhantomData,
     ops::Deref,
+    usize,
 };
 
 use pulz_assets::Handle;
@@ -13,13 +14,14 @@ use super::{
     access::{ResourceAccess, Stage},
     builder::{GraphExport, GraphImport},
     deps::DependencyMatrix,
-    PassIndex, RenderGraph, RenderGraphAssignments, ResourceIndex, SubPassIndex, PASS_UNDEFINED,
-    SUBPASS_UNDEFINED,
+    PassDescription, PassIndex, RenderGraph, ResourceIndex, SubPassDescription, SubPassIndex,
+    PASS_UNDEFINED, SUBPASS_UNDEFINED,
 };
 use crate::{
-    buffer::Buffer,
+    backend::PhysicalResourceResolver,
+    buffer::{Buffer, BufferUsage},
     camera::RenderTarget,
-    texture::{Image, Texture, TextureDimensions, TextureFormat},
+    texture::{Image, Texture, TextureDimensions, TextureFormat, TextureUsage},
 };
 
 #[derive(Copy, Clone)]
@@ -107,33 +109,29 @@ enum ResourceVariant {
     Export,
 }
 
+#[derive(Debug)]
 struct Resource<R: ResourceAccess> {
     first_written: SubPassIndex,
     last_written: SubPassIndex,
-    first_topo_group: u16,
-    last_topo_group: u16,
     usage: R::Usage,
     format: Option<R::Format>,
     size: Option<R::Size>,
     variant: ResourceVariant,
-    extern_res: Option<Box<dyn GetExternalResource<R>>>,
+    extern_assignment: Option<R::ExternHandle>,
 }
 
-#[derive(Hash)]
-pub(super) struct ResourceSet<R: ResourceAccess>(Vec<Resource<R>>);
+#[derive(Debug)]
+pub(super) struct ExtendedResourceData {
+    pub first_topo_group: u16,
+    pub last_topo_group: u16,
+}
 
-impl<R: ResourceAccess> ResourceSet<R> {
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
+#[derive(Debug)]
+pub(super) struct ResourceSet<R: ResourceAccess> {
+    resources: Vec<Resource<R>>,
 }
 
 impl<R: ResourceAccess> Resource<R> {
-    #[inline]
-    fn is_active(&self) -> bool {
-        self.first_topo_group <= self.last_topo_group
-    }
-
     #[inline]
     fn format_or_default(&self) -> R::Format {
         if let Some(f) = self.format {
@@ -144,24 +142,48 @@ impl<R: ResourceAccess> Resource<R> {
     }
 }
 
-impl<R: ResourceAccess> Hash for Resource<R> {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.first_written.hash(state);
-        self.last_written.hash(state);
-        self.variant.hash(state);
-        // ignore extern_res!
+impl ExtendedResourceData {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            first_topo_group: !0,
+            last_topo_group: 0,
+        }
+    }
+
+    #[inline]
+    fn is_active(&self) -> bool {
+        self.first_topo_group <= self.last_topo_group
     }
 }
 
+impl<R: ResourceAccess> Hash for ResourceSet<R> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.resources.hash(state);
+        // ignore transients
+    }
+}
+
+impl<R: ResourceAccess> Hash for Resource<R> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.first_written.hash(state);
+        self.last_written.hash(state);
+        self.variant.hash(state);
+        self.format.hash(state);
+        // ignore size and extern assignment!
+    }
+}
+
+#[derive(Debug)]
 pub struct ResourceDeps<R: ResourceAccess>(Vec<ResourceDep<R>>);
 
 impl<R: ResourceAccess> Hash for ResourceDeps<R> {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash_slice(&self.0, state);
     }
 }
 
-#[derive(Hash)]
+#[derive(Hash, Debug)]
 pub struct ResourceDep<R: ResourceAccess> {
     index: ResourceIndex,
     last_written_by_pass: PassIndex,
@@ -173,31 +195,35 @@ pub struct ResourceDep<R: ResourceAccess> {
 impl<R: ResourceAccess> ResourceSet<R> {
     #[inline]
     pub(super) const fn new() -> Self {
-        Self(Vec::new())
+        Self {
+            resources: Vec::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.resources.len()
     }
 
     pub(super) fn reset(&mut self) {
-        self.0.clear();
+        self.resources.clear();
     }
 
     pub(super) fn create(&mut self) -> WriteSlot<R> {
-        let index = self.0.len() as ResourceIndex;
-        self.0.push(Resource {
+        let index = self.resources.len() as ResourceIndex;
+        self.resources.push(Resource {
             first_written: SUBPASS_UNDEFINED,
             last_written: SUBPASS_UNDEFINED,
-            first_topo_group: !0,
-            last_topo_group: 0,
             usage: Default::default(),
             format: None,
             size: None,
             variant: ResourceVariant::Transient,
-            extern_res: None,
+            extern_assignment: None,
         });
         WriteSlot::new(index, SUBPASS_UNDEFINED)
     }
 
     pub(super) fn set_format(&mut self, slot: &Slot<R>, format: R::Format) {
-        let slot = &mut self.0[slot.index as usize];
+        let slot = &mut self.resources[slot.index as usize];
         if let Some(old_format) = &slot.format {
             assert_eq!(old_format, &format, "incompatible format");
         }
@@ -205,17 +231,23 @@ impl<R: ResourceAccess> ResourceSet<R> {
     }
 
     pub(super) fn set_size(&mut self, slot: &Slot<R>, size: R::Size) {
-        let slot = &mut self.0[slot.index as usize];
+        let slot = &mut self.resources[slot.index as usize];
         slot.size = Some(size);
     }
 
-    pub(super) fn writes(&mut self, slot: WriteSlot<R>, new_pass: SubPassIndex) -> WriteSlot<R> {
-        let r = &mut self.0[slot.0.index as usize];
+    pub(super) fn writes(
+        &mut self,
+        slot: WriteSlot<R>,
+        new_pass: SubPassIndex,
+        usage: R::Usage,
+    ) -> WriteSlot<R> {
+        let r = &mut self.resources[slot.0.index as usize];
         let last_written_by_pass = r.last_written;
         assert_eq!(
             last_written_by_pass, slot.0.last_written_by,
             "resource also written by an other pass (slot out of sync)"
         );
+        r.usage |= usage;
         if new_pass != last_written_by_pass {
             r.last_written = new_pass;
             if r.first_written.0 == PASS_UNDEFINED {
@@ -225,38 +257,47 @@ impl<R: ResourceAccess> ResourceSet<R> {
         WriteSlot::new(slot.0.index, new_pass)
     }
 
-    pub(super) fn reads(&mut self, slot: Slot<R>) {
+    pub(super) fn reads(&mut self, slot: Slot<R>, usage: R::Usage) {
         assert_ne!(
             slot.last_written_by.0, PASS_UNDEFINED,
             "resource was not yet written!"
         );
-        let r = &self.0[slot.index as usize];
+        let r = &mut self.resources[slot.index as usize];
         let last_written_by_pass = r.last_written;
         // TODO: allow usage of older slots for reading (Write>Read>Write)
         assert_eq!(
             last_written_by_pass, slot.last_written_by,
             "resource also written by an other pass (slot out of sync)"
         );
+        r.usage |= usage;
     }
 
-    pub(super) fn import(&mut self, f: Box<dyn GetExternalResource<R>>) -> Slot<R> {
+    pub(super) fn import(&mut self, extern_resource: R::ExternHandle) -> Slot<R> {
         let slot = self.create();
-        let r = &mut self.0[slot.index as usize];
+        let r = &mut self.resources[slot.index as usize];
         r.variant = ResourceVariant::Import;
-        r.extern_res = Some(f);
+        r.extern_assignment = Some(extern_resource);
         slot.read()
     }
 
-    pub(super) fn export(&mut self, slot: Slot<R>, f: Box<dyn GetExternalResource<R>>) {
-        let r = &mut self.0[slot.index as usize];
+    pub(super) fn export(&mut self, slot: Slot<R>, extern_resource: R::ExternHandle) {
+        let r = &mut self.resources[slot.index as usize];
         assert_eq!(
             ResourceVariant::Transient,
             r.variant,
             "resource can be exported only once"
         );
+        assert_eq!(
+            None, r.format,
+            "format of slot must be undefined for exports. Export target format will be used."
+        );
+        assert_eq!(
+            None, r.size,
+            "size of slot must be undefined for exports. Export target size will be used."
+        );
         // TODO: allow multiple exports by copying resource?
         r.variant = ResourceVariant::Export;
-        r.extern_res = Some(f);
+        r.extern_assignment = Some(extern_resource);
     }
 }
 
@@ -299,16 +340,16 @@ impl<R: ResourceAccess> ResourceDeps<R> {
 
     pub(super) fn update_resource_topo_group_range(
         &self,
-        res: &mut ResourceSet<R>,
+        res: &mut [ExtendedResourceData],
         group_index: u16,
     ) {
         for dep in &self.0 {
-            let r = &mut res.0[dep.resource_index() as usize];
-            if r.first_topo_group > group_index {
-                r.first_topo_group = group_index;
+            let d = &mut res[dep.resource_index() as usize];
+            if d.first_topo_group > group_index {
+                d.first_topo_group = group_index;
             }
-            if r.last_topo_group < group_index {
-                r.last_topo_group = group_index;
+            if d.last_topo_group < group_index {
+                d.last_topo_group = group_index;
             }
         }
     }
@@ -389,196 +430,418 @@ impl<R: ResourceAccess> ResourceDep<R> {
     }
 }
 
-enum ResourceAssignment<R: ResourceAccess> {
-    Undefined,
-    Inactive,
-    Extern(R, R::Format, R::Size),
-    Transient(R::Format, u16),
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct PhysicalResource<R: ResourceAccess> {
+    pub resource: R,
+    pub format: R::Format,
+    pub size: R::Size,
+    pub usage: R::Usage,
 }
 
-pub(super) struct ResourceAssignments<R: ResourceAccess> {
-    assignments: Vec<ResourceAssignment<R>>,
-    transient_physical: Vec<(R::Format, u16)>,
+impl<R: ResourceAccess> Hash for PhysicalResource<R> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.format.hash(state);
+        // ignore resource and size
+    }
 }
 
-impl<R: ResourceAccess + Copy> ResourceAssignments<R> {
+#[derive(Hash, Debug)]
+struct TransientResource<R: ResourceAccess> {
+    physical: PhysicalResource<R>,
+    first_topo_group: u16,
+    last_topo_group: u16,
+}
+
+#[derive(Copy, Clone, Hash, Debug)]
+enum ExternalOrTransient {
+    None,
+    External(u16),
+    Transient(u16),
+}
+
+#[derive(Hash, Debug)]
+struct PhysicalResourceSet<R: ResourceAccess> {
+    assignments: Vec<ExternalOrTransient>,
+    assignment_sizes: Vec<Option<R::Size>>,
+    externals: Vec<PhysicalResource<R>>,
+    transients: Vec<TransientResource<R>>,
+}
+
+trait ResolveExtern<R: ResourceAccess> {
+    fn resolve_extern(&mut self, handle: &R::ExternHandle) -> Option<PhysicalResource<R>>;
+}
+trait CreateTransient<R: ResourceAccess> {
+    fn create_transient(&mut self, format: R::Format, size: R::Size, usage: R::Usage) -> Option<R>;
+}
+
+impl<R: ResourceAccess> PhysicalResourceSet<R> {
     #[inline]
-    pub const fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             assignments: Vec::new(),
-            transient_physical: Vec::new(),
+            assignment_sizes: Vec::new(),
+            externals: Vec::new(),
+            transients: Vec::new(),
         }
     }
 
-    pub fn clear(&mut self) {
+    pub fn len(&self) -> usize {
+        self.assignments.len()
+    }
+
+    fn reset(&mut self, resources: &ResourceSet<R>) {
         self.assignments.clear();
-        self.transient_physical.clear()
+        self.assignment_sizes.clear();
+        self.externals.clear();
+        self.transients.clear();
+        self.assignments
+            .resize_with(resources.len(), || ExternalOrTransient::None);
+        for res in resources.resources.iter() {
+            self.assignment_sizes.push(res.size);
+        }
     }
 
-    fn get(&self, idx: ResourceIndex) -> Option<(R, R::Format, R::Size)> {
-        match self.assignments.get(idx as usize)? {
-            ResourceAssignment::Extern(r, f, s) => Some((*r, *f, *s)),
-            ResourceAssignment::Transient(_, p) => {
-                let (f, _) = self.transient_physical[*p as usize];
-                todo!("implement get physical ({f:?})")
+    fn get_physical(&self, idx: ResourceIndex) -> Option<&PhysicalResource<R>> {
+        match self.assignments.get(idx as usize).copied()? {
+            ExternalOrTransient::None => None,
+            ExternalOrTransient::External(e) => self.externals.get(e as usize),
+            ExternalOrTransient::Transient(t) => {
+                self.transients.get(t as usize).map(|t| &t.physical)
             }
-            _ => None,
         }
     }
 
-    fn assign_resources(&mut self, res: &ResourceSet<R>, backend: &mut dyn GraphBackend) -> bool {
-        let mut changed = false;
-        if self.assignments.len() < res.0.len() {
-            changed = true;
-            self.assignments
-                .resize_with(res.0.len(), || ResourceAssignment::Undefined);
+    fn get_or_create_transient(
+        transients: &mut Vec<TransientResource<R>>,
+        format: R::Format,
+        size: R::Size,
+        usage: R::Usage,
+        first_topo_group: u16,
+        last_topo_group: u16,
+    ) -> u16 {
+        for (j, p) in transients.iter_mut().enumerate() {
+            if format == p.physical.format && p.last_topo_group < first_topo_group {
+                if let Some(s) = R::merge_size_max(p.physical.size, size) {
+                    p.physical.size = s;
+                    p.physical.usage |= usage;
+                    p.last_topo_group = last_topo_group;
+                    return j as u16;
+                }
+            }
         }
-        for (a, r) in self.assignments.iter_mut().zip(res.0.iter()) {
-            if !r.is_active() {
-                *a = ResourceAssignment::Inactive;
-            } else if let Some(ext_res) = &r.extern_res {
-                let (id, format, size) = ext_res.get(backend);
-                if !changed {
-                    if let ResourceAssignment::Extern(_, old_format, old_size) = *a {
-                        changed = old_format != format || old_size != size;
+        let index = transients.len();
+        transients.push(TransientResource {
+            physical: PhysicalResource {
+                resource: R::default(),
+                format,
+                size,
+                usage,
+            },
+            first_topo_group,
+            last_topo_group,
+        });
+        index as u16
+    }
+
+    fn assign_externals<B: ResolveExtern<R>>(
+        &mut self,
+        resources: &ResourceSet<R>,
+        resources_data: &[ExtendedResourceData],
+        backend: &mut B,
+    ) {
+        // assign externals
+        for (i, r) in resources.resources.iter().enumerate() {
+            if !resources_data[i].is_active() {
+                continue;
+            }
+            if let Some(extern_handle) = &r.extern_assignment {
+                if let Some(ext) = backend.resolve_extern(extern_handle) {
+                    // TODO: check usage compatible?
+                    let external_index = self.externals.len() as u16;
+                    self.assignments[i] = ExternalOrTransient::External(external_index);
+                    self.assignment_sizes[i] = Some(ext.size);
+                    self.externals.push(ext);
+                } else {
+                    panic!(
+                        "unable to resolve external resource {:?}, first_written={:?}",
+                        i, r.first_written
+                    );
+                }
+            }
+        }
+    }
+
+    fn assign_transient<B: CreateTransient<R>>(
+        &mut self,
+        resources: &ResourceSet<R>,
+        resources_data: &[ExtendedResourceData],
+        backend: &mut B,
+    ) {
+        let mut res_sorted: Vec<_> = (0..resources.len()).collect();
+        res_sorted.sort_by_key(|&r| resources_data[r].first_topo_group);
+
+        // pre-assign transients
+        for &i in res_sorted.iter() {
+            let r = &resources.resources[i];
+            let d = &resources_data[i];
+            if d.is_active() && matches!(self.assignments[i], ExternalOrTransient::None) {
+                if r.usage == R::Usage::default() {
+                    panic!(
+                        "transient usage is empty, {:?}, {:?}, {}, {}, {:?}, {:?}",
+                        r.size,
+                        r.format,
+                        d.first_topo_group,
+                        d.last_topo_group,
+                        r.first_written,
+                        r.usage
+                    );
+                }
+                let transient_index = Self::get_or_create_transient(
+                    &mut self.transients,
+                    r.format_or_default(),
+                    self.assignment_sizes[i].expect("missing size"),
+                    r.usage,
+                    d.first_topo_group,
+                    d.last_topo_group,
+                );
+                self.assignments[i] = ExternalOrTransient::Transient(transient_index);
+            }
+        }
+
+        for trans in self.transients.iter_mut() {
+            trans.physical.resource = backend
+                .create_transient(
+                    trans.physical.format,
+                    trans.physical.size,
+                    trans.physical.usage,
+                )
+                .expect("unable to create transient"); // TODO: error
+        }
+    }
+}
+
+impl PhysicalResourceSet<Texture> {
+    fn derive_framebuffer_sizes(
+        &mut self,
+        passes: &[PassDescription],
+        subpasses: &[SubPassDescription],
+    ) {
+        for pass in passes {
+            if pass.active {
+                self.derive_framebuffer_size_for_pass(pass, &subpasses[pass.sub_pass_range()]);
+            }
+        }
+    }
+
+    fn derive_framebuffer_size_for_pass(
+        &mut self,
+        pass: &PassDescription,
+        subpasses: &[SubPassDescription],
+    ) {
+        let mut pass_size = None;
+        let mut empty = true;
+        for p in subpasses {
+            for r_index in p
+                .color_attachments
+                .iter()
+                .copied()
+                .chain(p.depth_stencil_attachment.iter().copied())
+                .chain(p.input_attachments.iter().copied())
+            {
+                empty = false;
+                if let Some(s) = self.assignment_sizes[r_index as usize] {
+                    if let Some(s2) = pass_size {
+                        assert_eq!(s2, s, "pass attachments have to be the same size");
                     } else {
-                        changed = true;
+                        pass_size = Some(s);
                     }
                 }
-                *a = ResourceAssignment::Extern(id, format, size);
-            } else if let ResourceAssignment::Transient(f, _) = a {
-                let format = r.format_or_default();
-                changed |= f != &format;
-                *f = format;
-            } else {
-                changed = true;
-                let format = r.format_or_default();
-                *a = ResourceAssignment::Transient(format, !0);
             }
         }
-        changed
-    }
+        if empty {
+            return;
+        }
+        if pass_size.is_none() {
+            panic!(
+                "unable to derive framebuffer size for pass {:?}, physical_resource_set={:?}",
+                pass.name, self
+            );
+        }
 
-    fn assign_physical(&mut self, res: &ResourceSet<R>) {
-        self.transient_physical.clear();
-        let mut res_sorted: Vec<_> = res.0.iter().enumerate().collect();
-        res_sorted.sort_by_key(|&(_, r)| r.first_topo_group);
-        for (i, r) in res_sorted {
-            if let ResourceAssignment::Transient(format, p) = &mut self.assignments[i] {
-                *p = !0;
-                for (j, (phys_format, last_topo_group)) in
-                    self.transient_physical.iter_mut().enumerate()
-                {
-                    if *format == *phys_format && *last_topo_group < r.first_topo_group {
-                        *last_topo_group = r.last_topo_group;
-                        *p = j as u16;
-                    }
+        for p in subpasses {
+            for r_index in p
+                .color_attachments
+                .iter()
+                .copied()
+                .chain(p.depth_stencil_attachment.iter().copied())
+                .chain(p.input_attachments.iter().copied())
+            {
+                let s = &mut self.assignment_sizes[r_index as usize];
+                if s.is_none() {
+                    *s = pass_size;
                 }
-                if *p != !0 {
-                    *p = self.transient_physical.len() as u16;
-                    self.transient_physical.push((*format, r.last_topo_group));
-                }
-                // TODO: calc. max size!
             }
         }
     }
 }
 
-impl RenderGraphAssignments {
-    pub fn clear(&mut self) {
-        self.hash = 0;
-        self.was_updated = false;
-        self.texture_assignments.clear();
-        self.buffer_assignments.clear();
+#[derive(Hash, Debug)]
+pub struct PhysicalResources {
+    textures: PhysicalResourceSet<Texture>,
+    buffers: PhysicalResourceSet<Buffer>,
+    hash: u64,
+}
+
+impl PhysicalResources {
+    pub const fn new() -> Self {
+        Self {
+            textures: PhysicalResourceSet::new(),
+            buffers: PhysicalResourceSet::new(),
+            hash: 0,
+        }
     }
 
-    pub fn update(&mut self, graph: &RenderGraph, backend: &mut dyn GraphBackend) -> bool {
-        self.was_updated = graph.was_updated;
-        if self.hash != graph.hash {
-            self.hash = graph.hash;
-            self.was_updated = true;
-        }
-        self.was_updated |= self
-            .texture_assignments
-            .assign_resources(&graph.textures, backend);
-        self.was_updated |= self
-            .buffer_assignments
-            .assign_resources(&graph.buffers, backend);
+    pub fn assign_physical<B: PhysicalResourceResolver>(
+        &mut self,
+        graph: &RenderGraph,
+        backend: &mut B,
+    ) -> bool {
+        self.textures.reset(&graph.textures);
+        self.buffers.reset(&graph.buffers);
 
-        if self.was_updated {
-            self.texture_assignments.assign_physical(&graph.textures);
-            self.buffer_assignments.assign_physical(&graph.buffers);
-        }
+        self.textures
+            .assign_externals(&graph.textures, &graph.textures_ext, backend);
+        self.buffers
+            .assign_externals(&graph.buffers, &graph.buffers_ext, backend);
 
-        self.was_updated
+        self.textures
+            .derive_framebuffer_sizes(&graph.passes, &graph.subpasses);
+
+        self.textures
+            .assign_transient(&graph.textures, &graph.textures_ext, backend);
+        self.buffers
+            .assign_transient(&graph.buffers, &graph.buffers_ext, backend);
+
+        let new_hash = {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            self.hash(&mut hasher);
+            hasher.finish()
+        };
+        let changed = self.hash != new_hash;
+        self.hash = new_hash;
+        changed
     }
 
     pub(crate) fn get_texture(
         &self,
         idx: ResourceIndex,
     ) -> Option<(Texture, TextureFormat, u8, TextureDimensions)> {
-        let (r, f, s) = self.texture_assignments.get(idx)?;
-        Some((r, f, 1, s))
+        let r = self.textures.get_physical(idx)?;
+        Some((r.resource, r.format, 1, r.size))
     }
 
     pub(crate) fn get_buffer(&self, idx: ResourceIndex) -> Option<(Buffer, usize)> {
-        let (r, _, s) = self.buffer_assignments.get(idx)?;
-        Some((r, s))
+        let r = self.buffers.get_physical(idx)?;
+        Some((r.resource, r.size))
     }
 }
 
-pub trait GetExternalResource<R: ResourceAccess> {
-    fn get(&self, backend: &mut dyn GraphBackend) -> (R, R::Format, R::Size);
+impl<R: ResourceAccess, T: GraphImport<R>> GraphImport<R> for &T {
+    fn import(&self) -> R::ExternHandle {
+        T::import(self)
+    }
 }
 
-impl<R, F> GetExternalResource<R> for F
+impl<R: ResourceAccess, T: GraphExport<R>> GraphExport<R> for &T {
+    fn export(&self) -> R::ExternHandle {
+        T::export(self)
+    }
+}
+
+impl<R: ResourceAccess, T: GraphImport<R>> GraphImport<R> for &mut T {
+    fn import(&self) -> R::ExternHandle {
+        T::import(self)
+    }
+}
+
+impl<R: ResourceAccess, T: GraphExport<R>> GraphExport<R> for &mut T {
+    fn export(&self) -> R::ExternHandle {
+        T::export(self)
+    }
+}
+
+impl GraphImport<Texture> for Handle<Image> {
+    fn import(&self) -> RenderTarget {
+        RenderTarget::Image(*self)
+    }
+}
+
+impl GraphExport<Texture> for Handle<Image> {
+    fn export(&self) -> RenderTarget {
+        RenderTarget::Image(*self)
+    }
+}
+
+impl GraphExport<Texture> for WindowId {
+    fn export(&self) -> RenderTarget {
+        RenderTarget::Window(*self)
+    }
+}
+
+impl GraphExport<Texture> for RenderTarget {
+    fn export(&self) -> RenderTarget {
+        *self
+    }
+}
+
+impl GraphImport<Buffer> for Handle<Buffer> {
+    fn import(&self) -> Handle<Buffer> {
+        *self
+    }
+}
+
+impl GraphExport<Buffer> for Handle<Buffer> {
+    fn export(&self) -> Handle<Buffer> {
+        *self
+    }
+}
+
+impl<B> ResolveExtern<Texture> for B
 where
-    R: ResourceAccess,
-    F: for<'l, 'r> Fn(&'l mut dyn GraphBackend) -> (R, R::Format, R::Size),
+    B: PhysicalResourceResolver,
 {
-    fn get(&self, backend: &mut dyn GraphBackend) -> (R, R::Format, R::Size) {
-        self(backend)
+    fn resolve_extern(&mut self, handle: &RenderTarget) -> Option<PhysicalResource<Texture>> {
+        self.resolve_render_target(handle)
     }
 }
 
-pub trait GraphBackend {
-    fn get_surface(&mut self, window: WindowId) -> (Texture, TextureFormat, TextureDimensions);
-}
-
-impl GraphImport for Handle<Image> {
-    type Resource = Texture;
-
-    fn import(&self) -> Box<dyn GetExternalResource<Texture>> {
-        let handle = *self;
-        Box::new(move |_backend: &mut dyn GraphBackend| todo!("import image handle {:?}", handle))
+impl<B> ResolveExtern<Buffer> for B
+where
+    B: PhysicalResourceResolver,
+{
+    fn resolve_extern(&mut self, handle: &Handle<Buffer>) -> Option<PhysicalResource<Buffer>> {
+        self.resolve_buffer(handle)
     }
 }
 
-impl GraphExport for Handle<Image> {
-    type Resource = Texture;
-
-    fn export(&self) -> Box<dyn GetExternalResource<Texture>> {
-        let handle = *self;
-        Box::new(move |_backend: &mut dyn GraphBackend| todo!("export image handle {:?}", handle))
+impl<B> CreateTransient<Texture> for B
+where
+    B: PhysicalResourceResolver,
+{
+    fn create_transient(
+        &mut self,
+        format: TextureFormat,
+        size: TextureDimensions,
+        usage: TextureUsage,
+    ) -> Option<Texture> {
+        self.create_transient_texture(format, size, usage)
     }
 }
-
-impl GraphExport for WindowId {
-    type Resource = Texture;
-
-    fn export(&self) -> Box<dyn GetExternalResource<Texture>> {
-        let window = *self;
-        Box::new(move |backend: &mut dyn GraphBackend| backend.get_surface(window))
-    }
-}
-
-impl GraphExport for RenderTarget {
-    type Resource = Texture;
-
-    fn export(&self) -> Box<dyn GetExternalResource<Texture>> {
-        match self {
-            Self::Image(i) => i.export(),
-            Self::Window(w) => w.export(),
-        }
+impl<B> CreateTransient<Buffer> for B
+where
+    B: PhysicalResourceResolver,
+{
+    fn create_transient(&mut self, _format: (), size: usize, usage: BufferUsage) -> Option<Buffer> {
+        self.create_transient_buffer(size, usage)
     }
 }

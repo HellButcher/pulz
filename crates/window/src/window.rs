@@ -5,7 +5,6 @@ use std::{
 };
 
 use pulz_ecs::Component;
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use slotmap::{new_key_type, SlotMap};
 
 use crate::Size2;
@@ -167,7 +166,3 @@ pub enum WindowCommand {
     SetTitle(Cow<'static, String>),
     Close,
 }
-
-pub trait RawWindow: HasRawWindowHandle + HasRawDisplayHandle {}
-
-impl<W> RawWindow for W where W: HasRawWindowHandle + HasRawDisplayHandle {}

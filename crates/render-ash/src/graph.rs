@@ -1,36 +1,47 @@
-use ash::vk::{self};
+use ash::vk::{self, PipelineStageFlags};
+use pulz_assets::Handle;
 use pulz_render::{
+    backend::PhysicalResourceResolver,
+    buffer::{Buffer, BufferUsage},
+    camera::RenderTarget,
     draw::DrawPhases,
     graph::{
-        pass::PipelineBindPoint, resources::GraphBackend, PassIndex, RenderGraph,
-        RenderGraphAssignments,
+        pass::PipelineBindPoint,
+        resources::{PhysicalResource, PhysicalResources},
+        PassIndex, RenderGraph,
     },
+    math::USize2,
     pipeline::{GraphicsPass, GraphicsPassDescriptorWithTextures},
-    texture::{TextureDimensions, TextureFormat},
+    texture::{Texture, TextureDescriptor, TextureDimensions, TextureFormat, TextureUsage},
 };
 use pulz_window::WindowsMirror;
+use tracing::debug;
 
 use crate::{
+    convert::VkInto,
     drop_guard::Guard,
     encoder::{AshCommandPool, SubmissionGroup},
     resources::AshResources,
-    swapchain::SurfaceSwapchain,
+    swapchain::AshSurfaceSwapchain,
     Result,
 };
 
 pub struct AshRenderGraph {
+    physical_resources: PhysicalResources,
     topo: Vec<TopoGroup>,
     barriers: Vec<Barrier>,
-    assignments: RenderGraphAssignments,
+    hash: u64,
+    physical_resources_hash: u64,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct TopoGroup {
-    render_passes: Vec<(PassIndex, vk::RenderPass, vk::Framebuffer)>, // pass-index
-    compute_passes: Vec<usize>,                                       // sub-pass-index
-    ray_tracing_passes: Vec<usize>,                                   // sub-pass-index
+    render_passes: Vec<(PassIndex, vk::RenderPass, vk::Framebuffer, USize2)>, // pass-index
+    compute_passes: Vec<usize>,                                               // sub-pass-index
+    ray_tracing_passes: Vec<usize>,                                           // sub-pass-index
 }
 
+#[derive(Debug)]
 pub struct Barrier {
     image: Vec<vk::ImageMemoryBarrier>,
     buffer: Vec<vk::BufferMemoryBarrier>,
@@ -41,29 +52,113 @@ pub struct Barrier {
 unsafe impl Send for Barrier {}
 unsafe impl Sync for Barrier {}
 
+struct AshPhysicalResourceResolver<'a> {
+    submission_group: &'a mut SubmissionGroup,
+    res: &'a mut AshResources,
+    command_pool: &'a mut AshCommandPool,
+    surfaces: &'a mut WindowsMirror<AshSurfaceSwapchain>,
+}
+
+impl PhysicalResourceResolver for AshPhysicalResourceResolver<'_> {
+    fn resolve_render_target(
+        &mut self,
+        render_target: &RenderTarget,
+    ) -> Option<PhysicalResource<Texture>> {
+        match render_target {
+            RenderTarget::Image(_i) => todo!("implement resolve_render_target (image)"),
+            RenderTarget::Window(w) => {
+                let surface = self.surfaces.get_mut(*w).expect("resolve window");
+                assert!(!surface.is_acquired());
+
+                let sem = self
+                    .command_pool
+                    .request_semaphore()
+                    .expect("request semaphore");
+                self.submission_group
+                    .wait(sem, PipelineStageFlags::TRANSFER);
+                let aquired_texture = surface
+                    .acquire_next_image(self.res, 0, sem)
+                    .expect("aquire failed")
+                    .expect("aquire failed(2)");
+
+                Some(PhysicalResource {
+                    resource: aquired_texture.texture,
+                    format: surface.texture_format(),
+                    // TODO: usage
+                    usage: TextureUsage::ALL_ATTACHMENTS,
+                    size: TextureDimensions::D2(surface.size()),
+                })
+            }
+        }
+    }
+
+    fn resolve_buffer(&mut self, _handle: &Handle<Buffer>) -> Option<PhysicalResource<Buffer>> {
+        todo!("implement resolve_buffer")
+    }
+
+    fn create_transient_texture(
+        &mut self,
+        format: TextureFormat,
+        dimensions: TextureDimensions,
+        usage: TextureUsage,
+    ) -> Option<Texture> {
+        let t = self
+            .res
+            .create::<Texture>(&TextureDescriptor {
+                format,
+                dimensions,
+                usage,
+                ..Default::default()
+            })
+            .ok()?;
+        // TODO: destroy texture
+        // TODO: reuse textures
+        Some(t)
+    }
+
+    fn create_transient_buffer(&mut self, _size: usize, _usage: BufferUsage) -> Option<Buffer> {
+        // TODO: reuse textures
+        todo!("implement create_transient_buffer")
+    }
+}
+
 impl AshRenderGraph {
     #[inline]
     pub const fn new() -> Self {
         Self {
+            physical_resources: PhysicalResources::new(),
             topo: Vec::new(),
             barriers: Vec::new(),
-            assignments: RenderGraphAssignments::new(),
+            hash: 0,
+            physical_resources_hash: 0,
         }
     }
 
     pub fn update(
         &mut self,
         src_graph: &RenderGraph,
+        submission_group: &mut SubmissionGroup,
         res: &mut AshResources,
-        surfaces: &WindowsMirror<SurfaceSwapchain>,
+        command_pool: &mut AshCommandPool,
+        surfaces: &mut WindowsMirror<AshSurfaceSwapchain>,
     ) -> Result<bool> {
+        let mut resolver = AshPhysicalResourceResolver {
+            submission_group,
+            res,
+            command_pool,
+            surfaces,
+        };
         // TODO: update render-pass, if resource-formats changed
         // TODO: update framebuffer if render-pass or dimensions changed
-        if self
-            .assignments
-            .update(src_graph, &mut AshGraphBackend { res, surfaces })
-        {
+        let formats_changed = self
+            .physical_resources
+            .assign_physical(src_graph, &mut resolver);
+        if src_graph.was_updated() || src_graph.hash() != self.hash || formats_changed {
             self.do_update(src_graph, res)?;
+            debug!(
+                "graph updated: topo={:?}, barriers={:?}",
+                self.topo, self.barriers
+            );
             Ok(true)
         } else {
             Ok(false)
@@ -92,6 +187,7 @@ impl AshRenderGraph {
     }
 
     fn do_update(&mut self, src: &RenderGraph, res: &mut AshResources) -> Result<()> {
+        self.hash = src.hash();
         self.topo.clear();
         self.barriers.clear();
 
@@ -107,7 +203,7 @@ impl AshRenderGraph {
                         // TODO: no unwrap / error handling
                         let pass_descr = GraphicsPassDescriptorWithTextures::from_graph(
                             src,
-                            &self.assignments,
+                            &self.physical_resources,
                             pass,
                         )
                         .unwrap();
@@ -115,9 +211,12 @@ impl AshRenderGraph {
                             res.create::<GraphicsPass>(&pass_descr.graphics_pass)?;
                         let render_pass = res[graphics_pass];
                         let framebuf = Self::create_framebuffer(res, &pass_descr, render_pass)?;
-                        topo_group
-                            .render_passes
-                            .push((pass.index(), render_pass, framebuf.take()));
+                        topo_group.render_passes.push((
+                            pass.index(),
+                            render_pass,
+                            framebuf.take(),
+                            pass_descr.size,
+                        ));
                     }
                     PipelineBindPoint::Compute => {
                         let range = pass.sub_pass_range();
@@ -144,9 +243,10 @@ impl AshRenderGraph {
         draw_phases: &DrawPhases,
     ) -> Result<()> {
         let mut encoder = command_pool.encoder()?;
+        //let mut clear_values = Vec::new();
         for (topo_index, topo) in self.topo.iter().enumerate() {
             // render-passes
-            for &(pass_index, render_pass, fb) in &topo.render_passes {
+            for &(pass_index, render_pass, fb, size) in &topo.render_passes {
                 let pass = src_graph.get_pass(pass_index).unwrap();
                 let has_multiple_subpass = pass.sub_pass_range().len() > 1;
                 if has_multiple_subpass {
@@ -154,11 +254,18 @@ impl AshRenderGraph {
                 }
                 unsafe {
                     // TODO: caching of render-pass & framebuffer
-                    // TODO: clear-values, ...
+                    // TODO: clear-values, render-area, ...
                     encoder.begin_render_pass(
                         &vk::RenderPassBeginInfo::builder()
                             .render_pass(render_pass)
                             .framebuffer(fb)
+                            //.clear_values(&clear_values)
+                            .render_area(
+                                vk::Rect2D::builder()
+                                    .offset(vk::Offset2D { x: 0, y: 0 })
+                                    .extent(size.vk_into())
+                                    .build(),
+                            )
                             .build(),
                         vk::SubpassContents::INLINE,
                     );
@@ -190,31 +297,5 @@ impl AshRenderGraph {
         encoder.submit(submission_group)?;
 
         Ok(())
-    }
-}
-
-struct AshGraphBackend<'a> {
-    res: &'a mut AshResources,
-    surfaces: &'a WindowsMirror<SurfaceSwapchain>,
-}
-
-impl GraphBackend for AshGraphBackend<'_> {
-    fn get_surface(
-        &mut self,
-        window_id: pulz_window::WindowId,
-    ) -> (
-        pulz_render::texture::Texture,
-        TextureFormat,
-        TextureDimensions,
-    ) {
-        let swapchain = self
-            .surfaces
-            .get(window_id)
-            .expect("swapchain not initialized");
-        (
-            swapchain.texture_id(),
-            swapchain.texture_format(),
-            TextureDimensions::D2(swapchain.size()),
-        )
     }
 }

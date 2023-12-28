@@ -5,13 +5,14 @@ use std::{
 };
 
 use bitflags::bitflags;
+use pulz_assets::Handle;
 
 use crate::{
     buffer::{Buffer, BufferUsage},
+    camera::RenderTarget,
     texture::{Texture, TextureDimensions, TextureFormat, TextureUsage},
 };
-
-pub trait ResourceAccess: Copy + Eq + Hash {
+pub trait ResourceAccess: Copy + Eq + Default + Hash {
     // Bitflags!
     type Usage: Copy
         + Clone
@@ -28,18 +29,21 @@ pub trait ResourceAccess: Copy + Eq + Hash {
         + Sub
         + Hash;
 
-    type Format: PartialEq + Debug + Copy;
-    type Size: PartialEq + Copy;
+    type Format: PartialEq + Debug + Copy + Hash;
+    type Size: PartialEq + Copy + Debug;
+    type ExternHandle: Debug;
 
     fn check_usage_is_pass_compatible(combined_usage: Self::Usage);
 
     fn default_format(usage: Self::Usage) -> Self::Format;
+    fn merge_size_max(a: Self::Size, b: Self::Size) -> Option<Self::Size>;
 }
 
 impl ResourceAccess for Texture {
     type Usage = TextureUsage;
     type Format = TextureFormat;
     type Size = TextureDimensions;
+    type ExternHandle = RenderTarget;
 
     fn check_usage_is_pass_compatible(combined_usage: Self::Usage) {
         if combined_usage.is_non_attachment() {
@@ -55,12 +59,52 @@ impl ResourceAccess for Texture {
             TextureFormat::Rgba8UnormSrgb
         }
     }
+
+    #[inline]
+    fn merge_size_max(a: Self::Size, b: Self::Size) -> Option<Self::Size> {
+        use TextureDimensions::*;
+        match (a, b) {
+            (D1(a), D1(b)) => Some(D1(a.max(b))),
+            (D2(a), D2(b)) => Some(D2(a.max(b))),
+            (
+                D2Array {
+                    size: a1,
+                    array_len: a2,
+                },
+                D2Array {
+                    size: b1,
+                    array_len: b2,
+                },
+            ) => Some(D2Array {
+                size: a1.max(b1),
+                array_len: a2.max(b2),
+            }),
+            (Cube(a), Cube(b)) => Some(Cube(a.max(b))),
+            (
+                CubeArray {
+                    size: a1,
+                    array_len: a2,
+                },
+                CubeArray {
+                    size: b1,
+                    array_len: b2,
+                },
+            ) => Some(CubeArray {
+                size: a1.max(b1),
+                array_len: a2.max(b2),
+            }),
+            (D3(a), D3(b)) => Some(D3(a.max(b))),
+
+            _ => None,
+        }
+    }
 }
 
 impl ResourceAccess for Buffer {
     type Usage = BufferUsage;
     type Format = ();
     type Size = usize;
+    type ExternHandle = Handle<Buffer>;
 
     fn check_usage_is_pass_compatible(_combined_usage: Self::Usage) {
         panic!("Can't use buffer multiple times in the same pass");
@@ -68,6 +112,11 @@ impl ResourceAccess for Buffer {
 
     #[inline]
     fn default_format(_usage: Self::Usage) -> Self::Format {}
+
+    #[inline]
+    fn merge_size_max(a: usize, b: usize) -> Option<usize> {
+        Some(a.max(b))
+    }
 }
 
 bitflags! {

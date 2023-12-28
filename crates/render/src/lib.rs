@@ -25,7 +25,7 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-use camera::{Camera, RenderTarget};
+use camera::{Camera, Projection, RenderTarget};
 use graph::{RenderGraph, RenderGraphBuilder};
 use pulz_assets::Assets;
 use pulz_ecs::{
@@ -42,9 +42,8 @@ pub mod graph;
 pub mod mesh;
 pub mod pipeline;
 pub mod shader;
+pub mod surface;
 pub mod texture;
-pub mod view;
-
 pub mod utils;
 
 pub use pulz_window as window;
@@ -56,9 +55,11 @@ pub mod color {
 #[doc(hidden)]
 pub use ::encase as __encase;
 pub use pulz_transform::math;
+use surface::WindowSurfaces;
 
 define_label_enum! {
     pub enum RenderSystemPhase: SystemPhase {
+        UpdateCamera,
         Sorting,
         BuildGraph,
         UpdateGraph,
@@ -72,8 +73,9 @@ impl Module for RenderModule {
     fn install_once(&self, res: &mut Resources) {
         Assets::<texture::Image>::install_into(res);
 
-        res.init_unsend::<RenderGraphBuilder>();
-        res.init_unsend::<RenderGraph>();
+        res.init::<RenderGraphBuilder>();
+        res.init::<RenderGraph>();
+        res.init::<WindowSurfaces>();
         // TODO:
         //res.init::<TextureCache>();
         //render_graph::graph::RenderGraph::install_into(res, schedule);
@@ -81,15 +83,25 @@ impl Module for RenderModule {
         let mut world = res.world_mut();
         world.init::<RenderTarget>();
         world.init::<Camera>();
+        world.init::<Projection>();
     }
 
     fn install_systems(schedule: &mut Schedule) {
         schedule.add_phase_chain([
+            RenderSystemPhase::UpdateCamera,
             RenderSystemPhase::Sorting,
             RenderSystemPhase::BuildGraph,
             RenderSystemPhase::UpdateGraph,
             RenderSystemPhase::Render,
         ]);
+        // update projection and camera
+        schedule
+            .add_system(camera::update_projections_from_render_targets)
+            .after(CoreSystemPhase::Update)
+            .before(RenderSystemPhase::UpdateCamera);
+        schedule
+            .add_system(camera::update_cameras_from_projections)
+            .into_phase(RenderSystemPhase::UpdateCamera);
         // SORTING after update UPDATE
         schedule.add_phase_dependency(CoreSystemPhase::Update, RenderSystemPhase::Sorting);
         schedule

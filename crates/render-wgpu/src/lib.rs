@@ -25,13 +25,15 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
+use std::rc::Rc;
+
 use convert::ConversionError;
 use graph::WgpuRenderGraph;
 use pulz_ecs::prelude::*;
 use pulz_render::{draw::DrawPhases, graph::RenderGraph, RenderModule, RenderSystemPhase};
 use pulz_window::{
-    listener::{WindowSystemListener, WindowSystemListeners},
-    RawWindow, Window, WindowId, Windows, WindowsMirror,
+    listener::WindowSystemListener, HasRawWindowAndDisplayHandle, Window, WindowId, Windows,
+    WindowsMirror,
 };
 use resources::WgpuResources;
 use surface::Surface;
@@ -83,30 +85,6 @@ struct WgpuRendererFull {
     surfaces: WindowsMirror<Surface>,
     graph: WgpuRenderGraph,
     tmp_surface_textures: Vec<wgpu::SurfaceTexture>,
-}
-
-fn backend_bits_from_env_or_default() -> wgpu::Backends {
-    wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL)
-}
-
-async fn initialize_adapter_from_env_or_default(
-    instance: &wgpu::Instance,
-    backend_bits: wgpu::Backends,
-    compatible_surface: Option<&wgpu::Surface>,
-) -> Option<wgpu::Adapter> {
-    match wgpu::util::initialize_adapter_from_env(instance, backend_bits) {
-        Some(a) => Some(a),
-        None => {
-            let power_preference = wgpu::util::power_preference_from_env().unwrap_or_default();
-            instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference,
-                    force_fallback_adapter: false,
-                    compatible_surface,
-                })
-                .await
-        }
-    }
 }
 
 impl WgpuRendererFull {
@@ -216,15 +194,11 @@ pub struct WgpuRenderer(WgpuRendererInner);
 
 impl WgpuRenderer {
     pub async fn new() -> Result<Self> {
-        let backends = backend_bits_from_env_or_default();
+        let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY);
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
             ..Default::default()
         });
-        if let Some(adapter) = wgpu::util::initialize_adapter_from_env(&instance, backends) {
-            let renderer = WgpuRendererFull::for_adapter(instance, adapter).await?;
-            return Ok(Self(WgpuRendererInner::Full(renderer)));
-        }
         #[cfg(target_arch = "wasm32")]
         {
             // full-initialization on wasm32:
@@ -240,41 +214,33 @@ impl WgpuRenderer {
         Ok(Self(WgpuRendererInner::Early { instance }))
     }
 
-    async fn default_adapter(
-        instance: &wgpu::Instance,
-        compatible_surface: Option<&wgpu::Surface>,
-    ) -> Result<wgpu::Adapter> {
-        let power_preference = wgpu::util::power_preference_from_env().unwrap_or_default();
-        instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference,
-                force_fallback_adapter: false,
-                compatible_surface,
-            })
-            .await
-            .ok_or(Error::NoAdapter)
-    }
-
     fn init_window(
         &mut self,
         window_id: WindowId,
         window_descriptor: &Window,
-        window_raw: &dyn RawWindow,
+        window: Rc<dyn HasRawWindowAndDisplayHandle>,
     ) -> Result<&mut WgpuRendererFull> {
         if let WgpuRendererInner::Full(renderer) = &mut self.0 {
             renderer.surfaces.remove(window_id); // replaces old surface
-            let surface = Surface::create(&renderer.instance, window_descriptor, window_raw)?;
+            let surface = Surface::create(&renderer.instance, window_descriptor, window)?;
             renderer.surfaces.insert(window_id, surface);
         } else {
             // Delayed initialization
             #[cfg(not(target_arch = "wasm32"))]
             {
-                let WgpuRendererInner::Early { instance } = std::mem::replace(&mut self.0, WgpuRendererInner::Tmp) else {
+                let WgpuRendererInner::Early { instance } =
+                    std::mem::replace(&mut self.0, WgpuRendererInner::Tmp)
+                else {
                     panic!("unexpected state");
                 };
-                let surface = Surface::create(&instance, window_descriptor, window_raw)?;
+                let surface = Surface::create(&instance, window_descriptor, window)?;
                 let mut renderer = pollster::block_on(async {
-                    let adapter = Self::default_adapter(&instance, Some(&surface)).await?;
+                    let adapter = wgpu::util::initialize_adapter_from_env_or_default(
+                        &instance,
+                        Some(&surface),
+                    )
+                    .await
+                    .ok_or(Error::NoAdapter)?;
                     WgpuRendererFull::for_adapter(instance, adapter).await
                 })?;
                 renderer.surfaces.insert(window_id, surface);
@@ -290,11 +256,15 @@ impl WgpuRenderer {
     fn init(&mut self) -> Result<&mut WgpuRendererFull> {
         #[cfg(not(target_arch = "wasm32"))]
         if !matches!(self.0, WgpuRendererInner::Full { .. }) {
-            let WgpuRendererInner::Early { instance } = std::mem::replace(&mut self.0, WgpuRendererInner::Tmp) else {
+            let WgpuRendererInner::Early { instance } =
+                std::mem::replace(&mut self.0, WgpuRendererInner::Tmp)
+            else {
                 panic!("unexpected state");
             };
             let renderer = pollster::block_on(async {
-                let adapter = Self::default_adapter(&instance, None).await?;
+                let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, None)
+                    .await
+                    .ok_or(Error::NoAdapter)?;
                 WgpuRendererFull::for_adapter(instance, adapter).await
             })?;
             self.0 = WgpuRendererInner::Full(renderer);
@@ -314,33 +284,28 @@ impl WgpuRenderer {
     }
 }
 
-struct WgpuRendererInitWindowSystemListener(ResourceId<WgpuRenderer>);
-
-impl WindowSystemListener for WgpuRendererInitWindowSystemListener {
+impl WindowSystemListener for WgpuRenderer {
     fn on_created(
-        &self,
-        res: &Resources,
+        &mut self,
         window_id: WindowId,
         window_desc: &Window,
-        window_raw: &dyn RawWindow,
+        window: Rc<dyn HasRawWindowAndDisplayHandle>,
     ) {
-        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
-        renderer
-            .init_window(window_id, window_desc, window_raw)
-            .unwrap();
+        self.init_window(window_id, window_desc, window).unwrap();
     }
-    fn on_resumed(&self, res: &Resources) {
-        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
-        renderer.init().unwrap();
+    fn on_resumed(&mut self) {
+        self.init().unwrap();
     }
-    fn on_closed(&self, res: &Resources, window_id: WindowId) {
-        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
-        let WgpuRendererInner::Full(renderer) = &mut renderer.0 else { return };
+    fn on_closed(&mut self, window_id: WindowId) {
+        let WgpuRendererInner::Full(renderer) = &mut self.0 else {
+            return;
+        };
         renderer.surfaces.remove(window_id);
     }
-    fn on_suspended(&self, res: &Resources) {
-        let Some(mut renderer) = res.borrow_res_mut_id(self.0) else { return };
-        let WgpuRendererInner::Full(renderer) = &mut renderer.0 else { return };
+    fn on_suspended(&mut self) {
+        let WgpuRendererInner::Full(renderer) = &mut self.0 else {
+            return;
+        };
         renderer.surfaces.clear();
     }
 }
@@ -353,11 +318,8 @@ impl ModuleWithOutput for WgpuRenderer {
     }
 
     fn install_resources(self, res: &mut Resources) -> &mut Self {
-        let listeners_id = res.init_unsend::<WindowSystemListeners>();
         let resource_id = res.insert_unsend(self);
-        res.get_mut_id(listeners_id)
-            .unwrap()
-            .insert(WgpuRendererInitWindowSystemListener(resource_id));
+        res.init_meta_id::<dyn WindowSystemListener, _>(resource_id);
         res.get_mut_id(resource_id).unwrap()
     }
 

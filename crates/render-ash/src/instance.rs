@@ -13,8 +13,8 @@ pub const ENGINE_VERSION: u32 = parse_version(env!("CARGO_PKG_VERSION"));
 pub const VK_API_VERSION: u32 = vk::API_VERSION_1_1;
 
 pub struct AshInstance {
-    entry: ash::Entry,
     instance_raw: ash::Instance,
+    entry: ash::Entry,
     instance_extensions: Vec<&'static CStr>,
     ext_debug_utils: Option<DebugUtils>,
     ext_surface: Option<khr::Surface>,

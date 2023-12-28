@@ -75,7 +75,7 @@ impl PassBuilderIntern<'_> {
             "trying to write to a texture multiple times in the same sub-pass"
         );
         self.pass.textures.access(&slot, true, stages, usage);
-        self.graph.textures.writes(slot, current_subpass)
+        self.graph.textures.writes(slot, current_subpass, usage)
     }
 
     fn reads_texture_intern(&mut self, slot: Slot<Texture>, stages: Stage, usage: TextureUsage) {
@@ -85,7 +85,7 @@ impl PassBuilderIntern<'_> {
             "trying to read and write a texture in the same sub-pass"
         );
         self.pass.textures.access(&slot, false, stages, usage);
-        self.graph.textures.reads(slot);
+        self.graph.textures.reads(slot, usage);
     }
 
     fn writes_buffer_intern(
@@ -100,7 +100,7 @@ impl PassBuilderIntern<'_> {
             "trying to write to a buffer multiple times in the same sub-pass"
         );
         self.pass.buffers.access(&slot, true, stages, usage);
-        self.graph.buffers.writes(slot, current_subpass)
+        self.graph.buffers.writes(slot, current_subpass, usage)
     }
 
     fn reads_buffer_intern(&mut self, slot: Slot<Buffer>, stages: Stage, usage: BufferUsage) {
@@ -110,7 +110,7 @@ impl PassBuilderIntern<'_> {
             "trying to read and write a buffer in the same sub-pass"
         );
         self.pass.buffers.access(&slot, false, stages, usage);
-        self.graph.buffers.reads(slot);
+        self.graph.buffers.reads(slot, usage);
     }
 }
 

@@ -1,44 +1,44 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use ash::{extensions::khr, vk};
 use pulz_render::{
-    math::uvec2,
+    math::{uvec2, USize2},
     texture::{Texture, TextureFormat},
 };
-use pulz_window::{RawWindow, Size2, Window, WindowId};
+use pulz_window::{
+    HasRawWindowAndDisplayHandle, Size2, Window, WindowDescriptor, WindowId, Windows,
+};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
-use slotmap::Key;
+use tracing::info;
 
 use crate::{
     convert::VkInto,
     device::AshDevice,
     drop_guard::{Destroy, Guard},
     instance::AshInstance,
+    resources::AshResources,
     AshRendererFull, Error, Result,
 };
-
-pub struct Surface {
-    instance: Arc<AshInstance>,
-    surface_raw: vk::SurfaceKHR,
-}
-
-impl Drop for Surface {
-    fn drop(&mut self) {
-        if self.surface_raw != vk::SurfaceKHR::null() {
-            let ext_surface = self.instance.ext_surface().unwrap();
-            unsafe {
-                ext_surface.destroy_surface(self.surface_raw, None);
-            }
-        }
-    }
-}
 
 impl Destroy for vk::SurfaceKHR {
     type Context = AshInstance;
     #[inline]
     unsafe fn destroy(self, instance: &AshInstance) {
-        let ext_surface = instance.ext_surface().unwrap();
-        ext_surface.destroy_surface(self, None);
+        if self != Self::null() {
+            let ext_surface = instance.ext_surface().unwrap();
+            ext_surface.destroy_surface(self, None);
+        }
+    }
+}
+
+impl Destroy for vk::SwapchainKHR {
+    type Context = AshDevice;
+    #[inline]
+    unsafe fn destroy(self, device: &AshDevice) {
+        if self != Self::null() {
+            let ext_swapchain = device.ext_swapchain().unwrap();
+            ext_swapchain.destroy_swapchain(self, None);
+        }
     }
 }
 
@@ -163,56 +163,16 @@ impl AshInstance {
         Ok(surface)
     }
 
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    unsafe fn create_surface_apple(&self, view: *mut c_void) -> Result<vk::SurfaceKHR> {
-        use ash::extensions::ext;
-        use core_graphics_types::{base::CGFloat, geometry::CGRect};
-        use objc::{
-            class, msg_send,
-            runtime::{Object, BOOL, YES},
-            sel, sel_impl,
-        };
-
-        // early check extension
-        if !self.has_instance_extension(ext::MetalSurface::name()) {
-            return Err(Error::ExtensionNotSupported(ext::MetalSurface::name()));
-        }
-
-        let layer = unsafe {
-            let view = view as *mut Object;
-            let existing: *mut Object = msg_send![view, layer];
-            let layer_class = class!(CAMetalLayer);
-
-            if !existing.is_null() && msg_send![existing, isKindOfClass: layer_class] == YES {
-                existing
-            } else {
-                let layer: *mut Object = msg_send![layer_class, new];
-                let _: () = msg_send![view, setLayer: layer];
-                let bounds: CGRect = msg_send![view, bounds];
-                let () = msg_send![layer, setBounds: bounds];
-
-                let window: *mut Object = msg_send![view, window];
-                if !window.is_null() {
-                    let scale_factor: CGFloat = msg_send![window, backingScaleFactor];
-                    let () = msg_send![layer, setContentsScale: scale_factor];
-                }
-                layer
-            }
-        };
-
-        self.create_surface_metal(layer as *mut _)
-    }
-
     /// SAFETY: display and window handles must be valid for the complete lifetime of surface
     unsafe fn create_surface_raw(
         &self,
-        display_handle: RawDisplayHandle,
-        window_handle: RawWindowHandle,
+        raw_display_handle: RawDisplayHandle,
+        raw_window_handle: RawWindowHandle,
     ) -> Result<vk::SurfaceKHR> {
         // check for surface-extension
         self.ext_surface()?;
 
-        match (display_handle, window_handle) {
+        match (raw_display_handle, raw_window_handle) {
             #[cfg(all(
                 unix,
                 not(target_os = "android"),
@@ -249,12 +209,22 @@ impl AshInstance {
                 self.create_surface_win32(w.hinstance, w.hwnd)?
             }
             #[cfg(target_os = "macos")]
-            (RawDisplayHandle::AppKit(_), RawWindowHandle::AppKit(w)) => {
-                self.create_surface_apple(w.ns_view)?
+            (RawDisplayHandle::AppKit(_), RawWindowHandle::AppKit(h)) => {
+                use raw_window_metal::{appkit, Layer};
+                let layer = match appkit::metal_layer_from_handle(h) {
+                    Layer::Existing(layer) | Layer::Allocated(layer) => layer.cast(),
+                    Layer::None => return Err(vk::Result::ERROR_INITIALIZATION_FAILED),
+                };
+                self.create_surface_metal(layer)?
             }
             #[cfg(target_os = "ios")]
             (RawDisplayHandle::UiKit(_), RawWindowHandle::UiKit(w)) => {
-                self.create_surface_apple(w.ui_view)?
+                use raw_window_metal::{uikit, Layer};
+                let layer = match uikit::metal_layer_from_handle(h) {
+                    Layer::Existing(layer) | Layer::Allocated(layer) => layer.cast(),
+                    Layer::None => return Err(vk::Result::ERROR_INITIALIZATION_FAILED),
+                };
+                self.create_surface_metal(layer)?
             }
 
             _ => Err(Error::UnsupportedWindowSystem),
@@ -262,10 +232,12 @@ impl AshInstance {
     }
 
     /// SAFETY: display and window handles must be valid for the complete lifetime of surface
-    pub(crate) fn new_surface(&self, window: &dyn RawWindow) -> Result<Guard<'_, vk::SurfaceKHR>> {
-        let surface_raw = unsafe {
-            self.create_surface_raw(window.raw_display_handle(), window.raw_window_handle())?
-        };
+    pub(crate) unsafe fn new_surface(
+        &self,
+        window: &dyn HasRawWindowAndDisplayHandle,
+    ) -> Result<Guard<'_, vk::SurfaceKHR>> {
+        let surface_raw =
+            self.create_surface_raw(window.raw_display_handle(), window.raw_window_handle())?;
         Ok(Guard::new(self, surface_raw))
     }
 }
@@ -382,8 +354,7 @@ impl SwapchainSupportDetail {
     }
 }
 
-pub struct SurfaceSwapchain {
-    device: Arc<AshDevice>,
+pub struct AshSurfaceSwapchain {
     surface_raw: vk::SurfaceKHR,
     swapchain_raw: vk::SwapchainKHR,
     size: Size2,
@@ -393,46 +364,42 @@ pub struct SurfaceSwapchain {
     image_usage: vk::ImageUsageFlags,
     images: Vec<vk::Image>,
     image_views: Vec<vk::ImageView>,
-    texture_id: Texture,
+    textures: Vec<Texture>,
     acquired_image: u32,
-    retired_swapchains: Vec<vk::SwapchainKHR>,
-    retired_image_views: Vec<vk::ImageView>,
+    window: Rc<dyn HasRawWindowAndDisplayHandle>, // for keeping ownership
 }
 
-impl AshDevice {
-    pub(crate) fn new_swapchain(
-        self: &Arc<Self>,
-        surface: Guard<'_, vk::SurfaceKHR>,
-        window_descriptor: &Window,
-    ) -> Result<SurfaceSwapchain> {
-        let (image_count, present_mode) = if window_descriptor.vsync {
+impl AshSurfaceSwapchain {
+    fn window_swapchain_config(window: &WindowDescriptor) -> (u32, vk::PresentModeKHR, USize2) {
+        let (image_count, present_mode) = if window.vsync {
             (3, vk::PresentModeKHR::MAILBOX)
         } else {
             (2, vk::PresentModeKHR::IMMEDIATE)
         };
-        let mut swapchain = SurfaceSwapchain {
-            device: self.clone(),
-            surface_raw: surface.take(),
+        (image_count, present_mode, window.size)
+    }
+
+    fn new_unconfigured(
+        window: Rc<dyn HasRawWindowAndDisplayHandle>,
+        surface_raw: vk::SurfaceKHR,
+    ) -> Self {
+        AshSurfaceSwapchain {
+            surface_raw,
             swapchain_raw: vk::SwapchainKHR::null(),
-            size: window_descriptor.size,
-            image_count,
+            size: USize2::new(0, 0),
+            image_count: 0,
             surface_format: Default::default(),
-            present_mode,
+            present_mode: vk::PresentModeKHR::IMMEDIATE,
             // TODO: custom usage
             image_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST,
             images: Vec::new(),
             image_views: Vec::new(),
-            texture_id: Texture::null(),
+            textures: Vec::new(),
             acquired_image: !0,
-            retired_swapchains: Vec::new(),
-            retired_image_views: Vec::new(),
-        };
-        swapchain.configure()?;
-        Ok(swapchain)
+            window,
+        }
     }
-}
 
-impl SurfaceSwapchain {
     #[inline]
     pub fn size(&self) -> Size2 {
         self.size
@@ -446,11 +413,6 @@ impl SurfaceSwapchain {
     #[inline]
     pub fn texture_format(&self) -> TextureFormat {
         self.surface_format.format.vk_into()
-    }
-
-    #[inline]
-    pub fn texture_id(&self) -> Texture {
-        self.texture_id
     }
 
     #[inline]
@@ -529,26 +491,56 @@ impl SurfaceSwapchain {
         self.acquired_image != !0
     }
 
-    pub fn configure_with(
-        &mut self,
-        suggested_size: Size2,
-        suggested_present_mode: vk::PresentModeKHR,
-    ) -> Result<()> {
-        self.size = suggested_size;
-        self.present_mode = suggested_present_mode;
-        self.configure()
+    pub fn put_to_garbage(&mut self, res: &mut AshResources) -> vk::SwapchainKHR {
+        let old_swapchain = self.swapchain_raw;
+        if old_swapchain != vk::SwapchainKHR::null() {
+            self.swapchain_raw = vk::SwapchainKHR::null();
+            for texture_id in self.textures.drain(..) {
+                res.textures.remove(texture_id); // forget texture without destroy!
+            }
+            let garbage = res.current_frame_garbage_mut();
+            garbage.image_views.append(&mut self.image_views);
+            garbage.swapchains.push(old_swapchain);
+            self.images.clear(); // images owned by swapchain!
+        }
+        old_swapchain
     }
 
-    pub fn configure(&mut self) -> Result<()> {
+    pub fn destroy_with_surface(mut self, res: &mut AshResources) -> Result<()> {
+        self.put_to_garbage(res);
+        res.clear_garbage().unwrap();
+        // SAFETY: clear garbage waits for the device to be idle
+        unsafe {
+            let surface = self.surface_raw;
+            if surface != vk::SurfaceKHR::null() {
+                self.surface_raw = vk::SurfaceKHR::null();
+                if let Ok(ext_surface) = res.device().instance().ext_surface() {
+                    ext_surface.destroy_surface(surface, None);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn configure_with(&mut self, res: &mut AshResources, window: &WindowDescriptor) -> Result<()> {
+        let (suggested_image_count, suggested_present_mode, suggessted_size) =
+            Self::window_swapchain_config(window);
+        self.image_count = suggested_image_count;
+        self.size = suggessted_size;
+        self.present_mode = suggested_present_mode;
+        self.configure(res)
+    }
+
+    fn configure(&mut self, res: &mut AshResources) -> Result<()> {
+        // check swapchain support
+        res.device().ext_swapchain()?;
+
         // TODO: also reconfigure on resize, and when presenting results in `Outdated/Lost`
         // TODO: pass swapchain format to graph
 
-        let ext_swapchain = self.device.ext_swapchain()?;
-
-        let swapchain_support_info = self
-            .device
+        let swapchain_support_info = res
             .instance()
-            .query_swapchain_support(self.surface_raw, self.device.physical_device())
+            .query_swapchain_support(self.surface_raw, res.device().physical_device())
             .ok_or(Error::NoSwapchainSupport)?;
 
         if !swapchain_support_info
@@ -593,17 +585,13 @@ impl SurfaceSwapchain {
         }
 
         let shared_queue_family_indices = [
-            self.device.queues().graphics_family,
-            self.device.queues().present_family,
+            res.device().queues().graphics_family,
+            res.device().queues().present_family,
         ];
-        let old_swapchain = self.swapchain_raw;
-        if old_swapchain != vk::SwapchainKHR::null() {
-            // swapchain is retired, even if `create_swapchain` fails
-            self.swapchain_raw = vk::SwapchainKHR::null();
-            self.retired_swapchains.push(old_swapchain);
-        }
+        // old swapchain is retired, even if `create_swapchain` fails
+        let old_swapchain = self.put_to_garbage(res);
         self.swapchain_raw = unsafe {
-            ext_swapchain.create_swapchain(
+            res.device().ext_swapchain()?.create_swapchain(
                 &vk::SwapchainCreateInfoKHR::builder()
                     .surface(self.surface_raw)
                     .min_image_count(self.image_count)
@@ -634,13 +622,21 @@ impl SurfaceSwapchain {
             )?
         };
 
-        self.images = unsafe { ext_swapchain.get_swapchain_images(self.swapchain_raw)? };
-        self.retired_image_views.append(&mut self.image_views);
-        for image in &self.images {
+        debug_assert_ne!(vk::SwapchainKHR::null(), self.swapchain_raw);
+        debug_assert_eq!(0, self.images.len());
+        debug_assert_eq!(0, self.image_views.len());
+        debug_assert_eq!(0, self.textures.len());
+        self.images = unsafe {
+            res.device()
+                .ext_swapchain()?
+                .get_swapchain_images(self.swapchain_raw)?
+        };
+
+        for image in self.images.iter().copied() {
             unsafe {
-                let image_view = self.device.create_image_view(
+                let image_view = res.device().create_image_view(
                     &vk::ImageViewCreateInfo::builder()
-                        .image(*image)
+                        .image(image)
                         .view_type(vk::ImageViewType::TYPE_2D)
                         .format(self.surface_format.format)
                         .subresource_range(
@@ -656,20 +652,20 @@ impl SurfaceSwapchain {
                     None,
                 )?;
                 self.image_views.push(image_view);
+                let texture = res.textures.insert((image, image_view, None));
+                self.textures.push(texture);
             }
         }
 
         Ok(())
     }
 
-    fn acquire_next_image(
+    pub(crate) fn acquire_next_image(
         &mut self,
+        res: &mut AshResources,
         timeout: u64,
         signal_semaphore: vk::Semaphore,
     ) -> Result<Option<AcquiredSwapchainImage>> {
-        let device = self.device.clone();
-        let ext_swapchain = device.ext_swapchain()?;
-
         if self.is_acquired() {
             return Err(Error::SwapchainImageAlreadyAcquired);
         }
@@ -677,7 +673,7 @@ impl SurfaceSwapchain {
         // TODO: better sync mechanism
 
         let result = unsafe {
-            match ext_swapchain.acquire_next_image(
+            match res.device().ext_swapchain()?.acquire_next_image(
                 self.swapchain_raw,
                 timeout,
                 signal_semaphore,
@@ -685,8 +681,8 @@ impl SurfaceSwapchain {
             ) {
                 Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                     // re-configure and re-acquire
-                    self.configure()?;
-                    ext_swapchain.acquire_next_image(
+                    self.configure(res)?;
+                    res.device().ext_swapchain()?.acquire_next_image(
                         self.swapchain_raw,
                         timeout,
                         signal_semaphore,
@@ -715,68 +711,78 @@ impl SurfaceSwapchain {
             index,
             image: self.images[index as usize],
             image_view: self.image_views[index as usize],
+            texture: self.textures[index as usize],
             suboptimal,
         }))
     }
 }
 
-impl Drop for SurfaceSwapchain {
+impl Drop for AshSurfaceSwapchain {
     fn drop(&mut self) {
-        if self.swapchain_raw != vk::SwapchainKHR::null()
-            || self.surface_raw != vk::SurfaceKHR::null()
-            || !self.retired_swapchains.is_empty()
-            || !self.retired_image_views.is_empty()
-        {
-            unsafe {
-                self.device.device_wait_idle().unwrap();
-            }
-        }
-
-        for image_view in self.image_views.drain(..) {
-            unsafe {
-                self.device.destroy_image_view(image_view, None);
-            }
-        }
-        // don't destroy images obtained from get_swapchain_images! They are destroyed together with the swapchain object.
-
-        let ext_swapchain = self.device.ext_swapchain().unwrap();
-        for r in self.retired_swapchains.drain(..) {
-            unsafe {
-                ext_swapchain.destroy_swapchain(r, None);
-            }
-        }
-
-        self.images.clear();
-        if self.swapchain_raw != vk::SwapchainKHR::null() {
-            unsafe {
-                ext_swapchain.destroy_swapchain(self.swapchain_raw, None);
-            }
-        }
-
-        if self.surface_raw != vk::SurfaceKHR::null() {
-            let ext_surface = self.device.instance().ext_surface().unwrap();
-            unsafe {
-                ext_surface.destroy_surface(self.surface_raw, None);
-            }
-        }
+        assert_eq!(0, self.images.len());
+        assert_eq!(0, self.image_views.len());
+        assert_eq!(0, self.textures.len());
+        assert_eq!(vk::SwapchainKHR::null(), self.swapchain_raw);
+        assert_eq!(vk::SurfaceKHR::null(), self.surface_raw);
     }
 }
 
 impl AshRendererFull {
-    pub(crate) fn insert_swapchain(
+    pub(crate) fn init_swapchain(
         &mut self,
-        swapchain: SurfaceSwapchain,
         window_id: WindowId,
-    ) -> Result<()> {
-        if let Some(old_swapchain) = self.surfaces.insert(window_id, swapchain) {
-            self.res.textures.remove(old_swapchain.texture_id);
-        }
-        let surface = &mut self.surfaces[window_id];
-        surface.texture_id = self
-            .res
-            .textures
-            .insert((vk::Image::null(), vk::ImageView::null()));
+        window_descriptor: &Window,
+        window: Rc<dyn HasRawWindowAndDisplayHandle>,
+        surface: Guard<'_, vk::SurfaceKHR>,
+    ) -> Result<&mut AshSurfaceSwapchain> {
+        assert!(self
+            .surfaces
+            .insert(
+                window_id,
+                AshSurfaceSwapchain::new_unconfigured(window, surface.take())
+            )
+            .is_none());
+        let swapchain = self.surfaces.get_mut(window_id).unwrap();
+        swapchain.configure_with(&mut self.res, window_descriptor)?;
+        Ok(swapchain)
+    }
+
+    pub(crate) fn destroy_swapchain(&mut self, window_id: WindowId) -> Result<()> {
+        let Some(swapchain) = self.surfaces.remove(window_id) else {
+            return Err(Error::WindowNotAvailable);
+        };
+        swapchain.destroy_with_surface(&mut self.res)?;
         Ok(())
+    }
+
+    pub(crate) fn destroy_all_swapchains(&mut self) -> Result<()> {
+        for (_window_id, swapchain) in self.surfaces.drain() {
+            swapchain.destroy_with_surface(&mut self.res)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn reconfigure_swapchains(&mut self, windows: &Windows) {
+        self.surfaces.retain(|window_id, surface_swapchain| {
+            let Some(window) = windows.get(window_id) else {
+                surface_swapchain.put_to_garbage(&mut self.res);
+                return false;
+            };
+            //TODO: re-create also the surface, when SURFACE_LOST was returned in earlier calls.
+            //TODO: better resize check (don't compare size, but use a 'dirty'-flag, or listener)
+            //TODO: sync
+            if window.size != surface_swapchain.size() {
+                info!(
+                    "surface sized changed: {} => {}",
+                    surface_swapchain.size(),
+                    window.size
+                );
+                surface_swapchain
+                    .configure_with(&mut self.res, &window)
+                    .unwrap();
+            }
+            true
+        });
     }
 
     pub(crate) fn acquire_swapchain_image(
@@ -787,13 +793,9 @@ impl AshRendererFull {
     ) -> Result<Option<Texture>> {
         let _ = tracing::trace_span!("AquireImage").entered();
         let surface_swapchain = self.surfaces.get_mut(window_id).expect("swapchain");
-        // TODO: create surface & swapchain on demand?
         Ok(surface_swapchain
-            .acquire_next_image(timeout, signal_semaphore)?
-            .map(|_swapchain_image| {
-                //TODO: associate texture
-                todo!()
-            }))
+            .acquire_next_image(&mut self.res, timeout, signal_semaphore)?
+            .map(|swapchain_image| swapchain_image.texture))
     }
 
     pub(crate) fn get_num_acquired_swapchains(&self) -> usize {
@@ -848,7 +850,6 @@ impl AshRendererFull {
             | Err(vk::Result::ERROR_OUT_OF_DATE_KHR)
             | Err(vk::Result::ERROR_SURFACE_LOST_KHR) => (),
             Err(e) => {
-                self.retire_swapchains();
                 return Err(e.into());
             }
         }
@@ -858,27 +859,13 @@ impl AshRendererFull {
             .zip(acquired_surface_swapchains.into_iter())
         {
             if result == vk::Result::SUBOPTIMAL_KHR || result == vk::Result::ERROR_OUT_OF_DATE_KHR {
-                surface_swapchain.configure()?;
+                surface_swapchain.configure(&mut self.res)?;
             } else if result == vk::Result::ERROR_SURFACE_LOST_KHR {
                 // TODO: re-create surface and re-configure swapchain
             }
         }
 
-        self.retire_swapchains();
-
         Ok(())
-    }
-
-    fn retire_swapchains(&mut self) {
-        let frame = &mut self.frames[self.current_frame];
-        for (_, surface_swapchain) in &mut self.surfaces {
-            frame
-                .retired_swapchains
-                .append(&mut surface_swapchain.retired_swapchains);
-            frame
-                .retired_image_views
-                .append(&mut surface_swapchain.retired_image_views);
-        }
     }
 }
 
@@ -886,5 +873,6 @@ pub struct AcquiredSwapchainImage {
     index: u32,
     pub image: vk::Image,
     pub image_view: vk::ImageView,
+    pub texture: Texture,
     pub suboptimal: bool,
 }

@@ -12,6 +12,7 @@ pulz-ecs = { path = "../ecs" }
 pulz-window = { path = "../window" }
 pulz-render = { path = "../render" }
 pulz-bitset = { path = "../bitset" }
+pulz-assets = { path = "../assets" }
 
 thiserror = { workspace = true }
 tracing = { workspace = true }
@@ -22,14 +23,16 @@ fnv = { workspace = true }
 raw-window-handle = { workspace = true }
 ash = "0.37"
 scratchbuffer = "0.1.0-alpha.1"
-gpu-alloc = "0.5"
-gpu-alloc-ash = "0.5"
+gpu-alloc = "0.6"
+gpu-alloc-ash = "0.6"
 gpu-descriptor = "0.2"
 crossbeam-queue = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+raw-window-metal = "0.3"
 
 [dev-dependencies]
 anyhow = { workspace = true }
 pulz-window-winit = { path = "../window-winit" }
 pulz-render-pipeline-core = { path = "../render-pipeline-core" }
 tracing-subscriber = { workspace = true }
-async-std = { workspace = true }
