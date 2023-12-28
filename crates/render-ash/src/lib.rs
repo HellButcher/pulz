@@ -172,9 +172,9 @@ impl Drop for AshRendererFull {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
-        }
-        for (_, swapchain) in self.surfaces.drain() {
-            swapchain.destroy_with_surface(&mut self.res).unwrap();
+            for (_, swapchain) in self.surfaces.drain() {
+                swapchain.destroy_with_surface(&mut self.res).unwrap();
+            }
         }
         self.frames.clear();
         self.res.clear_all().unwrap();
@@ -330,7 +330,7 @@ impl AshRendererFull {
                 .request_semaphore()?;
             submission_group.wait(sem, PipelineStageFlags::TRANSFER);
             let surface = &mut self.surfaces[window_id];
-            if let Some(acquired) = surface.acquire_next_image(&mut self.res,  sem)? {
+            if let Some(acquired) = surface.acquire_next_image(&mut self.res, sem)? {
                 images.push((acquired.image, surface.clear_value()));
             }
         }

@@ -9,7 +9,7 @@ use pulz_window::{
     HasRawWindowAndDisplayHandle, Size2, Window, WindowDescriptor, WindowId, Windows,
 };
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 use crate::{
     convert::VkInto,
@@ -506,17 +506,27 @@ impl AshSurfaceSwapchain {
         old_swapchain
     }
 
-    pub fn destroy_with_surface(mut self, res: &mut AshResources) -> Result<()> {
-        self.put_to_garbage(res);
-        res.clear_garbage().unwrap();
-        // SAFETY: clear garbage waits for the device to be idle
-        unsafe {
-            let surface = self.surface_raw;
-            if surface != vk::SurfaceKHR::null() {
-                self.surface_raw = vk::SurfaceKHR::null();
-                if let Ok(ext_surface) = res.device().instance().ext_surface() {
-                    ext_surface.destroy_surface(surface, None);
-                }
+    /// #SAFETY: there must not be any outstanding operations
+    pub unsafe fn destroy_with_surface(mut self, res: &mut AshResources) -> Result<()> {
+        let swapchain = self.swapchain_raw;
+        for texture_id in self.textures.drain(..) {
+            res.textures.remove(texture_id); // forget texture without destroy!
+        }
+        for image_view in self.image_views.drain(..) {
+            res.device().destroy_image_view(image_view, None);
+        }
+        self.images.clear(); // images owned by swapchain!
+        if swapchain != vk::SwapchainKHR::null() {
+            self.swapchain_raw = vk::SwapchainKHR::null();
+            res.device()
+                .ext_swapchain()?
+                .destroy_swapchain(swapchain, None);
+        }
+        let surface = self.surface_raw;
+        if surface != vk::SurfaceKHR::null() {
+            self.surface_raw = vk::SurfaceKHR::null();
+            if let Ok(ext_surface) = res.device().instance().ext_surface() {
+                ext_surface.destroy_surface(surface, None);
             }
         }
         Ok(())
@@ -532,7 +542,10 @@ impl AshSurfaceSwapchain {
     }
 
     fn configure(&mut self, res: &mut AshResources) -> Result<()> {
-        debug!("re-creating swapchain, recreate={:?}", self.swapchain_raw != vk::SwapchainKHR::null());
+        debug!(
+            "re-creating swapchain, recreate={:?}",
+            self.swapchain_raw != vk::SwapchainKHR::null()
+        );
         // check swapchain support
         res.device().ext_swapchain()?;
 
@@ -749,13 +762,19 @@ impl AshRendererFull {
         let Some(swapchain) = self.surfaces.remove(window_id) else {
             return Err(Error::WindowNotAvailable);
         };
-        swapchain.destroy_with_surface(&mut self.res)?;
+        unsafe {
+            self.device.device_wait_idle()?;
+            swapchain.destroy_with_surface(&mut self.res)?;
+        }
         Ok(())
     }
 
     pub(crate) fn destroy_all_swapchains(&mut self) -> Result<()> {
-        for (_window_id, swapchain) in self.surfaces.drain() {
-            swapchain.destroy_with_surface(&mut self.res)?;
+        unsafe {
+            self.device.device_wait_idle()?;
+            for (_window_id, swapchain) in self.surfaces.drain() {
+                swapchain.destroy_with_surface(&mut self.res)?;
+            }
         }
         Ok(())
     }
