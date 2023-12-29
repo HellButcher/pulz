@@ -91,14 +91,13 @@ impl GraphicsPassDescriptor {
     }
 }
 
-pub struct GraphicsPassDescriptorWithTextures {
+pub struct ExtendedGraphicsPassDescriptor {
     pub graphics_pass: GraphicsPassDescriptor,
     pub resource_indices: Vec<u16>,
-    pub textures: Vec<Texture>,
     pub size: USize2,
 }
 
-impl GraphicsPassDescriptorWithTextures {
+impl ExtendedGraphicsPassDescriptor {
     pub fn from_graph(
         graph: &RenderGraph,
         physical_resources: &PhysicalResources,
@@ -116,12 +115,11 @@ impl GraphicsPassDescriptorWithTextures {
 
         let mut attachments = Vec::with_capacity(attachment_indices.len());
         let mut load_store_ops = Vec::with_capacity(attachment_indices.len());
-        let mut textures = Vec::with_capacity(attachment_indices.len());
         let mut size = USize2::ZERO;
         for i in attachment_indices.iter().copied() {
             let a = &pass.textures()[i as usize];
             let resource_index = a.resource_index();
-            let (tex, format, samples, dim) = physical_resources
+            let (_tex, format, samples, dim) = physical_resources
                 .get_texture(resource_index)
                 .expect("unassigned resource");
             let dim = dim.subimage_extents();
@@ -131,8 +129,6 @@ impl GraphicsPassDescriptorWithTextures {
                 // TODO: error handling
                 panic!("all framebuffer textures need to have the same dimensions");
             }
-
-            textures.push(tex);
 
             attachments.push(AttachmentDescriptor {
                 format,
@@ -195,7 +191,6 @@ impl GraphicsPassDescriptorWithTextures {
         Some(Self {
             graphics_pass,
             resource_indices: attachment_indices,
-            textures,
             size,
         })
     }

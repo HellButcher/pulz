@@ -762,16 +762,16 @@ impl AshRendererFull {
         let Some(swapchain) = self.surfaces.remove(window_id) else {
             return Err(Error::WindowNotAvailable);
         };
+        self.res.wait_idle_and_clear_garbage()?;
         unsafe {
-            self.device.device_wait_idle()?;
             swapchain.destroy_with_surface(&mut self.res)?;
         }
         Ok(())
     }
 
     pub(crate) fn destroy_all_swapchains(&mut self) -> Result<()> {
+        self.res.wait_idle_and_clear_garbage()?;
         unsafe {
-            self.device.device_wait_idle()?;
             for (_window_id, swapchain) in self.surfaces.drain() {
                 swapchain.destroy_with_surface(&mut self.res)?;
             }

@@ -56,9 +56,12 @@ pub struct AshResources {
 
 #[derive(Debug, Default)]
 pub struct AshFrameGarbage {
+    pub texture_handles: Vec<Texture>,
+    pub buffer_handles: Vec<Buffer>,
     pub buffers: Vec<vk::Buffer>,
     pub images: Vec<vk::Image>,
     pub image_views: Vec<vk::ImageView>,
+    pub framebuffers: Vec<vk::Framebuffer>,
     pub swapchains: Vec<vk::SwapchainKHR>,
     pub memory: Vec<GpuMemoryBlock>,
 }
@@ -163,18 +166,18 @@ impl AshResources {
         R::destroy(self, key)
     }
 
-    pub(crate) fn clear_garbage(&mut self) -> Result<()> {
+    pub(crate) fn wait_idle_and_clear_garbage(&mut self) -> Result<()> {
         unsafe {
             self.alloc.device().device_wait_idle()?;
-            for garbage in &mut self.frame_garbage {
-                garbage.clear_frame(&mut self.alloc);
+            for frame in 0..self.frame_garbage.len() {
+                self.clear_garbage(frame);
             }
         }
         Ok(())
     }
 
-    pub(crate) fn clear_all(&mut self) -> Result<()> {
-        self.clear_garbage()?;
+    pub(crate) fn wait_idle_and_clear_all(&mut self) -> Result<()> {
+        self.wait_idle_and_clear_garbage()?;
         // SAFETY: clear save, because clear garbage waits until device is idle
         unsafe {
             self.ray_tracing_pipelines.clear_destroy(&mut self.alloc);
@@ -202,17 +205,39 @@ impl AshResources {
         &mut self.frame_garbage[self.current_frame]
     }
 
+    pub(crate) unsafe fn clear_garbage(&mut self, frame: usize) {
+        let garbage = &mut self.frame_garbage[frame];
+        let mut textures = std::mem::take(&mut garbage.texture_handles);
+        for texture in textures.drain(..) {
+            if let Some(raw) = self.textures.remove(texture) {
+                Texture::put_to_garbage(garbage, raw)
+            }
+        }
+        garbage.texture_handles = textures;
+        let mut buffers = std::mem::take(&mut garbage.buffer_handles);
+        for buffer in buffers.drain(..) {
+            if let Some(raw) = self.buffers.remove(buffer) {
+                Buffer::put_to_garbage(garbage, raw)
+            }
+        }
+        garbage.buffer_handles = buffers;
+        garbage.clear_frame(&mut self.alloc);
+    }
+
     /// # SAFETY
     /// caller must ensure, that the next frame has finished
     pub(crate) unsafe fn next_frame_and_clear_garbage(&mut self) {
         self.current_frame = (self.current_frame + 1) % self.frame_garbage.len();
-        self.frame_garbage[self.current_frame].clear_frame(&mut self.alloc);
+        self.clear_garbage(self.current_frame);
     }
 }
 
 impl AshFrameGarbage {
     unsafe fn clear_frame(&mut self, alloc: &mut AshAllocator) {
         let device = alloc.device();
+        self.framebuffers
+            .drain(..)
+            .for_each(|r| device.destroy_framebuffer(r, None));
         self.image_views
             .drain(..)
             .for_each(|r| device.destroy_image_view(r, None));
@@ -242,7 +267,7 @@ impl<R: AshGpuResource> Index<R> for AshResources {
 impl Drop for AshResources {
     #[inline]
     fn drop(&mut self) {
-        self.clear_all().unwrap();
+        self.wait_idle_and_clear_all().unwrap();
         if self.pipeline_cache != vk::PipelineCache::null() {
             unsafe {
                 self.alloc

@@ -170,14 +170,10 @@ struct AshRendererFull {
 
 impl Drop for AshRendererFull {
     fn drop(&mut self) {
-        unsafe {
-            self.device.device_wait_idle().unwrap();
-            for (_, swapchain) in self.surfaces.drain() {
-                swapchain.destroy_with_surface(&mut self.res).unwrap();
-            }
-        }
+        self.graph.cleanup(&mut self.res);
+        self.res.wait_idle_and_clear_all().unwrap();
+        self.destroy_all_swapchains().unwrap();
         self.frames.clear();
-        self.res.clear_all().unwrap();
     }
 }
 

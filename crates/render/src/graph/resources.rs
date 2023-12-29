@@ -733,7 +733,7 @@ impl PhysicalResources {
         changed
     }
 
-    pub(crate) fn get_texture(
+    pub fn get_texture(
         &self,
         idx: ResourceIndex,
     ) -> Option<(Texture, TextureFormat, u8, TextureDimensions)> {
@@ -741,7 +741,7 @@ impl PhysicalResources {
         Some((r.resource, r.format, 1, r.size))
     }
 
-    pub(crate) fn get_buffer(&self, idx: ResourceIndex) -> Option<(Buffer, usize)> {
+    pub fn get_buffer(&self, idx: ResourceIndex) -> Option<(Buffer, usize)> {
         let r = self.buffers.get_physical(idx)?;
         Some((r.resource, r.size))
     }
