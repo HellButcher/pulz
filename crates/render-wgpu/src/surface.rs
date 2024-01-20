@@ -3,24 +3,40 @@ use std::{
     rc::Rc,
 };
 
-use pulz_window::{HasRawWindowAndDisplayHandle, Size2, Window};
+use pulz_window::{HasWindowAndDisplayHandle, Size2, Window};
 use tracing::info;
 
+use crate::{Error, Result};
+
 pub struct Surface {
-    surface: wgpu::Surface,
+    surface: wgpu::Surface<'static>,
     size: Size2,
     vsync: bool,
     format: wgpu::TextureFormat,
-    window: Rc<dyn HasRawWindowAndDisplayHandle>,
+    window: Rc<dyn HasWindowAndDisplayHandle>,
 }
 
 impl Surface {
     pub fn create(
         instance: &wgpu::Instance,
         window_descriptor: &Window,
-        window: Rc<dyn HasRawWindowAndDisplayHandle>,
-    ) -> Result<Self, wgpu::CreateSurfaceError> {
-        let surface = unsafe { instance.create_surface(&*window)? };
+        window: Rc<dyn HasWindowAndDisplayHandle>,
+    ) -> Result<Self> {
+        fn map_handle_error(e: raw_window_handle::HandleError) -> Error {
+            use raw_window_handle::HandleError;
+            match e {
+                HandleError::Unavailable => Error::WindowNotAvailable,
+                _ => Error::UnsupportedWindowSystem,
+            }
+        }
+        let raw_display_handle = window.display_handle().map_err(map_handle_error)?.as_raw();
+        let raw_window_handle = window.window_handle().map_err(map_handle_error)?.as_raw();
+        let surface = unsafe {
+            instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                raw_display_handle,
+                raw_window_handle,
+            })?
+        };
         Ok(Self {
             surface,
             size: window_descriptor.size,
@@ -57,32 +73,17 @@ impl Surface {
 
     pub fn configure(&mut self, adapter: &wgpu::Adapter, device: &wgpu::Device) {
         // TODO: also reconfigure on resize, and when presenting results in `Outdated/Lost`
-        let capabilities = self.surface.get_capabilities(adapter);
-        self.format = capabilities
-            .formats
-            .first()
-            .copied()
-            .expect("surface not compatible");
-        let present_mode = if self.vsync {
-            wgpu::PresentMode::AutoVsync
-        } else {
-            wgpu::PresentMode::AutoNoVsync
-        };
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: self.format,
-            width: self.size.x,
-            height: self.size.y,
-            present_mode,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            view_formats: vec![],
-        };
+        let surface_config = self
+            .surface
+            .get_default_config(adapter, self.size.x, self.size.y)
+            .expect("surface not supported by adapter");
+
         self.surface.configure(device, &surface_config);
     }
 }
 
 impl Deref for Surface {
-    type Target = wgpu::Surface;
+    type Target = wgpu::Surface<'static>;
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.surface

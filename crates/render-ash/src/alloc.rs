@@ -38,7 +38,7 @@ impl AshAllocator {
 
     #[inline]
     pub fn instance(&self) -> &AshInstance {
-        &self.device.instance()
+        self.device.instance()
     }
 
     #[inline]

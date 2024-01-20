@@ -98,12 +98,12 @@ impl AshResources {
 
     #[inline]
     pub fn instance(&self) -> &AshInstance {
-        &self.alloc.instance()
+        self.alloc.instance()
     }
 
     #[inline]
     pub fn device(&self) -> &AshDevice {
-        &self.alloc.device()
+        self.alloc.device()
     }
 
     pub fn with_pipeline_cache(mut self, initial_data: &[u8]) -> Result<Self> {

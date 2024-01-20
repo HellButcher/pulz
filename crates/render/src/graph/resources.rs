@@ -103,14 +103,14 @@ impl<R> WriteSlot<R> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum ResourceVariant {
+pub enum ResourceVariant {
     Transient,
     Import,
     Export,
 }
 
 #[derive(Debug)]
-struct Resource<R: ResourceAccess> {
+pub(crate) struct Resource<R: ResourceAccess> {
     first_written: SubPassIndex,
     last_written: SubPassIndex,
     usage: R::Usage,
@@ -139,6 +139,21 @@ impl<R: ResourceAccess> Resource<R> {
         } else {
             R::default_format(self.usage)
         }
+    }
+
+    #[inline]
+    pub fn usage(&self) -> R::Usage {
+        self.usage
+    }
+
+    #[inline]
+    pub fn size(&self) -> Option<R::Size> {
+        self.size
+    }
+
+    #[inline]
+    pub fn variant(&self) -> ResourceVariant {
+        self.variant
     }
 }
 
@@ -220,6 +235,10 @@ impl<R: ResourceAccess> ResourceSet<R> {
             extern_assignment: None,
         });
         WriteSlot::new(index, SUBPASS_UNDEFINED)
+    }
+
+    pub(super) fn get(&self, index: usize) -> Option<&Resource<R>> {
+        self.resources.get(index)
     }
 
     pub(super) fn set_format(&mut self, slot: &Slot<R>, format: R::Format) {
@@ -790,19 +809,19 @@ impl GraphExport<Texture> for WindowId {
 }
 
 impl GraphExport<Texture> for RenderTarget {
-    fn export(&self) -> RenderTarget {
+    fn export(&self) -> Self {
         *self
     }
 }
 
 impl GraphImport<Buffer> for Handle<Buffer> {
-    fn import(&self) -> Handle<Buffer> {
+    fn import(&self) -> Self {
         *self
     }
 }
 
 impl GraphExport<Buffer> for Handle<Buffer> {
-    fn export(&self) -> Handle<Buffer> {
+    fn export(&self) -> Self {
         *self
     }
 }

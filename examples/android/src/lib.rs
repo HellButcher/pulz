@@ -9,10 +9,7 @@ use pulz_render_ash::AshRenderer;
 use pulz_render_pipeline_core::core_3d::CoreShadingModule;
 use pulz_window::{WindowDescriptor, WindowId};
 use pulz_window_winit::{winit, WinitWindowModule, WinitWindowSystem};
-use winit::{
-    event_loop::{EventLoop, EventLoopBuilder, EventLoopWindowTarget},
-    window::Window,
-};
+use winit::{event_loop::EventLoopWindowTarget, window::Window};
 
 fn init(event_loop: &EventLoopWindowTarget<()>) -> (Resources, Rc<Window>, WinitWindowSystem) {
     info!("Initializing...");

@@ -243,7 +243,7 @@ impl WinitWindowSystemMut<'_> {
                 winit_window
             };
             res.foreach_meta_mut(move |l: &mut dyn WindowSystemListener| {
-                l.on_created(window_id, &window_descr, winit_window.clone());
+                l.on_created(window_id, window_descr, winit_window.clone());
             });
         }
     }

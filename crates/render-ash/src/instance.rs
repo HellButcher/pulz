@@ -18,6 +18,7 @@ pub struct AshInstance {
     instance_extensions: Vec<&'static CStr>,
     ext_debug_utils: Option<DebugUtils>,
     ext_surface: Option<khr::Surface>,
+    flags: AshRendererFlags,
 }
 
 impl Deref for AshInstance {
@@ -40,6 +41,7 @@ impl AshInstance {
             instance_extensions,
             ext_debug_utils: None,
             ext_surface: None,
+            flags,
         };
 
         if instance.has_instance_extension(DebugUtils::name()) {
@@ -83,6 +85,11 @@ impl AshInstance {
         self.ext_debug_utils
             .as_ref()
             .ok_or(ErrorNoExtension(ext::DebugUtils::name()))
+    }
+
+    #[inline]
+    pub fn flags(&self) -> AshRendererFlags {
+        self.flags
     }
 }
 

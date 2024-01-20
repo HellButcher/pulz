@@ -1,7 +1,4 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
+use std::hash::Hash;
 
 use ash::vk::{self, PipelineStageFlags};
 use pulz_assets::Handle;
@@ -17,14 +14,15 @@ use pulz_render::{
     },
     math::USize2,
     pipeline::{ExtendedGraphicsPassDescriptor, GraphicsPass},
-    texture::{Texture, TextureDescriptor, TextureDimensions, TextureFormat, TextureUsage},
-    utils::hash::U64HashMap,
+    texture::{
+        Texture, TextureDescriptor, TextureDimensions, TextureFormat, TextureLayout, TextureUsage,
+    },
 };
 use pulz_window::WindowsMirror;
 use tracing::debug;
 
 use crate::{
-    convert::VkInto,
+    convert::{default_clear_value_for_format, VkInto},
     encoder::{AshCommandPool, SubmissionGroup},
     resources::AshResources,
     swapchain::AshSurfaceSwapchain,
@@ -98,8 +96,7 @@ impl PhysicalResourceResolver for AshPhysicalResourceResolver<'_> {
                 Some(PhysicalResource {
                     resource: aquired_texture.texture,
                     format: surface.texture_format(),
-                    // TODO: usage
-                    usage: TextureUsage::ALL_ATTACHMENTS,
+                    usage: TextureUsage::PRESENT,
                     size: TextureDimensions::D2(surface.size()),
                 })
             }
@@ -143,12 +140,15 @@ impl TopoRenderPass {
         res: &mut AshResources,
         src: &RenderGraph,
         phys: &PhysicalResources,
+        current_texture_layouts: &mut [TextureLayout],
         pass: &PassDescription,
     ) -> Result<Self> {
-        let pass_descr = ExtendedGraphicsPassDescriptor::from_graph(src, phys, pass).unwrap();
+        let pass_descr =
+            ExtendedGraphicsPassDescriptor::from_graph(src, phys, current_texture_layouts, pass)
+                .unwrap();
         let graphics_pass = res.create::<GraphicsPass>(&pass_descr.graphics_pass)?;
         let render_pass = res[graphics_pass];
-        Ok(TopoRenderPass {
+        Ok(Self {
             index: pass.index(),
             render_pass,
             framebuffer: vk::Framebuffer::null(),
@@ -174,9 +174,9 @@ impl TopoRenderPass {
         */
     }
 
-    fn update_framebuffer<'d>(
+    fn update_framebuffer(
         &mut self,
-        res: &'d mut AshResources,
+        res: &mut AshResources,
         phys: &PhysicalResources,
     ) -> Result<()> {
         self.cleanup(res);
@@ -279,6 +279,10 @@ impl AshRenderGraph {
         self.topo
             .resize_with(num_topological_groups, Default::default);
 
+        let mut current_texture_layouts = Vec::new();
+        current_texture_layouts.resize(src.get_num_textures(), TextureLayout::Undefined);
+        // TODO: get initial layout of external textures
+
         for topo_index in 0..num_topological_groups {
             let topo_group = &mut self.topo[topo_index];
             for pass in src.get_topological_group(topo_index) {
@@ -288,6 +292,7 @@ impl AshRenderGraph {
                             res,
                             src,
                             &self.physical_resources,
+                            &mut current_texture_layouts,
                             pass,
                         )?);
                     }
@@ -325,7 +330,7 @@ impl AshRenderGraph {
         draw_phases: &DrawPhases,
     ) -> Result<()> {
         let mut encoder = command_pool.encoder()?;
-        //let mut clear_values = Vec::new();
+        let mut clear_values = Vec::new();
         for (topo_index, topo) in self.topo.iter().enumerate() {
             // render-passes
             for topo_render_pass in &topo.render_passes {
@@ -334,6 +339,14 @@ impl AshRenderGraph {
                 if has_multiple_subpass {
                     encoder.begin_debug_label(pass.name());
                 }
+                clear_values.clear();
+                for &i in &topo_render_pass.attachment_resource_indices {
+                    let (_tex, format, _samples, _dim) =
+                        self.physical_resources.get_texture(i).unwrap();
+                    let format: vk::Format = format.vk_into();
+                    let clear_value = default_clear_value_for_format(format);
+                    clear_values.push(clear_value);
+                }
                 unsafe {
                     // TODO: caching of framebuffer
                     // TODO: clear-values, render-area, ...
@@ -341,7 +354,7 @@ impl AshRenderGraph {
                         &vk::RenderPassBeginInfo::builder()
                             .render_pass(topo_render_pass.render_pass)
                             .framebuffer(topo_render_pass.framebuffer)
-                            //.clear_values(&clear_values)
+                            .clear_values(&clear_values)
                             .render_area(
                                 vk::Rect2D::builder()
                                     .offset(vk::Offset2D { x: 0, y: 0 })

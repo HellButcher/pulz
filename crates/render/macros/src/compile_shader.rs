@@ -1,15 +1,6 @@
 use darling::FromMeta;
 use proc_macro2::TokenStream;
-use syn::{AttributeArgs, LitStr, Result};
-
-pub fn compile_shader_int(args: AttributeArgs) -> Result<TokenStream> {
-    let args = CompileShaderArgs::from_list(&args)?;
-    compile_shader_with_args(args)
-}
-
-pub fn compile_shader_with_args(args: CompileShaderArgs) -> Result<TokenStream> {
-    panic!("TODO: implement: {:#?}", args);
-}
+use syn::{LitStr, Result};
 
 #[derive(FromMeta, PartialEq, Eq, Debug)]
 pub enum TargetFormat {
@@ -21,4 +12,15 @@ pub enum TargetFormat {
 pub struct CompileShaderArgs {
     pub target_format: TargetFormat,
     pub source: LitStr,
+}
+
+impl CompileShaderArgs {
+    pub fn parse(input: TokenStream) -> Result<Self> {
+        let meta_list = darling::ast::NestedMeta::parse_meta_list(input)?;
+        let args = Self::from_list(&meta_list)?;
+        Ok(args)
+    }
+    pub fn compile(&self) -> Result<TokenStream> {
+        panic!("TODO: implement: {:#?}", self);
+    }
 }

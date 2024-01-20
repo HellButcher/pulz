@@ -28,8 +28,8 @@ encase_derive_impl::implement! {{
 #[cfg(feature = "unstable")]
 #[proc_macro]
 pub fn compile_shader_int(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as syn::AttributeArgs);
-    compile_shader::compile_shader_int(input)
+    compile_shader::CompileShaderArgs::parse(input.into())
+        .and_then(|args| args.compile())
         .unwrap_or_else(|err| err.to_compile_error())
         .into()
 }

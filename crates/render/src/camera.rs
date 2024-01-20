@@ -235,8 +235,8 @@ pub enum RenderTarget {
 impl RenderTarget {
     pub fn resolve(&self, surfaces: &WindowSurfaces, _images: &Assets<Image>) -> Option<Surface> {
         match self {
-            RenderTarget::Window(window_id) => surfaces.get(*window_id).copied(),
-            RenderTarget::Image(_image_handle) => todo!("surface from image asset"),
+            Self::Window(window_id) => surfaces.get(*window_id).copied(),
+            Self::Image(_image_handle) => todo!("surface from image asset"),
         }
     }
 }
@@ -247,7 +247,7 @@ pub fn update_projections_from_render_targets(
     mut projections: Query<'_, (&'_ mut Projection, &'_ RenderTarget)>,
 ) {
     for (projection, render_target) in projections.iter() {
-        if let Some(surface) = render_target.resolve(&window_surfaces, &images) {
+        if let Some(surface) = render_target.resolve(window_surfaces, images) {
             projection.update_viewport(surface.logical_size());
         }
     }

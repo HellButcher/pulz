@@ -32,7 +32,7 @@ use graph::WgpuRenderGraph;
 use pulz_ecs::prelude::*;
 use pulz_render::{draw::DrawPhases, graph::RenderGraph, RenderModule, RenderSystemPhase};
 use pulz_window::{
-    listener::WindowSystemListener, HasRawWindowAndDisplayHandle, Window, WindowId, Windows,
+    listener::WindowSystemListener, HasWindowAndDisplayHandle, Window, WindowId, Windows,
     WindowsMirror,
 };
 use resources::WgpuResources;
@@ -57,6 +57,9 @@ pub enum Error {
 
     #[error("The window is not available, or it has no raw-window-handle")]
     WindowNotAvailable,
+
+    #[error("The used Window-System is not supported")]
+    UnsupportedWindowSystem,
 
     #[error("Unable to create surface")]
     CreateSurfaceError(#[from] wgpu::CreateSurfaceError),
@@ -94,9 +97,10 @@ impl WgpuRendererFull {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::empty(),
+                    required_features: wgpu::Features::empty(),
                     // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                    limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+                    required_limits: wgpu::Limits::downlevel_defaults()
+                        .using_resolution(adapter.limits()),
                 },
                 trace_dir.ok().as_ref().map(std::path::Path::new),
             )
@@ -218,7 +222,7 @@ impl WgpuRenderer {
         &mut self,
         window_id: WindowId,
         window_descriptor: &Window,
-        window: Rc<dyn HasRawWindowAndDisplayHandle>,
+        window: Rc<dyn HasWindowAndDisplayHandle>,
     ) -> Result<&mut WgpuRendererFull> {
         if let WgpuRendererInner::Full(renderer) = &mut self.0 {
             renderer.surfaces.remove(window_id); // replaces old surface
@@ -289,7 +293,7 @@ impl WindowSystemListener for WgpuRenderer {
         &mut self,
         window_id: WindowId,
         window_desc: &Window,
-        window: Rc<dyn HasRawWindowAndDisplayHandle>,
+        window: Rc<dyn HasWindowAndDisplayHandle>,
     ) {
         self.init_window(window_id, window_desc, window).unwrap();
     }

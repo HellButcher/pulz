@@ -269,12 +269,13 @@ bitflags! {
         const COLOR_ATTACHMENT = 16;
         const DEPTH_STENCIL_ATTACHMENT = 32;
         const INPUT_ATTACHMENT = 64;
+        const PRESENT = 128;
 
         // modifiers
-        const BY_REGION = 128;
+        const BY_REGION = 256;
 
         const NONE = 0;
-        const ALL_READ = Self::TRANSFER_SRC.bits() | Self::SAMPLED.bits() | Self::INPUT_ATTACHMENT.bits();
+        const ALL_READ = Self::TRANSFER_SRC.bits() | Self::SAMPLED.bits() | Self::INPUT_ATTACHMENT.bits() | Self::PRESENT.bits();
         const ALL_WRITE = Self::TRANSFER_DST.bits() | Self::STORAGE.bits() | Self::COLOR_ATTACHMENT.bits() | Self::DEPTH_STENCIL_ATTACHMENT.bits();
         const ALL_ATTACHMENTS = Self::COLOR_ATTACHMENT.bits() | Self::DEPTH_STENCIL_ATTACHMENT.bits() | Self::INPUT_ATTACHMENT.bits();
     }
@@ -290,6 +291,24 @@ impl TextureUsage {
     pub const fn is_non_attachment(self) -> bool {
         self.intersects(Self::ALL_ATTACHMENTS.complement())
     }
+}
+
+#[derive(
+    Copy, Clone, Debug, Default, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
+)]
+#[non_exhaustive]
+pub enum TextureLayout {
+    #[default]
+    Undefined,
+    General,
+    TransferSrc,
+    TransferDst,
+    Preinitialized,
+    ShaderReadOnly,
+    ColorAttachment,
+    DepthStencilAttachment,
+    InputAttachment,
+    Present,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Default, Serialize, Deserialize)]

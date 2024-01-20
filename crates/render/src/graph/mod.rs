@@ -2,7 +2,7 @@ use core::fmt;
 
 use self::{
     pass::{run::PassExec, PipelineBindPoint},
-    resources::{ExtendedResourceData, ResourceDeps, ResourceSet},
+    resources::{ExtendedResourceData, Resource, ResourceDeps, ResourceSet},
 };
 use crate::{
     buffer::Buffer,
@@ -99,6 +99,26 @@ impl RenderGraph {
     #[inline]
     pub fn get_num_topological_groups(&self) -> usize {
         self.passes_topo_order.len()
+    }
+
+    #[inline]
+    pub fn get_num_textures(&self) -> usize {
+        self.textures.len()
+    }
+
+    #[inline]
+    pub fn get_num_buffers(&self) -> usize {
+        self.buffers.len()
+    }
+
+    #[inline]
+    pub(crate) fn get_texture_info(&self, index: usize) -> Option<&Resource<Texture>> {
+        self.textures.get(index)
+    }
+
+    #[inline]
+    pub(crate) fn get_buffer_info(&self, index: usize) -> Option<&Resource<Buffer>> {
+        self.buffers.get(index)
     }
 
     pub fn get_topological_group(

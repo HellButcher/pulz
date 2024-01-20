@@ -148,7 +148,7 @@ impl BindingLayoutArgs {
                                 );
                             }
                         }
-                        Meta::Path(path) => {}
+                        Meta::Path(_path) => {}
                     }
                 }
             }

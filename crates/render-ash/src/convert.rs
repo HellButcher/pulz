@@ -11,7 +11,10 @@ use pulz_render::{
         PrimitiveTopology, RayTracingPipelineDescriptor, StencilFaceState, StencilOperation,
         StoreOp, VertexFormat,
     },
-    texture::{TextureAspects, TextureDescriptor, TextureDimensions, TextureFormat, TextureUsage},
+    texture::{
+        TextureAspects, TextureDescriptor, TextureDimensions, TextureFormat, TextureLayout,
+        TextureUsage,
+    },
 };
 use scratchbuffer::ScratchBuffer;
 
@@ -397,6 +400,82 @@ impl VkFrom<vk::Format> for TextureFormat {
     }
 }
 
+pub fn default_clear_value_for_format(format: vk::Format) -> vk::ClearValue {
+    match format {
+        // Depth and stencil formats
+        vk::Format::S8_UINT
+        | vk::Format::D16_UNORM
+        | vk::Format::X8_D24_UNORM_PACK32
+        | vk::Format::D24_UNORM_S8_UINT
+        | vk::Format::D32_SFLOAT => vk::ClearValue {
+            depth_stencil: vk::ClearDepthStencilValue {
+                depth: 1.0,
+                stencil: 0,
+            },
+        },
+
+        _ => vk::ClearValue {
+            color: default_clear_color_value_for_format(format),
+        },
+    }
+}
+
+pub fn default_clear_color_value_for_format(format: vk::Format) -> vk::ClearColorValue {
+    match format {
+        vk::Format::R8_SINT
+        | vk::Format::R8G8_SINT
+        | vk::Format::R8G8B8_SINT
+        | vk::Format::B8G8R8_SINT
+        | vk::Format::R8G8B8A8_SINT
+        | vk::Format::B8G8R8A8_SINT
+        | vk::Format::A8B8G8R8_SINT_PACK32
+        | vk::Format::A2R10G10B10_SINT_PACK32
+        | vk::Format::A2B10G10R10_SINT_PACK32
+        | vk::Format::R16_SINT
+        | vk::Format::R16G16_SINT
+        | vk::Format::R16G16B16_SINT
+        | vk::Format::R16G16B16A16_SINT
+        | vk::Format::R32_SINT
+        | vk::Format::R32G32_SINT
+        | vk::Format::R32G32B32_SINT
+        | vk::Format::R32G32B32A32_SINT
+        | vk::Format::R64_SINT
+        | vk::Format::R64G64_SINT
+        | vk::Format::R64G64B64_SINT
+        | vk::Format::R64G64B64A64_SINT => vk::ClearColorValue {
+            int32: [i32::MIN, i32::MIN, i32::MIN, i32::MAX],
+        },
+
+        vk::Format::R8_UINT
+        | vk::Format::R8G8_UINT
+        | vk::Format::R8G8B8_UINT
+        | vk::Format::B8G8R8_UINT
+        | vk::Format::R8G8B8A8_UINT
+        | vk::Format::B8G8R8A8_UINT
+        | vk::Format::A8B8G8R8_UINT_PACK32
+        | vk::Format::A2R10G10B10_UINT_PACK32
+        | vk::Format::A2B10G10R10_UINT_PACK32
+        | vk::Format::R16_UINT
+        | vk::Format::R16G16_UINT
+        | vk::Format::R16G16B16_UINT
+        | vk::Format::R16G16B16A16_UINT
+        | vk::Format::R32_UINT
+        | vk::Format::R32G32_UINT
+        | vk::Format::R32G32B32_UINT
+        | vk::Format::R32G32B32A32_UINT
+        | vk::Format::R64_UINT
+        | vk::Format::R64G64_UINT
+        | vk::Format::R64G64B64_UINT
+        | vk::Format::R64G64B64A64_UINT => vk::ClearColorValue {
+            uint32: [0, 0, 0, u32::MAX],
+        },
+
+        _ => vk::ClearColorValue {
+            float32: [0.0, 0.0, 0.0, 1.0],
+        },
+    }
+}
+
 impl VkFrom<VertexFormat> for vk::Format {
     #[inline]
     fn from(val: &VertexFormat) -> Self {
@@ -467,6 +546,27 @@ impl VkFrom<TextureUsage> for vk::ImageUsageFlags {
             result |= Self::INPUT_ATTACHMENT;
         }
         result
+    }
+}
+
+impl VkFrom<TextureLayout> for vk::ImageLayout {
+    #[inline]
+    fn from(val: &TextureLayout) -> Self {
+        match val {
+            TextureLayout::Undefined => Self::UNDEFINED,
+            TextureLayout::General => Self::GENERAL,
+            TextureLayout::TransferSrc => Self::TRANSFER_SRC_OPTIMAL,
+            TextureLayout::TransferDst => Self::TRANSFER_DST_OPTIMAL,
+            TextureLayout::Preinitialized => Self::PREINITIALIZED,
+            TextureLayout::ShaderReadOnly | TextureLayout::InputAttachment => {
+                Self::SHADER_READ_ONLY_OPTIMAL
+            }
+            TextureLayout::ColorAttachment => Self::COLOR_ATTACHMENT_OPTIMAL,
+            TextureLayout::DepthStencilAttachment => Self::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            TextureLayout::Present => Self::PRESENT_SRC_KHR,
+
+            _ => Self::GENERAL,
+        }
     }
 }
 
@@ -867,8 +967,8 @@ impl CreateInfoConverter6 {
                     .stencil_load_op(load_store_ops.load_op.vk_into())
                     .stencil_store_op(load_store_ops.store_op.vk_into())
                     // TODO: initial_layout if load-op == LOAD
-                    .initial_layout(vk::ImageLayout::UNDEFINED)
-                    .final_layout(vk::ImageLayout::GENERAL)
+                    .initial_layout(a.initial_layout.vk_into())
+                    .final_layout(a.final_layout.vk_into())
                     .build(),
             );
             attachment_dep_data.push((vk::SUBPASS_EXTERNAL, vk::AccessFlags::NONE));
@@ -883,7 +983,7 @@ impl CreateInfoConverter6 {
             let dst = i as u32;
             for &a in sp.input_attachments() {
                 let a = a as usize;
-                attachments[a].final_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
+                //attachments[a].final_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
                 let (src, src_access) = attachment_dep_data[a];
                 if src != vk::SUBPASS_EXTERNAL {
                     let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
@@ -894,7 +994,7 @@ impl CreateInfoConverter6 {
             }
             for &a in sp.color_attachments() {
                 let a = a as usize;
-                attachments[a].final_layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
+                //attachments[a].final_layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
                 let (src, src_access) = attachment_dep_data[a];
                 if src != vk::SUBPASS_EXTERNAL {
                     let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
@@ -906,7 +1006,7 @@ impl CreateInfoConverter6 {
             }
             if let Some(a) = sp.depth_stencil_attachment() {
                 let a = a as usize;
-                attachments[a].final_layout = vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                //attachments[a].final_layout = vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 let (src, src_access) = attachment_dep_data[a];
                 if src != vk::SUBPASS_EXTERNAL {
                     let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);

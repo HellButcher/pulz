@@ -5,9 +5,7 @@ use pulz_render::{
     math::{uvec2, USize2},
     texture::{Texture, TextureFormat},
 };
-use pulz_window::{
-    HasRawWindowAndDisplayHandle, Size2, Window, WindowDescriptor, WindowId, Windows,
-};
+use pulz_window::{HasWindowAndDisplayHandle, Size2, Window, WindowDescriptor, WindowId, Windows};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use tracing::{debug, info};
 
@@ -179,18 +177,20 @@ impl AshInstance {
                 not(target_os = "macos"),
                 not(target_os = "ios")
             ))]
-            (RawDisplayHandle::Xlib(d), RawWindowHandle::Xlib(w)) => {
-                self.create_surface_xlib(d.display as *mut _, w.window)
-            }
+            (RawDisplayHandle::Xlib(d), RawWindowHandle::Xlib(w)) => self.create_surface_xlib(
+                d.display.ok_or(Error::WindowNotAvailable)?.as_ptr().cast(),
+                w.window,
+            ),
             #[cfg(all(
                 unix,
                 not(target_os = "android"),
                 not(target_os = "macos"),
                 not(target_os = "ios")
             ))]
-            (RawDisplayHandle::Xcb(d), RawWindowHandle::Xcb(w)) => {
-                self.create_surface_xcb(d.connection, w.window)
-            }
+            (RawDisplayHandle::Xcb(d), RawWindowHandle::Xcb(w)) => self.create_surface_xcb(
+                d.connection.ok_or(Error::WindowNotAvailable)?.as_ptr(),
+                w.window.get(),
+            ),
             #[cfg(all(
                 unix,
                 not(target_os = "android"),
@@ -198,7 +198,7 @@ impl AshInstance {
                 not(target_os = "ios")
             ))]
             (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) => {
-                self.create_surface_wayland(d.display, w.surface)
+                self.create_surface_wayland(d.display.as_ptr(), w.surface.as_ptr())
             }
             #[cfg(target_os = "android")]
             (RawDisplayHandle::Android(_), RawWindowHandle::AndroidNdk(w)) => {
@@ -234,10 +234,18 @@ impl AshInstance {
     /// SAFETY: display and window handles must be valid for the complete lifetime of surface
     pub(crate) unsafe fn new_surface(
         &self,
-        window: &dyn HasRawWindowAndDisplayHandle,
+        window: &dyn HasWindowAndDisplayHandle,
     ) -> Result<Guard<'_, vk::SurfaceKHR>> {
-        let surface_raw =
-            self.create_surface_raw(window.raw_display_handle(), window.raw_window_handle())?;
+        fn map_handle_error(e: raw_window_handle::HandleError) -> Error {
+            use raw_window_handle::HandleError;
+            match e {
+                HandleError::Unavailable => Error::WindowNotAvailable,
+                _ => Error::UnsupportedWindowSystem,
+            }
+        }
+        let raw_display_handle = window.display_handle().map_err(map_handle_error)?.as_raw();
+        let raw_window_handle = window.window_handle().map_err(map_handle_error)?.as_raw();
+        let surface_raw = self.create_surface_raw(raw_display_handle, raw_window_handle)?;
         Ok(Guard::new(self, surface_raw))
     }
 }
@@ -366,7 +374,7 @@ pub struct AshSurfaceSwapchain {
     image_views: Vec<vk::ImageView>,
     textures: Vec<Texture>,
     acquired_image: u32,
-    window: Rc<dyn HasRawWindowAndDisplayHandle>, // for keeping ownership
+    window: Rc<dyn HasWindowAndDisplayHandle>, // for keeping ownership
 }
 
 impl AshSurfaceSwapchain {
@@ -380,10 +388,10 @@ impl AshSurfaceSwapchain {
     }
 
     fn new_unconfigured(
-        window: Rc<dyn HasRawWindowAndDisplayHandle>,
+        window: Rc<dyn HasWindowAndDisplayHandle>,
         surface_raw: vk::SurfaceKHR,
     ) -> Self {
-        AshSurfaceSwapchain {
+        Self {
             surface_raw,
             swapchain_raw: vk::SwapchainKHR::null(),
             size: USize2::new(0, 0),
@@ -428,62 +436,6 @@ impl AshSurfaceSwapchain {
     #[inline]
     pub fn image_count(&self) -> usize {
         self.images.len()
-    }
-
-    pub fn clear_value(&self) -> vk::ClearColorValue {
-        match self.surface_format.format {
-            vk::Format::R8_SINT
-            | vk::Format::R8G8_SINT
-            | vk::Format::R8G8B8_SINT
-            | vk::Format::B8G8R8_SINT
-            | vk::Format::R8G8B8A8_SINT
-            | vk::Format::B8G8R8A8_SINT
-            | vk::Format::A8B8G8R8_SINT_PACK32
-            | vk::Format::A2R10G10B10_SINT_PACK32
-            | vk::Format::A2B10G10R10_SINT_PACK32
-            | vk::Format::R16_SINT
-            | vk::Format::R16G16_SINT
-            | vk::Format::R16G16B16_SINT
-            | vk::Format::R16G16B16A16_SINT
-            | vk::Format::R32_SINT
-            | vk::Format::R32G32_SINT
-            | vk::Format::R32G32B32_SINT
-            | vk::Format::R32G32B32A32_SINT
-            | vk::Format::R64_SINT
-            | vk::Format::R64G64_SINT
-            | vk::Format::R64G64B64_SINT
-            | vk::Format::R64G64B64A64_SINT => vk::ClearColorValue {
-                int32: [i32::MIN, i32::MIN, i32::MIN, i32::MAX],
-            },
-
-            vk::Format::R8_UINT
-            | vk::Format::R8G8_UINT
-            | vk::Format::R8G8B8_UINT
-            | vk::Format::B8G8R8_UINT
-            | vk::Format::R8G8B8A8_UINT
-            | vk::Format::B8G8R8A8_UINT
-            | vk::Format::A8B8G8R8_UINT_PACK32
-            | vk::Format::A2R10G10B10_UINT_PACK32
-            | vk::Format::A2B10G10R10_UINT_PACK32
-            | vk::Format::R16_UINT
-            | vk::Format::R16G16_UINT
-            | vk::Format::R16G16B16_UINT
-            | vk::Format::R16G16B16A16_UINT
-            | vk::Format::R32_UINT
-            | vk::Format::R32G32_UINT
-            | vk::Format::R32G32B32_UINT
-            | vk::Format::R32G32B32A32_UINT
-            | vk::Format::R64_UINT
-            | vk::Format::R64G64_UINT
-            | vk::Format::R64G64B64_UINT
-            | vk::Format::R64G64B64A64_UINT => vk::ClearColorValue {
-                uint32: [0, 0, 0, u32::MAX],
-            },
-
-            _ => vk::ClearColorValue {
-                float32: [0.0, 0.0, 0.0, 1.0],
-            },
-        }
     }
 
     #[inline]
@@ -743,7 +695,7 @@ impl AshRendererFull {
         &mut self,
         window_id: WindowId,
         window_descriptor: &Window,
-        window: Rc<dyn HasRawWindowAndDisplayHandle>,
+        window: Rc<dyn HasWindowAndDisplayHandle>,
         surface: Guard<'_, vk::SurfaceKHR>,
     ) -> Result<&mut AshSurfaceSwapchain> {
         assert!(self
@@ -795,7 +747,7 @@ impl AshRendererFull {
                     window.size
                 );
                 surface_swapchain
-                    .configure_with(&mut self.res, &window)
+                    .configure_with(&mut self.res, window)
                     .unwrap();
             }
             true

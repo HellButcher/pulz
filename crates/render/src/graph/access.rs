@@ -104,7 +104,7 @@ impl ResourceAccess for Buffer {
     type Usage = BufferUsage;
     type Format = ();
     type Size = usize;
-    type ExternHandle = Handle<Buffer>;
+    type ExternHandle = Handle<Self>;
 
     fn check_usage_is_pass_compatible(_combined_usage: Self::Usage) {
         panic!("Can't use buffer multiple times in the same pass");

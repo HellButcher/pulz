@@ -29,6 +29,7 @@ use std::{backtrace::Backtrace, ffi::CStr, rc::Rc, sync::Arc};
 
 use ash::vk::{self, PipelineStageFlags};
 use bitflags::bitflags;
+use convert::default_clear_color_value_for_format;
 use device::AshDevice;
 use encoder::{AshCommandPool, SubmissionGroup};
 use graph::AshRenderGraph;
@@ -51,7 +52,7 @@ mod shader;
 mod swapchain;
 
 use pulz_window::{
-    listener::WindowSystemListener, HasRawWindowAndDisplayHandle, Window, WindowId, Windows,
+    listener::WindowSystemListener, HasWindowAndDisplayHandle, Window, WindowId, Windows,
     WindowsMirror,
 };
 
@@ -291,12 +292,8 @@ impl AshRendererFull {
         drop(span_update);
 
         let span_exec = tracing::trace_span!("Execute").entered();
-        self.graph.execute(
-            src_graph,
-            submission_group,
-            &mut frame.command_pool,
-            phases,
-        )?;
+        self.graph
+            .execute(src_graph, submission_group, &mut frame.command_pool, phases)?;
         drop(span_exec);
 
         Ok(())
@@ -327,7 +324,10 @@ impl AshRendererFull {
             submission_group.wait(sem, PipelineStageFlags::TRANSFER);
             let surface = &mut self.surfaces[window_id];
             if let Some(acquired) = surface.acquire_next_image(&mut self.res, sem)? {
-                images.push((acquired.image, surface.clear_value()));
+                images.push((
+                    acquired.image,
+                    default_clear_color_value_for_format(surface.format()),
+                ));
             }
         }
 
@@ -424,6 +424,8 @@ impl AshRendererFull {
                 .signal(frame.finished_semaphore)
                 .submit(&self.device, frame.finished_fence)?;
 
+            // TODO: tranform images to PRESENT layout
+
             self.present_acquired_swapchain_images(&[frame.finished_semaphore])?;
         }
 
@@ -448,10 +450,7 @@ impl AshRendererFull {
 
 #[allow(clippy::large_enum_variant)]
 enum AshRendererInner {
-    Early {
-        instance: Arc<AshInstance>,
-        flags: AshRendererFlags,
-    },
+    Early(Arc<AshInstance>),
     Full(AshRendererFull),
 }
 
@@ -466,11 +465,11 @@ impl AshRenderer {
     #[inline]
     pub fn with_flags(flags: AshRendererFlags) -> Result<Self> {
         let instance = AshInstance::new(flags)?;
-        Ok(Self(AshRendererInner::Early { instance, flags }))
+        Ok(Self(AshRendererInner::Early(instance)))
     }
 
     fn init(&mut self) -> Result<&mut AshRendererFull> {
-        if let AshRendererInner::Early { instance, .. } = &self.0 {
+        if let AshRendererInner::Early(instance) = &self.0 {
             let device = instance.new_device(vk::SurfaceKHR::null())?;
             let renderer = AshRendererFull::from_device(device)?;
             self.0 = AshRendererInner::Full(renderer);
@@ -485,7 +484,7 @@ impl AshRenderer {
         &mut self,
         window_id: WindowId,
         window_descriptor: &Window,
-        window: Rc<dyn HasRawWindowAndDisplayHandle>,
+        window: Rc<dyn HasWindowAndDisplayHandle>,
     ) -> Result<&mut AshRendererFull> {
         if let AshRendererInner::Full(renderer) = &mut self.0 {
             let device = renderer.device.clone();
@@ -493,7 +492,7 @@ impl AshRenderer {
             let surface = unsafe { device.instance().new_surface(&*window)? };
             renderer.init_swapchain(window_id, window_descriptor, window, surface)?;
         } else {
-            let AshRendererInner::Early { instance, .. } = &self.0 else {
+            let AshRendererInner::Early(instance) = &self.0 else {
                 unreachable!()
             };
             // SAVETY: window is kept alive
@@ -523,7 +522,7 @@ impl WindowSystemListener for AshRenderer {
         &mut self,
         window_id: WindowId,
         window_desc: &Window,
-        window: Rc<dyn HasRawWindowAndDisplayHandle>,
+        window: Rc<dyn HasWindowAndDisplayHandle>,
     ) {
         self.init_window(window_id, window_desc, window).unwrap();
     }
