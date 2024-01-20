@@ -164,10 +164,18 @@ impl SystemDescriptor {
         self.is_initialized = true;
     }
 
-    pub fn run(&mut self, resources: &mut Resources) {
+    pub fn run_exclusive(&mut self, resources: &mut Resources) {
         assert!(self.is_initialized);
         match self.system_variant {
             SystemVariant::Exclusive(ref mut system) => system.run(resources, ()),
+            SystemVariant::Concurrent(ref mut system, _) => system.run(resources, ()),
+        }
+    }
+
+    pub fn run_shared(&mut self, resources: &Resources) {
+        assert!(self.is_initialized);
+        match self.system_variant {
+            SystemVariant::Exclusive(_) => panic!("no exclusive access"),
             SystemVariant::Concurrent(ref mut system, _) => system.run(resources, ()),
         }
     }

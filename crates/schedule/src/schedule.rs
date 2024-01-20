@@ -12,8 +12,8 @@ use crate::{
 type HashMap<K, V> = std::collections::HashMap<K, V, fnv::FnvBuildHasher>;
 
 enum TaskGroup {
-    // topoligical order of the systems, and the offset (index into `order`) where the system is
-    // required first.
+    // topoligical order of the systems, and the offset (index into this array) where a resource
+    // produces/modified by the system is first consumed/read.
     // For example, the array `[(12,2), (13,2), (10,3)]` means, that the system at index `12` and
     // the system at index `13` are a dependency of the system at index `10`. So system `12` and `13`
     // need to be completed before system `10` can start.
@@ -536,7 +536,7 @@ impl Schedule {
 
     #[inline]
     pub fn run(&mut self, resources: &mut Resources) {
-        self.executor(resources).run()
+        self.executor(resources).run();
     }
 
     pub fn executor<'s>(&'s mut self, resources: &'s mut Resources) -> ScheduleExecution<'_> {
@@ -545,8 +545,30 @@ impl Schedule {
             systems: &mut self.systems,
             ordered_task_groups: &self.ordered_task_groups,
             resources,
-            current_task_group: 0,
-            current_sub_entry: 0,
+            tasks_rev: Vec::new(),
+        }
+    }
+
+    pub(crate) fn shared_executor<'s>(
+        &'s mut self,
+        resources: &'s Resources,
+    ) -> SharedScheduleExecution<'s> {
+        assert!(!self.has_exclusive_systems());
+        let concurrent_tasks = if self.ordered_task_groups.is_empty() {
+            &[]
+        } else if self.ordered_task_groups.len() == 1 {
+            if let TaskGroup::Concurrent(cg) = &self.ordered_task_groups[0] {
+                cg.as_slice()
+            } else {
+                panic!("expected concurrent group");
+            }
+        } else {
+            panic!("unexpected task group count");
+        };
+        SharedScheduleExecution {
+            systems: &mut self.systems,
+            concurrent_tasks,
+            resources,
 
             #[cfg(not(target_os = "unknown"))]
             tasks_rev: Vec::new(),
@@ -792,17 +814,19 @@ impl std::fmt::Debug for TGDebugItem<'_> {
     }
 }
 
-struct TGDebug<'s>(&'s [SystemDescriptor], &'s TaskGroup);
+struct TGDebug<'s>(&'s [SystemDescriptor], &'s [TaskGroup]);
 impl std::fmt::Debug for TGDebug<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_list();
-        match &self.1 {
-            TaskGroup::Exclusive(i) => {
-                s.entry(&TGDebugItem(&self.0[*i], *i, !0));
-            }
-            TaskGroup::Concurrent(group) => {
-                for &(i, next) in group {
-                    s.entry(&TGDebugItem(&self.0[i], i, next));
+        for tg in self.1 {
+            match tg {
+                TaskGroup::Exclusive(i) => {
+                    s.entry(&TGDebugItem(&self.0[*i], *i, !0));
+                }
+                TaskGroup::Concurrent(group) => {
+                    for &(i, next) in group {
+                        s.entry(&TGDebugItem(&self.0[i], i, next));
+                    }
                 }
             }
         }
@@ -848,12 +872,7 @@ impl std::fmt::Debug for Schedule {
         if self.dirty {
             s.field("systems", &self.systems);
         } else {
-            let tmp: Vec<_> = self
-                .ordered_task_groups
-                .iter()
-                .map(|g| TGDebug(&self.systems, g))
-                .collect();
-            s.field("order", &tmp);
+            s.field("order", &TGDebug(&self.systems, &self.ordered_task_groups));
         }
         s.finish()
     }
@@ -890,13 +909,7 @@ unsafe impl System for ConcurrentSystemSchedule {
 
     #[inline]
     fn run(&mut self, resources: &Resources, _args: ()) {
-        assert!(!self.0.has_exclusive_systems());
-        // make resources mut:
-        // SAFETY: resources is not accessed through-mut references, because
-        // there are no exclusive-systems in the schedule.
-        let resources: *const Resources = resources;
-        let resources = unsafe { &mut *(resources as *mut _) };
-        self.0.run(resources)
+        self.0.shared_executor(resources).run()
     }
 
     #[inline]
@@ -935,7 +948,7 @@ impl Resources {
     pub fn run<Marker>(&mut self, sys: impl IntoSystemDescriptor<Marker>) {
         let mut d = sys.into_system_descriptor();
         d.init(self);
-        d.run(self);
+        d.run_exclusive(self);
     }
 }
 
@@ -944,8 +957,17 @@ pub struct ScheduleExecution<'s> {
     systems: &'s mut [SystemDescriptor],
     ordered_task_groups: &'s [TaskGroup],
     resources: &'s mut Resources,
-    current_task_group: usize,
-    current_sub_entry: usize,
+    #[cfg(not(target_os = "unknown"))]
+    // Is one item longer than task_group.len().
+    // The task `i` of a task_group will wait on WaitGroup [task_group.len() - current_sub_entry]!
+    tasks_rev: Vec<WaitGroup>,
+}
+
+#[must_use]
+pub struct SharedScheduleExecution<'s> {
+    systems: &'s mut [SystemDescriptor],
+    concurrent_tasks: &'s [(usize, usize)],
+    resources: &'s Resources,
     #[cfg(not(target_os = "unknown"))]
     // Is one item longer than task_group.len().
     // The task `i` of a task_group will wait on WaitGroup [task_group.len() - current_sub_entry]!
@@ -1017,46 +1039,20 @@ pub mod threadpool {
 }
 
 impl<'s> ScheduleExecution<'s> {
-    fn check_end_and_reset(&mut self) -> bool {
-        if self.current_task_group < self.ordered_task_groups.len() {
-            true
-        } else {
-            // reset position, so a new iteration can begin
-            self.current_task_group = 0;
-            self.current_sub_entry = 0;
-            false
-        }
-    }
-
     /// Runs a single iteration of all active systems on the *current thread*.
     pub fn run_local(&mut self) {
-        while self.run_next_system_local() {}
-    }
-
-    /// Runs the next active system on the *current thread*.
-    ///
-    /// This method will return `true` as long there are more active systems to run in this iteration.
-    /// When the iteration is completed, `false` is returned, and the execution is reset.
-    /// When called after it had returned `false`, a new iteration will start and it will
-    /// return `true` again, until this iteration is completed (and so on).
-    pub fn run_next_system_local(&mut self) -> bool {
-        match self.ordered_task_groups.get(self.current_task_group) {
-            Some(&TaskGroup::Exclusive(system_index)) => {
-                self.systems[system_index].run(self.resources);
-                self.current_task_group += 1;
-            }
-            Some(TaskGroup::Concurrent(entries)) => {
-                if let Some(&(system_index, _signal_task)) = entries.get(self.current_sub_entry) {
-                    self.systems[system_index].run(self.resources);
-                    self.current_sub_entry += 1;
-                } else {
-                    self.current_task_group += 1;
-                    self.current_sub_entry = 0;
+        for group in self.ordered_task_groups {
+            match group {
+                &TaskGroup::Exclusive(system_index) => {
+                    self.systems[system_index].run_exclusive(self.resources);
+                }
+                TaskGroup::Concurrent(entries) => {
+                    for &(system_index, _signal_task) in entries {
+                        self.systems[system_index].run_shared(self.resources);
+                    }
                 }
             }
-            None => (),
         }
-        self.check_end_and_reset()
     }
 
     /// The current target does not support spawning threads.
@@ -1067,103 +1063,109 @@ impl<'s> ScheduleExecution<'s> {
         self.run_local()
     }
 
-    /// The current target does not support spawning threads.
-    /// Therefore this is an alias to `run_next_system_local`
+    /// Runs a single iteration of all active systems.
     ///
-    /// SAFETY: because this is just an alias to `run_next_system_local`,
-    /// this is actually safe!
-    #[cfg(target_os = "unknown")]
-    #[inline]
-    pub unsafe fn run_next_system_unchecked(&mut self) -> bool {
-        self.run_next_system_local()
-    }
-
-    /// Runs a single iteration of all active systems on the *current thread*.
+    /// Exclusive-Systems and Non-Send Systems are always run on the current thread.
+    /// Send-Systems are send on a thread-pool.
     #[cfg(not(target_os = "unknown"))]
     #[inline]
     pub fn run(&mut self) {
-        use std::panic::AssertUnwindSafe;
-
-        let result = std::panic::catch_unwind(AssertUnwindSafe(|| unsafe {
-            while self.run_next_system_unchecked() {}
-        }));
-        self.join();
-        if let Err(err) = result {
-            std::panic::resume_unwind(err);
-        }
-    }
-
-    /// Runs the next active system. The system will be spawned onto a thread-pool,
-    /// when supported by the system.
-    ///
-    /// This method will return `true` as long there are more active systems to run in this iteration.
-    /// When the iteration is completed, `false` is returned, and the execution is reset.
-    /// When called after it had returned `false`, a new iteration will start and it will
-    /// return `true` again, until this iteration is completed (and so on).
-    ///
-    /// # Safety
-    /// This function may spawn tasks in a thread-pool. These spawned tasks
-    /// MUST NOT outlive lifetime `'s` on Self.
-    /// The `Drop`-impl and 'join'-methis ensures, that all spawned tasks are completed before
-    /// `self` is dropped by blocked-waiting on these tasks.
-    /// But this can be bypassed with `std::mem::forget`. So you MUST NOT call
-    /// `forget` or call `join` to enshure, all tasks are completed.
-    #[cfg(not(target_os = "unknown"))]
-    pub unsafe fn run_next_system_unchecked(&mut self) -> bool {
-        match self.ordered_task_groups.get(self.current_task_group) {
-            Some(&TaskGroup::Exclusive(system_index)) => {
-                self.systems[system_index].run(self.resources);
-                self.current_task_group += 1;
-            }
-            Some(TaskGroup::Concurrent(entries)) => {
-                if let Some(&(system_index, _signal_task)) = entries.get(self.current_sub_entry) {
-                    self.tasks_rev
-                        .resize_with(entries.len() + 1 - self.current_sub_entry, Default::default);
-                    let current_wait_group = self.tasks_rev.pop().unwrap();
-                    let signal_wait_group =
-                        self.tasks_rev[entries.len() - self.current_sub_entry - 1].clone();
-
-                    // UNSAFE: cast these lifetimes to a 'static scope for usage in
-                    // spawned tasks. The requirement is, that these tasks do not
-                    // outlive lifetime `'s` on `Self`. This is ensured by the `Drop`-impl,
-                    // but this can be bypassed with `std::mem::forget`.
-                    let system: *mut _ = &mut self.systems[system_index].system_variant;
-                    let system = &mut *system;
-                    let resources: *const _ = self.resources;
-                    let resources = &*resources;
-
-                    if let SystemVariant::Concurrent(system, _) = system {
-                        if system.is_send() {
-                            let resources = resources.as_send(); // shared borrow
-                            self::threadpool::spawn(move || {
-                                current_wait_group.wait();
-                                system.run_send(resources, ());
-                                drop(signal_wait_group);
-                            });
-                        } else {
-                            // execute local
-                            current_wait_group.wait();
-                            system.run(resources, ());
-                            drop(signal_wait_group);
-                        }
-                    } else {
-                        panic!("expected a concurrent system!");
-                    }
-                    self.current_sub_entry += 1;
-                } else {
-                    self.current_task_group += 1;
-                    self.current_sub_entry = 0;
-                    self.join();
+        println!(
+            "task_groups: {:?}",
+            TGDebug(self.systems, self.ordered_task_groups)
+        );
+        for group in self.ordered_task_groups {
+            match group {
+                &TaskGroup::Exclusive(system_index) => {
+                    self.systems[system_index].run_exclusive(self.resources);
+                }
+                TaskGroup::Concurrent(entries) => {
+                    let mut shared = SharedScheduleExecution {
+                        systems: self.systems,
+                        concurrent_tasks: &entries,
+                        resources: self.resources,
+                        tasks_rev: std::mem::take(&mut self.tasks_rev),
+                    };
+                    shared.run();
+                    std::mem::swap(&mut self.tasks_rev, &mut shared.tasks_rev);
                 }
             }
-            None => (),
         }
+    }
+}
 
-        self.check_end_and_reset()
+impl<'s> SharedScheduleExecution<'s> {
+    /// Runs a single iteration of all active systems on the *current thread*.
+    pub fn run_local(&mut self) {
+        for &(system_index, _signal_task) in self.concurrent_tasks {
+            self.systems[system_index].run_shared(self.resources);
+        }
+    }
+
+    /// The current target does not support spawning threads.
+    /// Therefore this is an alias to `run_local`
+    #[cfg(target_os = "unknown")]
+    #[inline]
+    pub fn run(&mut self) {
+        self.run_local()
+    }
+
+    /// Runs a single iteration of all active systems.
+    ///
+    /// Exclusive-Systems and Non-Send Systems are always run on the current thread.
+    /// Send-Systems are send on a thread-pool.
+    #[cfg(not(target_os = "unknown"))]
+    #[inline]
+    pub fn run(&mut self) {
+        self.tasks_rev
+            .resize_with(self.concurrent_tasks.len() + 1, Default::default);
+        for &(system_index, signal_task) in self.concurrent_tasks {
+            let current_wait_group = self.tasks_rev.pop().unwrap();
+            let signal_wait_group_index = if signal_task == !0 {
+                0
+            } else {
+                self.concurrent_tasks.len() - signal_task
+            };
+            let signal_wait_group = self.tasks_rev[signal_wait_group_index].clone();
+
+            let SystemVariant::Concurrent(system, _) =
+                &mut self.systems[system_index].system_variant
+            else {
+                unreachable!("expected a concurrent system!");
+            };
+
+            // UNSAFE: cast these lifetimes to a 'static scope for usage in
+            // spawned tasks. The requirement is, that these tasks do not
+            // outlive lifetime `'s` on `Self`.
+            // This is ensured by the Wait-Group and the Drop-impl (in case a panic happens)
+            //
+            // This also has multiple references into self.systems, but the one entry is
+            // accessed by at most one loop-iteration / spawned-thread
+            let (resources, system) = unsafe {
+                let resources: *const _ = self.resources;
+                let system: *mut _ = system;
+                (&*resources, &mut *system)
+            };
+
+            if system.is_send() {
+                let resources = resources.as_send(); // shared borrow
+                self::threadpool::spawn(move || {
+                    current_wait_group.wait();
+                    system.run_send(resources, ());
+                    drop(signal_wait_group);
+                });
+            } else {
+                // execute local
+                current_wait_group.wait();
+                system.run(self.resources, ());
+                drop(signal_wait_group);
+            }
+        }
+        self.join();
     }
 
     #[cfg(not(target_os = "unknown"))]
-    pub fn join(&mut self) {
+    fn join(&mut self) {
         // wait for all outstanding tasks
         while let Some(wait_group) = self.tasks_rev.pop() {
             wait_group.wait();
@@ -1171,12 +1173,11 @@ impl<'s> ScheduleExecution<'s> {
     }
 }
 
-impl Drop for ScheduleExecution<'_> {
+#[cfg(not(target_os = "unknown"))]
+impl Drop for SharedScheduleExecution<'_> {
     fn drop(&mut self) {
-        #[cfg(not(target_os = "unknown"))]
-        {
-            self.join();
-        }
+        // usually only relevant on panic
+        self.join();
     }
 }
 
@@ -1201,7 +1202,7 @@ macro_rules! dump_schedule_dot {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{atomic::AtomicUsize, Arc};
 
     use super::*;
     use crate::system::{ExclusiveSystem, System};
@@ -1209,8 +1210,8 @@ mod tests {
     #[test]
     fn test_schedule() {
         struct A;
-        struct Sys(Arc<std::sync::atomic::AtomicUsize>);
-        let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        struct Sys(Arc<AtomicUsize>);
+        let counter = Arc::new(AtomicUsize::new(0));
         unsafe impl System for Sys {
             fn init(&mut self, _resources: &mut Resources) {}
             fn run(&mut self, _arg: &Resources, _arg2: ()) {

@@ -366,7 +366,7 @@ impl<T> ComponentMap<T> {
 
     #[inline]
     pub fn into_entries(self) -> impl Iterator<Item = (ComponentId, T)> {
-        self.0.into_iter().map(|(id, value)| (id, value))
+        self.0.into_iter()
     }
 
     #[inline]
