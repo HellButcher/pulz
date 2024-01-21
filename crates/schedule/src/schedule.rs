@@ -205,7 +205,8 @@ impl ResourceMutTracker {
         resource: usize,
         current_group: usize,
         system: usize,
-    ) -> Result<(usize, &[usize]), ResourceConflict> {
+        result: &mut [usize],
+    ) -> Result<(), ResourceConflict> {
         let entry = self.get_entry_mut(resource);
         if entry.last_exclusive == current_group {
             Err(ResourceConflict::ExclusiveExclusive {
@@ -220,11 +221,15 @@ impl ResourceMutTracker {
                 system_exclusive: system,
             })
         } else {
-            let old = entry.last_exclusive;
+            for s in entry.systems.iter().copied() {
+                if result[s] > current_group {
+                    result[s] = current_group;
+                }
+            }
             entry.last_exclusive = current_group;
             entry.systems.clear();
             entry.systems.push(system);
-            Ok((old, &entry.systems))
+            Ok(())
         }
     }
 
@@ -233,7 +238,8 @@ impl ResourceMutTracker {
         resource: usize,
         current_group: usize,
         system: usize,
-    ) -> Result<(usize, &[usize]), ResourceConflict> {
+        result: &mut [usize],
+    ) -> Result<(), ResourceConflict> {
         let entry = self.get_entry_mut(resource);
         if entry.last_exclusive == current_group {
             Err(ResourceConflict::SharedExclusive {
@@ -241,36 +247,34 @@ impl ResourceMutTracker {
                 system_exclusive: *entry.systems.first().unwrap(),
                 system_shared: vec![system],
             })
-        } else if entry.last_shared == current_group {
-            entry.systems.push(system);
-            Ok((current_group, &entry.systems))
-        } else {
-            let old = entry.last_exclusive;
+        } else if entry.last_exclusive > entry.last_shared {
             entry.last_shared = current_group;
             entry.systems.clear();
             entry.systems.push(system);
-            Ok((old, &entry.systems))
+            Ok(())
+        } else {
+            for s in entry.systems.iter().copied() {
+                if result[s] > current_group {
+                    result[s] = current_group;
+                }
+            }
+            entry.last_shared = current_group;
+            entry.systems.push(system);
+            Ok(())
         }
     }
-
-    fn mark_access<F: FnMut(usize, &[usize])>(
+    fn mark_access(
         &mut self,
         access: &ResourceAccess,
         current_group: usize,
         system: usize,
-        mut handle: F,
+        result: &mut [usize],
     ) -> Result<(), ResourceConflict> {
         for resource in access.exclusive.iter() {
-            let (old_group, systems) = self.mark_exclusive(resource, current_group, system)?;
-            if old_group < current_group {
-                handle(old_group, systems);
-            }
+            self.mark_exclusive(resource, current_group, system, result)?;
         }
         for resource in access.shared.iter() {
-            let (old_group, systems) = self.mark_shared(resource, current_group, system)?;
-            if old_group < current_group {
-                handle(old_group, systems);
-            }
+            self.mark_shared(resource, current_group, system, result)?;
         }
         Ok(())
     }
@@ -352,7 +356,7 @@ impl Schedule {
 
     fn get_system_accesses<'a>(
         &'a self,
-        group: &'a [usize],
+        group: &'a [usize], // group[i] = dependency node
     ) -> impl Iterator<Item = (usize, &'a ResourceAccess)> + 'a {
         group
             .iter()
@@ -362,21 +366,13 @@ impl Schedule {
 
     fn mark_system_resource_dependencies_and_check_conflicts(
         &self,
-        result: &mut [usize],
-        groups: &[Vec<usize>],
+        result: &mut [usize], // result[system] = first dependency (by resources)
+        groups: &[Vec<usize>], // groups[group][i] = dependency node
     ) {
         let mut resources = ResourceMutTracker::new();
         for (g, group) in groups.iter().enumerate() {
             for (s, access) in self.get_system_accesses(group) {
-                let result = resources.mark_access(access, g, s, |_old_group, old_systems| {
-                    // resource `r` was used in `old_systems` and is now used in `g`
-                    for &s in old_systems {
-                        if result[s] > g {
-                            result[s] = g;
-                        }
-                    }
-                });
-                if let Err(e) = result {
+                if let Err(e) = resources.mark_access(access, g, s, result) {
                     let _ = self.debug_dump_if_env_ext(Some(groups), None);
                     panic!("resource conflict ({e:?})\nuse PULZ_DUMP_SCHEDULE=[path] to dump a .dot file of the schedule.");
                 }
@@ -384,7 +380,11 @@ impl Schedule {
         }
     }
 
-    fn mark_system_dependencies_from_graph(&self, result: &mut [usize], groups: &[Vec<usize>]) {
+    fn mark_system_dependencies_from_graph(
+        &self,
+        result: &mut [usize],  // result[system] = first dependency (explicit)
+        groups: &[Vec<usize>], // groups[group][i] = dependency node
+    ) {
         // special handling for first group
         for &s in &self.graph.nodes[FIRST_NODE_INDEX].systems {
             if result[s] > 1 {
@@ -405,18 +405,18 @@ impl Schedule {
         }
     }
 
-    fn get_conflict_groups_for_systems(&self, groups: &[Vec<usize>]) -> Vec<usize> {
-        // `groups` define, when a system/node can be schedules FIRST.
+    fn get_conflict_groups_for_systems(
+        &self,
+        groups: &[Vec<usize>], // feoups[group][i] = dependency node
+    ) -> Vec<usize> {
+        // `groups` define, when a system/node can be scheduled FIRST.
         // This methiod will produce a list (index=system) that tells,
         // when a system can be scheduled LAST (by resource dependencies)
         // (defines the smallest index of the group where it is required next).
         let mut result = Vec::new();
         result.resize(self.systems.len(), !0);
-
         self.mark_system_resource_dependencies_and_check_conflicts(&mut result, groups);
-
         self.mark_system_dependencies_from_graph(&mut result, groups);
-
         result
     }
 
@@ -486,6 +486,7 @@ impl Schedule {
         let system_conflict_groups = self.get_conflict_groups_for_systems(&groups);
 
         // map dependency-nodes to systems
+        // groups[group][i] = dependency node => groups[group][j] = system
         let mut groups = groups
             .into_iter()
             .map(|g| {
@@ -498,28 +499,43 @@ impl Schedule {
         // move non-sync and exclusive systems to the end as far as possible (first nonsend then exclusive)
         self.move_nonsync_and_exclusive(&mut groups, &system_conflict_groups);
 
-        // self.debug_dump_if_env_ext(Some(&groups), Some(&system_conflict_groups)).unwrap();
-
         // build final
         self.ordered_task_groups.clear();
         let mut current_concurrent_group: Vec<(usize, usize)> = Vec::new();
-        for s in groups.into_iter().flatten() {
-            if self.systems[s].is_exclusive() {
-                if !current_concurrent_group.is_empty() {
-                    self.ordered_task_groups
-                        .push(TaskGroup::Concurrent(std::mem::take(
-                            &mut current_concurrent_group,
-                        )));
+        let mut current_group_start = 0;
+        for (i, group) in groups.iter().enumerate() {
+            for &s in group {
+                if self.systems[s].is_exclusive() {
+                    if !current_concurrent_group.is_empty() {
+                        current_group_start = i;
+                        self.ordered_task_groups
+                            .push(TaskGroup::Concurrent(std::mem::take(
+                                &mut current_concurrent_group,
+                            )));
+                    }
+                    self.ordered_task_groups.push(TaskGroup::Exclusive(s));
+                } else {
+                    // translate conflict group index to offset into current group
+                    let conflict_group_index = system_conflict_groups[s];
+                    let conflict_index = if conflict_group_index == !0 {
+                        !0
+                    } else {
+                        groups[current_group_start..conflict_group_index]
+                            .iter()
+                            .map(|g| g.len())
+                            .sum()
+                    };
+                    current_concurrent_group.push((s, conflict_index));
                 }
-                self.ordered_task_groups.push(TaskGroup::Exclusive(s));
-            } else {
-                current_concurrent_group.push((s, system_conflict_groups[s]));
             }
         }
         if !current_concurrent_group.is_empty() {
             self.ordered_task_groups
                 .push(TaskGroup::Concurrent(current_concurrent_group));
         }
+
+        self.dirty = false;
+        //self.debug_dump_if_env_ext(Some(&groups), Some(&system_conflict_groups)).unwrap();
     }
 
     pub fn init(&mut self, resources: &mut Resources) {
@@ -530,7 +546,6 @@ impl Schedule {
             }
 
             self.rebuild();
-            self.dirty = false;
         }
     }
 
@@ -799,7 +814,7 @@ impl Drop for SystemEntryBuilder<'_> {
     }
 }
 
-struct TGDebugItem<'s>(&'s SystemDescriptor, usize, usize);
+struct TGDebugItem<'s>(&'s SystemDescriptor, usize, usize, usize);
 impl std::fmt::Debug for TGDebugItem<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("System");
@@ -807,8 +822,9 @@ impl std::fmt::Debug for TGDebugItem<'_> {
         s.field("type", &self.0.type_name());
         s.field("exclusive", &self.0.is_exclusive());
         s.field("send", &self.0.is_send());
-        if self.2 != !0 {
-            s.field("next", &self.2);
+        s.field("tg", &self.2);
+        if self.3 != !0 {
+            s.field("next", &self.3);
         }
         s.finish()
     }
@@ -818,14 +834,14 @@ struct TGDebug<'s>(&'s [SystemDescriptor], &'s [TaskGroup]);
 impl std::fmt::Debug for TGDebug<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_list();
-        for tg in self.1 {
+        for (j, tg) in self.1.iter().enumerate() {
             match tg {
                 TaskGroup::Exclusive(i) => {
-                    s.entry(&TGDebugItem(&self.0[*i], *i, !0));
+                    s.entry(&TGDebugItem(&self.0[*i], *i, j, !0));
                 }
                 TaskGroup::Concurrent(group) => {
                     for &(i, next) in group {
-                        s.entry(&TGDebugItem(&self.0[i], i, next));
+                        s.entry(&TGDebugItem(&self.0[i], i, j, next));
                     }
                 }
             }
@@ -1070,10 +1086,6 @@ impl<'s> ScheduleExecution<'s> {
     #[cfg(not(target_os = "unknown"))]
     #[inline]
     pub fn run(&mut self) {
-        println!(
-            "task_groups: {:?}",
-            TGDebug(self.systems, self.ordered_task_groups)
-        );
         for group in self.ordered_task_groups {
             match group {
                 &TaskGroup::Exclusive(system_index) => {
