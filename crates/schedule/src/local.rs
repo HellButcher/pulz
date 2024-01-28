@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::{
-    resource::{Resources, FromResources, ResourceAccess},
+    resource::{FromResources, ResourceAccess, Resources},
     system::data::{SystemData, SystemDataFetch, SystemDataState},
 };
 

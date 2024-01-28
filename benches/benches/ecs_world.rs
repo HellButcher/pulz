@@ -250,7 +250,7 @@ where
     pulz_insert_many_components2(e, (value, J(2)));
 }
 
-fn bevy_insert_many_components2<T>(e: &mut bevy_ecs::world::EntityMut, value: T)
+fn bevy_insert_many_components2<T>(e: &mut bevy_ecs::world::EntityWorldMut, value: T)
 where
     T: bevy_ecs::component::Component + Copy,
 {
@@ -266,7 +266,7 @@ where
     e.insert(X(value, J(1)));
 }
 
-fn bevy_insert_many_components<T>(e: &mut bevy_ecs::world::EntityMut, value: T)
+fn bevy_insert_many_components<T>(e: &mut bevy_ecs::world::EntityWorldMut, value: T)
 where
     T: bevy_ecs::component::Component + Copy,
 {

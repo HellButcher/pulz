@@ -992,13 +992,18 @@ pub struct SharedScheduleExecution<'s> {
 
 #[cfg(not(target_os = "unknown"))]
 pub mod threadpool {
-    use std::{cell::RefCell, ops::DerefMut, panic::AssertUnwindSafe, str::FromStr, sync::Mutex};
+    use std::{
+        cell::RefCell,
+        ops::DerefMut,
+        panic::AssertUnwindSafe,
+        str::FromStr,
+        sync::{Mutex, OnceLock},
+    };
 
     pub use ::threadpool::{Builder, ThreadPool};
-    use once_cell::sync::OnceCell;
-    static GLOBAL: OnceCell<Mutex<ThreadPool>> = OnceCell::new();
+    static GLOBAL: OnceLock<Mutex<ThreadPool>> = OnceLock::new();
 
-    thread_local!(static CURRENT: RefCell<Option<ThreadPool>> = RefCell::new(None));
+    thread_local!(static CURRENT: RefCell<Option<ThreadPool>> = const { RefCell::new(None) });
 
     pub fn replace_global_pool<F, R>(pool: ThreadPool) -> Option<ThreadPool> {
         let mut tmp = Some(pool);
@@ -1094,7 +1099,7 @@ impl<'s> ScheduleExecution<'s> {
                 TaskGroup::Concurrent(entries) => {
                     let mut shared = SharedScheduleExecution {
                         systems: self.systems,
-                        concurrent_tasks: &entries,
+                        concurrent_tasks: entries,
                         resources: self.resources,
                         tasks_rev: std::mem::take(&mut self.tasks_rev),
                     };
