@@ -38,7 +38,7 @@ jobs:
         cargo build --workspace --all-targets
     - name: Run tests
       run: |
-        cargo test --workspace --all-targets
+        cargo test --workspace --all-targets --exclude benches
 
   check:
     name: Rustfmt & Clippy

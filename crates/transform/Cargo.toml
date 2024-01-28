@@ -1,0 +1,14 @@
+[package]
+name = "pulz-transform"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+pulz-ecs = { path = "../ecs" }
+
+glam = { workspace = true, features = ["mint", "bytemuck", "serde"] }
+serde = { workspace = true, features = ["derive"] }
