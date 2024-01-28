@@ -57,6 +57,7 @@ pub struct RenderGraph {
     subpasses: Vec<SubPassDescription>,
     subpasses_exec: Vec<PassExec<()>>,
     passes: Vec<PassDescription>,
+    pass_topo_group: Vec<usize>,
     passes_topo_order: Vec<Vec<usize>>,
 }
 
@@ -83,6 +84,7 @@ impl RenderGraph {
             subpasses: Vec::new(),
             subpasses_exec: Vec::new(),
             passes: Vec::new(),
+            pass_topo_group: Vec::new(),
             passes_topo_order: Vec::new(),
         }
     }
@@ -113,13 +115,13 @@ impl RenderGraph {
     }
 
     #[inline]
-    pub(crate) fn get_texture_info(&self, index: usize) -> Option<&Resource<Texture>> {
-        self.textures.get(index)
+    pub(crate) fn get_texture_info(&self, index: ResourceIndex) -> Option<&Resource<Texture>> {
+        self.textures.get(index as usize)
     }
 
     #[inline]
-    pub(crate) fn get_buffer_info(&self, index: usize) -> Option<&Resource<Buffer>> {
-        self.buffers.get(index)
+    pub(crate) fn get_buffer_info(&self, index: ResourceIndex) -> Option<&Resource<Buffer>> {
+        self.buffers.get(index as usize)
     }
 
     pub fn get_topological_group(
@@ -139,6 +141,15 @@ impl RenderGraph {
 
     pub fn get_pass(&self, pass_index: PassIndex) -> Option<&PassDescription> {
         self.passes.get(pass_index as usize)
+    }
+
+    pub fn get_topo_group_for_pass(&self, pass_index: PassIndex) -> Option<usize> {
+        let g = *self.pass_topo_group.get(pass_index as usize)?;
+        if g == !0 {
+            None
+        } else {
+            Some(g)
+        }
     }
 
     pub fn execute_sub_pass(

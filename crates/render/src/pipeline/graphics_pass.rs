@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{
-        access::Access, pass::PipelineBindPoint, resources::PhysicalResources, PassDescription,
-        RenderGraph, ResourceIndex,
+        access::Access,
+        pass::PipelineBindPoint,
+        resources::{PhysicalResourceAccessTracker, PhysicalResources},
+        PassDescription, RenderGraph, ResourceIndex,
     },
     texture::TextureFormat,
 };
@@ -101,7 +103,7 @@ impl ExtendedGraphicsPassDescriptor {
     pub fn from_graph(
         graph: &RenderGraph,
         physical_resources: &PhysicalResources,
-        current_texture_access: &mut [Access],
+        resource_access: &mut PhysicalResourceAccessTracker,
         pass: &PassDescription,
     ) -> Option<Self> {
         if pass.bind_point() != PipelineBindPoint::Graphics {
@@ -120,10 +122,10 @@ impl ExtendedGraphicsPassDescriptor {
         for i in attachment_indices.iter().copied() {
             let a = &pass.textures()[i as usize];
             let resource_index = a.resource_index();
-            let (_tex, format, samples, dim) = physical_resources
+            let physical_resource = physical_resources
                 .get_texture(resource_index)
                 .expect("unassigned resource");
-            let dim = dim.subimage_extents();
+            let dim = physical_resource.size.subimage_extents();
             if size == USize2::ZERO {
                 size = dim;
             } else if size != dim {
@@ -137,21 +139,19 @@ impl ExtendedGraphicsPassDescriptor {
                 // TODO: is resource used in later pass? then STORE, else DONT_CARE
                 store_op: StoreOp::Store,
             };
-            let current_usage = if a.is_read() {
+            if a.is_read() {
                 load_store.load_op = LoadOp::Load;
-                current_texture_access[resource_index as usize]
-            } else {
-                // overide to undefined
-                current_texture_access[resource_index as usize] = Access::NONE;
-                Access::NONE
-            };
+            }
+
+            let current_access =
+                resource_access.get_current_texture_access(physical_resources, resource_index);
 
             attachments.push(AttachmentDescriptor {
-                format,
-                samples,
+                format: physical_resource.format,
+                samples: 1, // TODO: multi-sample
                 access: a.access(),
-                initial_access: current_usage,
-                final_access: current_usage,
+                initial_access: current_access,
+                final_access: current_access,
             });
 
             load_store_ops.push(load_store);
@@ -165,15 +165,14 @@ impl ExtendedGraphicsPassDescriptor {
 
         let mut map_attachment_index_and_update_usage =
             |resource_index: u16, mut current_access: Access| {
-                if current_access.is_empty() {
-                    current_access = current_texture_access[resource_index as usize];
-                } else {
-                    current_texture_access[resource_index as usize] = current_access;
-                };
                 let a = attachment_indices
                     .binary_search(&resource_index)
                     .expect("unvalid resource index") as u16;
-                attachments[a as usize].final_access = current_access;
+                if current_access.is_empty() {
+                    current_access = attachments[a as usize].final_access;
+                } else {
+                    attachments[a as usize].final_access = current_access;
+                }
                 (a, current_access)
             };
 
@@ -205,6 +204,17 @@ impl ExtendedGraphicsPassDescriptor {
 
         // TODO: if this pass is the last pass accessing this resource (and resource not extern), then STOREOP = DON'T CARE
         // TODO: if this pass is the last pass accessing this resource, and usage us PRESENT, then finalLayout=PRESENT
+
+        for (a, r) in attachment_indices.iter().copied().enumerate() {
+            let attachment = &mut attachments[a];
+            let physical_resource = physical_resources.get_texture(r).unwrap();
+            // TODO: only present, if this is the last pass accessing this resource!
+            if physical_resource.access.intersects(Access::PRESENT) {
+                attachment.final_access = Access::PRESENT;
+            }
+
+            resource_access.update_texture_access(physical_resources, r, attachment.final_access);
+        }
 
         let graphics_pass = GraphicsPassDescriptor {
             attachments,

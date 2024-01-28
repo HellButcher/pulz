@@ -324,6 +324,9 @@ impl Access {
         if self.intersects(Self::TRANSFER_WRITE) {
             result |= TextureUsage::TRANSFER_WRITE;
         }
+        if self.intersects(Self::PRESENT) {
+            result |= TextureUsage::PRESENT;
+        }
         result
     }
 }

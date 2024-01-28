@@ -987,8 +987,11 @@ impl CreateInfoConverter6 {
                     .store_op(load_store_ops.store_op.vk_into())
                     .stencil_load_op(load_store_ops.load_op.vk_into())
                     .stencil_store_op(load_store_ops.store_op.vk_into())
-                    // TODO: initial_layout if load-op == LOAD
-                    .initial_layout(a.initial_access.vk_into())
+                    .initial_layout(if load_store_ops.load_op == LoadOp::Load {
+                        a.initial_access.vk_into()
+                    } else {
+                        vk::ImageLayout::UNDEFINED
+                    })
                     .final_layout(a.final_access.vk_into())
                     .build(),
             );

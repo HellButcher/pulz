@@ -8,7 +8,7 @@ use pulz_render::{
     graph::{
         access::Access,
         pass::PipelineBindPoint,
-        resources::{PhysicalResource, PhysicalResources},
+        resources::{PhysicalResource, PhysicalResourceAccessTracker, PhysicalResources},
         PassDescription, PassIndex, RenderGraph,
     },
     math::USize2,
@@ -28,6 +28,7 @@ use crate::{
 
 pub struct AshRenderGraph {
     physical_resources: PhysicalResources,
+    physical_resource_access: PhysicalResourceAccessTracker,
     topo: Vec<TopoGroup>,
     barriers: Vec<Barrier>,
     hash: u64,
@@ -84,7 +85,7 @@ impl PhysicalResourceResolver for AshPhysicalResourceResolver<'_> {
                     .request_semaphore()
                     .expect("request semaphore");
                 self.submission_group
-                    .wait(sem, PipelineStageFlags::TRANSFER);
+                    .wait(sem, PipelineStageFlags::TOP_OF_PIPE); // TODO: better sync
                 let aquired_texture = surface
                     .acquire_next_image(self.res, sem)
                     .expect("aquire failed")
@@ -137,12 +138,11 @@ impl TopoRenderPass {
         res: &mut AshResources,
         src: &RenderGraph,
         phys: &PhysicalResources,
-        current_texture_access: &mut [Access],
+        current_access: &mut PhysicalResourceAccessTracker,
         pass: &PassDescription,
     ) -> Result<Self> {
         let pass_descr =
-            ExtendedGraphicsPassDescriptor::from_graph(src, phys, current_texture_access, pass)
-                .unwrap();
+            ExtendedGraphicsPassDescriptor::from_graph(src, phys, current_access, pass).unwrap();
         let graphics_pass = res.create::<GraphicsPass>(&pass_descr.graphics_pass)?;
         let render_pass = res[graphics_pass];
         Ok(Self {
@@ -180,14 +180,14 @@ impl TopoRenderPass {
 
         let mut image_views = Vec::with_capacity(self.attachment_resource_indices.len());
         for &i in &self.attachment_resource_indices {
-            let (tex, _format, _samples, dim) = phys.get_texture(i).expect("unassigned resource");
-            let dim = dim.subimage_extents();
+            let physical_resource = phys.get_texture(i).expect("unassigned resource");
+            let dim = physical_resource.size.subimage_extents();
             if dim != self.size {
                 // TODO: handle size changed!
                 // TODO: error handling
                 panic!("all framebuffer textures need to have the same dimensions");
             }
-            image_views.push(res[tex].1);
+            image_views.push(res[physical_resource.resource].1);
         }
 
         /*
@@ -219,6 +219,7 @@ impl AshRenderGraph {
     pub const fn new() -> Self {
         Self {
             physical_resources: PhysicalResources::new(),
+            physical_resource_access: PhysicalResourceAccessTracker::new(),
             topo: Vec::new(),
             barriers: Vec::new(),
             hash: 0,
@@ -276,8 +277,8 @@ impl AshRenderGraph {
         self.topo
             .resize_with(num_topological_groups, Default::default);
 
-        let mut current_texture_access = Vec::new();
-        current_texture_access.resize(src.get_num_textures(), Access::NONE);
+        self.physical_resource_access
+            .reset(&self.physical_resources);
         // TODO: get initial layout of external textures
 
         for topo_index in 0..num_topological_groups {
@@ -289,7 +290,7 @@ impl AshRenderGraph {
                             res,
                             src,
                             &self.physical_resources,
-                            &mut current_texture_access,
+                            &mut self.physical_resource_access,
                             pass,
                         )?);
                     }
@@ -338,9 +339,8 @@ impl AshRenderGraph {
                 }
                 clear_values.clear();
                 for &i in &topo_render_pass.attachment_resource_indices {
-                    let (_tex, format, _samples, _dim) =
-                        self.physical_resources.get_texture(i).unwrap();
-                    let format: vk::Format = format.vk_into();
+                    let physical_resource = self.physical_resources.get_texture(i).unwrap();
+                    let format: vk::Format = physical_resource.format.vk_into();
                     let clear_value = default_clear_value_for_format(format);
                     clear_values.push(clear_value);
                 }

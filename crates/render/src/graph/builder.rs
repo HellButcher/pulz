@@ -90,6 +90,7 @@ impl RenderGraph {
         self.subpasses.clear();
         self.subpasses_exec.clear();
         self.passes.clear();
+        self.pass_topo_group.clear();
         self.passes_topo_order.clear();
     }
 
@@ -128,6 +129,12 @@ impl RenderGraph {
         m.remove_self_references();
 
         self.passes_topo_order = m.into_topological_order();
+        self.pass_topo_group.resize(self.passes.len(), !0);
+        for (i, g) in self.passes_topo_order.iter().enumerate() {
+            for p in g {
+                self.pass_topo_group[*p] = i;
+            }
+        }
 
         debug!("Topological order: {:?}", self.passes_topo_order);
 

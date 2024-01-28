@@ -128,6 +128,7 @@ pub enum ResourceVariant {
 pub(crate) struct Resource<R: ResourceAccess> {
     first_written: SubPassIndex,
     last_written: SubPassIndex,
+    is_read_after_last_written: bool,
     access: Access,
     format: Option<R::Format>,
     size: Option<R::Size>,
@@ -242,6 +243,7 @@ impl<R: ResourceAccess> ResourceSet<R> {
         self.resources.push(Resource {
             first_written: SUBPASS_UNDEFINED,
             last_written: SUBPASS_UNDEFINED,
+            is_read_after_last_written: false,
             access: Access::empty(),
             format: None,
             size: None,
@@ -283,6 +285,7 @@ impl<R: ResourceAccess> ResourceSet<R> {
         );
         r.access |= access;
         if new_pass != last_written_by_pass {
+            r.is_read_after_last_written = false;
             r.last_written = new_pass;
             if r.first_written.0 == PASS_UNDEFINED {
                 r.first_written = new_pass
@@ -304,6 +307,7 @@ impl<R: ResourceAccess> ResourceSet<R> {
             last_written_by_pass, slot.last_written_by,
             "resource also written by an other pass (slot out of sync)"
         );
+        r.is_read_after_last_written = true;
         r.access |= access;
     }
 
@@ -738,17 +742,121 @@ impl PhysicalResources {
         changed
     }
 
-    pub fn get_texture(
-        &self,
-        idx: ResourceIndex,
-    ) -> Option<(Texture, TextureFormat, u8, TextureDimensions)> {
-        let r = self.textures.get_physical(idx)?;
-        Some((r.resource, r.format, 1, r.size))
+    pub fn get_texture(&self, idx: ResourceIndex) -> Option<&PhysicalResource<Texture>> {
+        self.textures.get_physical(idx)
     }
 
-    pub fn get_buffer(&self, idx: ResourceIndex) -> Option<(Buffer, usize)> {
-        let r = self.buffers.get_physical(idx)?;
-        Some((r.resource, r.size))
+    pub fn get_buffer(&self, idx: ResourceIndex) -> Option<&PhysicalResource<Buffer>> {
+        self.buffers.get_physical(idx)
+    }
+}
+
+struct PhysicalResourceMap<R, T> {
+    external: Vec<T>,
+    transient: Vec<T>,
+    _phanton: PhantomData<fn() -> R>,
+}
+
+impl<R: ResourceAccess, T: Default + Copy> PhysicalResourceMap<R, T> {
+    pub const fn new() -> Self {
+        Self {
+            external: Vec::new(),
+            transient: Vec::new(),
+            _phanton: PhantomData,
+        }
+    }
+    fn clear(&mut self) {
+        self.external.clear();
+        self.transient.clear();
+    }
+    pub fn reset(&mut self, p: &PhysicalResourceSet<R>) {
+        self.clear();
+        self.external.resize(p.externals.len(), T::default());
+        self.transient.resize(p.externals.len(), T::default());
+    }
+    pub fn get(&self, p: &PhysicalResourceSet<R>, i: ResourceIndex) -> Option<&T> {
+        match p.assignments.get(i as usize)? {
+            ExternalOrTransient::None => None,
+            ExternalOrTransient::External(i) => self.external.get(*i as usize),
+            ExternalOrTransient::Transient(i) => self.transient.get(*i as usize),
+        }
+    }
+    pub fn get_mut(&mut self, p: &PhysicalResourceSet<R>, i: ResourceIndex) -> Option<&mut T> {
+        match p.assignments.get(i as usize)? {
+            ExternalOrTransient::None => None,
+            ExternalOrTransient::External(i) => self.external.get_mut(*i as usize),
+            ExternalOrTransient::Transient(i) => self.transient.get_mut(*i as usize),
+        }
+    }
+}
+
+pub struct PhysicalResourceAccessTracker {
+    textures: PhysicalResourceMap<Texture, Access>,
+    buffers: PhysicalResourceMap<Buffer, Access>,
+    total: Access,
+}
+
+impl PhysicalResourceAccessTracker {
+    pub const fn new() -> Self {
+        Self {
+            textures: PhysicalResourceMap::new(),
+            buffers: PhysicalResourceMap::new(),
+            total: Access::empty(),
+        }
+    }
+
+    pub fn reset(&mut self, r: &PhysicalResources) {
+        self.textures.reset(&r.textures);
+        self.buffers.reset(&r.buffers);
+        self.total = Access::empty();
+    }
+
+    pub(crate) fn get_current_texture_access(
+        &self,
+        p: &PhysicalResources,
+        resource_index: ResourceIndex,
+    ) -> Access {
+        *self
+            .textures
+            .get(&p.textures, resource_index)
+            .expect("no valid physical buffer resource")
+    }
+    pub(crate) fn get_current_buffer_access(
+        &self,
+        p: &PhysicalResources,
+        resource_index: ResourceIndex,
+    ) -> Access {
+        *self
+            .buffers
+            .get(&p.buffers, resource_index)
+            .expect("no valid physical buffer resource")
+    }
+
+    pub(crate) fn update_texture_access(
+        &mut self,
+        p: &PhysicalResources,
+        resource_index: ResourceIndex,
+        new_access: Access,
+    ) -> Access {
+        let dest = self
+            .textures
+            .get_mut(&p.textures, resource_index)
+            .expect("no valid physical texture resource");
+        self.total |= new_access;
+        std::mem::replace(dest, new_access)
+    }
+    pub(crate) fn update_buffer_access(
+        &mut self,
+        p: &PhysicalResources,
+        resource_index: ResourceIndex,
+        new_access: Access,
+    ) -> Access {
+        let dest = self
+            .buffers
+            .get_mut(&p.buffers, resource_index)
+            .expect("no valid physical buffer resource");
+        self.total |= new_access;
+        std::mem::replace(dest, new_access)
     }
 }
 
