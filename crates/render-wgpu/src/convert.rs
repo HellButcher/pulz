@@ -52,23 +52,32 @@ pub fn convert_buffer_descriptor(val: &BufferDescriptor) -> wgpu::BufferDescript
 #[inline]
 fn convert_buffer_usage(val: BufferUsage) -> wgpu::BufferUsages {
     let mut result = wgpu::BufferUsages::empty();
-    if val.contains(BufferUsage::TRANSFER_SRC) {
+    if val.intersects(BufferUsage::TRANSFER_READ) {
         result |= wgpu::BufferUsages::COPY_SRC;
     }
-    if val.contains(BufferUsage::TRANSFER_DST) {
+    if val.intersects(BufferUsage::TRANSFER_READ) {
         result |= wgpu::BufferUsages::COPY_DST;
     }
-    if val.contains(BufferUsage::INDEX) {
+    if val.intersects(BufferUsage::HOST_READ) {
+        result |= wgpu::BufferUsages::MAP_READ;
+    }
+    if val.intersects(BufferUsage::HOST_WRITE) {
+        result |= wgpu::BufferUsages::MAP_WRITE;
+    }
+    if val.intersects(BufferUsage::INDEX) {
         result |= wgpu::BufferUsages::INDEX;
     }
-    if val.contains(BufferUsage::UNIFORM) {
+    if val.intersects(BufferUsage::VERTEX) {
+        result |= wgpu::BufferUsages::VERTEX;
+    }
+    if val.intersects(BufferUsage::INDIRECT) {
+        result |= wgpu::BufferUsages::INDIRECT;
+    }
+    if val.intersects(BufferUsage::UNIFORM | BufferUsage::UNIFORM_TEXEL) {
         result |= wgpu::BufferUsages::UNIFORM;
     }
-    if val.contains(BufferUsage::STORAGE) {
+    if val.intersects(BufferUsage::STORAGE | BufferUsage::STORAGE_TEXEL) {
         result |= wgpu::BufferUsages::STORAGE;
-    }
-    if val.contains(BufferUsage::INDIRECT) {
-        result |= wgpu::BufferUsages::INDIRECT;
     }
     result
 }
@@ -245,21 +254,23 @@ fn convert_vertex_format(val: VertexFormat) -> Result<wgpu::VertexFormat> {
 #[inline]
 fn convert_texture_usages(val: TextureUsage) -> wgpu::TextureUsages {
     let mut result = wgpu::TextureUsages::empty();
-    if val.contains(TextureUsage::TRANSFER_SRC) {
+    if val.intersects(TextureUsage::TRANSFER_READ) {
         result |= wgpu::TextureUsages::COPY_SRC;
     }
-    if val.contains(TextureUsage::TRANSFER_DST) {
+    if val.intersects(TextureUsage::TRANSFER_WRITE) {
         result |= wgpu::TextureUsages::COPY_DST;
     }
-    if val.contains(TextureUsage::SAMPLED) {
+    if val.intersects(TextureUsage::SAMPLED) {
         result |= wgpu::TextureUsages::TEXTURE_BINDING;
     }
-    if val.contains(TextureUsage::STORAGE) {
+    if val.intersects(TextureUsage::STORAGE) {
         result |= wgpu::TextureUsages::STORAGE_BINDING;
     }
-    if val.contains(TextureUsage::COLOR_ATTACHMENT)
-        || val.contains(TextureUsage::DEPTH_STENCIL_ATTACHMENT)
-    {
+    if val.intersects(
+        TextureUsage::COLOR_ATTACHMENT
+            | TextureUsage::DEPTH_STENCIL_ATTACHMENT
+            | TextureUsage::INPUT_ATTACHMENT,
+    ) {
         result |= wgpu::TextureUsages::RENDER_ATTACHMENT;
     }
     result

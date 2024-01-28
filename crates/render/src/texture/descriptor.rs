@@ -2,7 +2,10 @@ use bitflags::bitflags;
 use pulz_transform::math::{usize2, usize3};
 use serde::{Deserialize, Serialize};
 
-use crate::math::{USize2, USize3};
+use crate::{
+    graph::access::Access,
+    math::{USize2, USize3},
+};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct TextureDescriptor {
@@ -22,7 +25,7 @@ impl TextureDescriptor {
             sample_count: 1,
             format: TextureFormat::DEFAULT,
             aspects: TextureAspects::DEFAULT,
-            usage: TextureUsage::ALL_READ,
+            usage: TextureUsage::empty(),
         }
     }
 
@@ -262,21 +265,20 @@ impl Default for TextureAspects {
 bitflags! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
     pub struct TextureUsage: u32 {
-        const TRANSFER_SRC = 1;
-        const TRANSFER_DST = 2;
-        const SAMPLED = 4;
-        const STORAGE = 8;
-        const COLOR_ATTACHMENT = 16;
-        const DEPTH_STENCIL_ATTACHMENT = 32;
-        const INPUT_ATTACHMENT = 64;
-        const PRESENT = 128;
-
+        const TRANSFER_READ = 0x0001;
+        const TRANSFER_WRITE = 0x0002;
+        const HOST_READ = 0x0004;
+        const HOST_WRITE = 0x0008;
+        const SAMPLED = 0x0010;
+        const STORAGE = 0x0020;
+        const COLOR_ATTACHMENT = 0x0040;
+        const DEPTH_STENCIL_ATTACHMENT = 0x0080;
+        const INPUT_ATTACHMENT = 0x0100;
+        const TRANSIENT = 0x0200;
         // modifiers
-        const BY_REGION = 256;
-
+        const PRESENT = 0x1000;
+        const BY_REGION = 0x2000;
         const NONE = 0;
-        const ALL_READ = Self::TRANSFER_SRC.bits() | Self::SAMPLED.bits() | Self::INPUT_ATTACHMENT.bits() | Self::PRESENT.bits();
-        const ALL_WRITE = Self::TRANSFER_DST.bits() | Self::STORAGE.bits() | Self::COLOR_ATTACHMENT.bits() | Self::DEPTH_STENCIL_ATTACHMENT.bits();
         const ALL_ATTACHMENTS = Self::COLOR_ATTACHMENT.bits() | Self::DEPTH_STENCIL_ATTACHMENT.bits() | Self::INPUT_ATTACHMENT.bits();
     }
 }
@@ -286,29 +288,51 @@ impl TextureUsage {
     pub const fn is_attachment(self) -> bool {
         self.intersects(Self::ALL_ATTACHMENTS)
     }
-
     #[inline]
     pub const fn is_non_attachment(self) -> bool {
         self.intersects(Self::ALL_ATTACHMENTS.complement())
     }
 }
 
-#[derive(
-    Copy, Clone, Debug, Default, Hash, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize,
-)]
-#[non_exhaustive]
-pub enum TextureLayout {
-    #[default]
-    Undefined,
-    General,
-    TransferSrc,
-    TransferDst,
-    Preinitialized,
-    ShaderReadOnly,
-    ColorAttachment,
-    DepthStencilAttachment,
-    InputAttachment,
-    Present,
+impl Access {
+    pub fn as_texture_usage(self) -> TextureUsage {
+        let mut result = TextureUsage::NONE;
+        if self.intersects(
+            Self::COLOR_INPUT_ATTACHMENT_READ | Self::DEPTH_STENCIL_INPUT_ATTACHMENT_READ,
+        ) {
+            result |= TextureUsage::INPUT_ATTACHMENT;
+        }
+
+        if self.intersects(Self::SHADER_READ | Self::SHADER_WRITE) {
+            result |= TextureUsage::STORAGE;
+        }
+        if self.intersects(Self::SAMPLED_READ) {
+            result |= TextureUsage::SAMPLED;
+        }
+
+        if self.intersects(Self::COLOR_ATTACHMENT_READ | Self::COLOR_ATTACHMENT_WRITE) {
+            result |= TextureUsage::COLOR_ATTACHMENT;
+        }
+        if self
+            .intersects(Self::DEPTH_STENCIL_ATTACHMENT_READ | Self::DEPTH_STENCIL_ATTACHMENT_WRITE)
+        {
+            result |= TextureUsage::DEPTH_STENCIL_ATTACHMENT;
+        }
+        if self.intersects(Self::TRANSFER_READ) {
+            result |= TextureUsage::TRANSFER_READ;
+        }
+        if self.intersects(Self::TRANSFER_WRITE) {
+            result |= TextureUsage::TRANSFER_WRITE;
+        }
+        result
+    }
+}
+
+impl From<Access> for TextureUsage {
+    #[inline]
+    fn from(access: Access) -> Self {
+        access.as_texture_usage()
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Default, Serialize, Deserialize)]

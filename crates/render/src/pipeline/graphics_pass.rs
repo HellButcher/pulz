@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{
-        pass::PipelineBindPoint, resources::PhysicalResources, PassDescription, RenderGraph,
-        ResourceIndex,
+        access::Access, pass::PipelineBindPoint, resources::PhysicalResources, PassDescription,
+        RenderGraph, ResourceIndex,
     },
-    texture::{TextureFormat, TextureLayout, TextureUsage},
+    texture::TextureFormat,
 };
 
 crate::backend::define_gpu_resource!(GraphicsPass, GraphicsPassDescriptor);
@@ -40,31 +40,31 @@ pub struct LoadStoreOps {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct AttachmentDescriptor {
     pub format: TextureFormat,
-    pub usage: TextureUsage,
-    pub initial_layout: TextureLayout,
-    pub final_layout: TextureLayout,
+    pub access: Access,
+    pub initial_access: Access,
+    pub final_access: Access,
     pub samples: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct SubpassDescriptor {
-    input_attachments: Vec<u16>,
-    color_attachments: Vec<u16>,
-    depth_stencil_attachment: Option<u16>,
+    input_attachments: Vec<(u16, Access)>,
+    color_attachments: Vec<(u16, Access)>,
+    depth_stencil_attachment: Option<(u16, Access)>,
     //resolve_attachments: Vec<usize>,
 }
 
 impl SubpassDescriptor {
     #[inline]
-    pub fn input_attachments(&self) -> &[u16] {
+    pub fn input_attachments(&self) -> &[(u16, Access)] {
         &self.input_attachments
     }
     #[inline]
-    pub fn color_attachments(&self) -> &[u16] {
+    pub fn color_attachments(&self) -> &[(u16, Access)] {
         &self.color_attachments
     }
     #[inline]
-    pub fn depth_stencil_attachment(&self) -> Option<u16> {
+    pub fn depth_stencil_attachment(&self) -> Option<(u16, Access)> {
         self.depth_stencil_attachment
     }
 }
@@ -101,7 +101,7 @@ impl ExtendedGraphicsPassDescriptor {
     pub fn from_graph(
         graph: &RenderGraph,
         physical_resources: &PhysicalResources,
-        current_texture_layouts: &mut [TextureLayout],
+        current_texture_access: &mut [Access],
         pass: &PassDescription,
     ) -> Option<Self> {
         if pass.bind_point() != PipelineBindPoint::Graphics {
@@ -109,7 +109,7 @@ impl ExtendedGraphicsPassDescriptor {
         }
         let mut attachment_indices = Vec::with_capacity(pass.textures().len());
         for (i, tex) in pass.textures().deps().iter().enumerate() {
-            if tex.usage().is_attachment() {
+            if tex.access().is_graphics_attachment() {
                 attachment_indices.push(i as ResourceIndex);
             }
         }
@@ -137,20 +137,21 @@ impl ExtendedGraphicsPassDescriptor {
                 // TODO: is resource used in later pass? then STORE, else DONT_CARE
                 store_op: StoreOp::Store,
             };
-            if a.is_read() {
+            let current_usage = if a.is_read() {
                 load_store.load_op = LoadOp::Load;
+                current_texture_access[resource_index as usize]
             } else {
                 // overide to undefined
-                current_texture_layouts[resource_index as usize] = TextureLayout::Undefined;
-            }
-            let current_texture_layout = current_texture_layouts[resource_index as usize];
+                current_texture_access[resource_index as usize] = Access::NONE;
+                Access::NONE
+            };
 
             attachments.push(AttachmentDescriptor {
                 format,
                 samples,
-                usage: a.usage(),
-                initial_layout: current_texture_layout,
-                final_layout: current_texture_layout,
+                access: a.access(),
+                initial_access: current_usage,
+                final_access: current_usage,
             });
 
             load_store_ops.push(load_store);
@@ -161,18 +162,20 @@ impl ExtendedGraphicsPassDescriptor {
             // pass.textures() is sorted by resource-index!
             *i = pass.textures()[*i as usize].resource_index();
         }
-        let mut map_attachment_index = |resource_index: &u16, mut layout: TextureLayout| {
-            if layout == TextureLayout::Undefined {
-                layout = current_texture_layouts[*resource_index as usize];
-            } else {
-                current_texture_layouts[*resource_index as usize] = layout;
+
+        let mut map_attachment_index_and_update_usage =
+            |resource_index: u16, mut current_access: Access| {
+                if current_access.is_empty() {
+                    current_access = current_texture_access[resource_index as usize];
+                } else {
+                    current_texture_access[resource_index as usize] = current_access;
+                };
+                let a = attachment_indices
+                    .binary_search(&resource_index)
+                    .expect("unvalid resource index") as u16;
+                attachments[a as usize].final_access = current_access;
+                (a, current_access)
             };
-            let a = attachment_indices
-                .binary_search(resource_index)
-                .expect("unvalid resource index") as u16;
-            attachments[a as usize].final_layout = layout;
-            a
-        };
 
         let mut subpasses = Vec::with_capacity(pass.sub_pass_range().len());
         for sp in pass.sub_pass_range() {
@@ -180,22 +183,24 @@ impl ExtendedGraphicsPassDescriptor {
             let input_attachments = sp
                 .input_attachments()
                 .iter()
-                .map(|r| map_attachment_index(r, TextureLayout::InputAttachment))
+                .copied()
+                .map(|(r, u)| map_attachment_index_and_update_usage(r, u))
                 .collect();
             let color_attachments = sp
                 .color_attachments()
                 .iter()
-                .map(|r| map_attachment_index(r, TextureLayout::ColorAttachment))
+                .copied()
+                .map(|(r, u)| map_attachment_index_and_update_usage(r, u))
                 .collect();
             let depth_stencil_attachment = sp
                 .depth_stencil_attachment()
-                .as_ref()
-                .map(|r| map_attachment_index(r, TextureLayout::DepthStencilAttachment));
+                .map(|(r, u)| map_attachment_index_and_update_usage(r, u));
             subpasses.push(SubpassDescriptor {
                 input_attachments,
                 color_attachments,
                 depth_stencil_attachment,
             })
+            // update
         }
 
         // TODO: if this pass is the last pass accessing this resource (and resource not extern), then STOREOP = DON'T CARE

@@ -2,13 +2,13 @@ use std::marker::PhantomData;
 
 use super::{Graphics, Pass, PassGroup, PipelineType, SubPassDescription};
 use crate::{
-    buffer::{Buffer, BufferUsage},
+    buffer::Buffer,
     graph::{
-        access::{ShaderStage, Stage},
+        access::{Access, ShaderStage},
         resources::{ResourceDeps, Slot, SlotAccess, WriteSlot},
         PassDescription, PassIndex, RenderGraphBuilder, SubPassIndex,
     },
-    texture::{Texture, TextureDimensions, TextureFormat, TextureUsage},
+    texture::{Texture, TextureDimensions, TextureFormat},
 };
 
 impl RenderGraphBuilder {
@@ -66,51 +66,49 @@ impl PassBuilderIntern<'_> {
     fn writes_texture_intern(
         &mut self,
         slot: WriteSlot<Texture>,
-        stages: Stage,
-        usage: TextureUsage,
+        access: Access,
     ) -> WriteSlot<Texture> {
         let current_subpass = self.current_subpass();
         assert_ne!(
             slot.last_written_by, current_subpass,
             "trying to write to a texture multiple times in the same sub-pass"
         );
-        self.pass.textures.access(&slot, true, stages, usage);
-        self.graph.textures.writes(slot, current_subpass, usage)
+        self.pass.textures.access(&slot, access);
+        self.graph.textures.writes(slot, current_subpass, access)
     }
 
-    fn reads_texture_intern(&mut self, slot: Slot<Texture>, stages: Stage, usage: TextureUsage) {
+    fn reads_texture_intern(&mut self, slot: Slot<Texture>, access: Access) {
         assert_ne!(
             slot.last_written_by,
             self.current_subpass(),
             "trying to read and write a texture in the same sub-pass"
         );
-        self.pass.textures.access(&slot, false, stages, usage);
-        self.graph.textures.reads(slot, usage);
+        self.pass.textures.access(&slot, access);
+        self.graph.textures.reads(slot, access);
     }
 
     fn writes_buffer_intern(
         &mut self,
         slot: WriteSlot<Buffer>,
-        stages: Stage,
-        usage: BufferUsage,
+        access: Access,
     ) -> WriteSlot<Buffer> {
         let current_subpass = self.current_subpass();
         assert_ne!(
             slot.last_written_by, current_subpass,
             "trying to write to a buffer multiple times in the same sub-pass"
         );
-        self.pass.buffers.access(&slot, true, stages, usage);
-        self.graph.buffers.writes(slot, current_subpass, usage)
+        self.pass.buffers.access(&slot, access);
+        self.graph.buffers.writes(slot, current_subpass, access)
     }
 
-    fn reads_buffer_intern(&mut self, slot: Slot<Buffer>, stages: Stage, usage: BufferUsage) {
+    fn reads_buffer_intern(&mut self, slot: Slot<Buffer>, access: Access) {
         assert_ne!(
             slot.last_written_by,
             self.current_subpass(),
             "trying to read and write a buffer in the same sub-pass"
         );
-        self.pass.buffers.access(&slot, false, stages, usage);
-        self.graph.buffers.reads(slot, usage);
+        self.pass.buffers.access(&slot, access);
+        self.graph.buffers.reads(slot, access);
     }
 }
 
@@ -173,45 +171,45 @@ impl<Q> PassBuilder<'_, Q> {
     #[inline]
     pub fn reads_texture(&mut self, texture: Slot<Texture>, stages: ShaderStage) {
         self.base
-            .reads_texture_intern(texture, stages.as_stage(), TextureUsage::SAMPLED)
+            .reads_texture_intern(texture, stages.as_access() | Access::SAMPLED_READ)
     }
 
     #[inline]
-    pub fn reads_storage_texture(&mut self, texture: Slot<Texture>, stages: ShaderStage) {
+    pub fn reads_texture_storage(&mut self, texture: Slot<Texture>, stages: ShaderStage) {
         self.base
-            .reads_texture_intern(texture, stages.as_stage(), TextureUsage::STORAGE)
+            .reads_texture_intern(texture, stages.as_access() | Access::SHADER_READ)
     }
 
     #[inline]
-    pub fn writes_storage_texture(
+    pub fn writes_texture_storage(
         &mut self,
         texture: WriteSlot<Texture>,
         stages: ShaderStage,
     ) -> WriteSlot<Texture> {
         self.base
-            .writes_texture_intern(texture, stages.as_stage(), TextureUsage::STORAGE)
+            .writes_texture_intern(texture, stages.as_access() | Access::SHADER_WRITE)
     }
 
     #[inline]
     pub fn reads_uniform_buffer(&mut self, buffer: Slot<Buffer>, stages: ShaderStage) {
         self.base
-            .reads_buffer_intern(buffer, stages.as_stage(), BufferUsage::UNIFORM)
+            .reads_buffer_intern(buffer, stages.as_access() | Access::UNIFORM_READ)
     }
 
     #[inline]
-    pub fn reads_storage_buffer(&mut self, buffer: Slot<Buffer>, stages: ShaderStage) {
+    pub fn reads_buffer(&mut self, buffer: Slot<Buffer>, stages: ShaderStage) {
         self.base
-            .reads_buffer_intern(buffer, stages.as_stage(), BufferUsage::STORAGE)
+            .reads_buffer_intern(buffer, stages.as_access() | Access::SHADER_READ)
     }
 
     #[inline]
-    pub fn writes_storage_buffer(
+    pub fn writes_buffer(
         &mut self,
         buffer: WriteSlot<Buffer>,
         stages: ShaderStage,
     ) -> WriteSlot<Buffer> {
         self.base
-            .writes_buffer_intern(buffer, stages.as_stage(), BufferUsage::STORAGE)
+            .writes_buffer_intern(buffer, stages.as_access() | Access::SHADER_WRITE)
     }
 }
 
@@ -222,12 +220,11 @@ impl PassBuilder<'_, Graphics> {
         self.color_attachment(slot)
     }
     pub fn color_attachment(&mut self, texture: WriteSlot<Texture>) -> WriteSlot<Texture> {
-        self.subpass.color_attachments.push(texture.index());
-        self.base.writes_texture_intern(
-            texture,
-            Stage::COLOR_ATTACHMENT_OUTPUT,
-            TextureUsage::COLOR_ATTACHMENT,
-        )
+        self.subpass
+            .color_attachments
+            .push((texture.index(), Access::COLOR_ATTACHMENT_WRITE));
+        self.base
+            .writes_texture_intern(texture, Access::COLOR_ATTACHMENT_WRITE)
     }
 
     #[inline]
@@ -235,36 +232,57 @@ impl PassBuilder<'_, Graphics> {
         let slot = self.base.graph.textures.create();
         self.depth_stencil_attachment(slot)
     }
+    #[inline]
     pub fn depth_stencil_attachment(&mut self, texture: WriteSlot<Texture>) -> WriteSlot<Texture> {
-        self.subpass
+        self.write_depth_stencil_attachment_intern(texture, Access::DEPTH_STENCIL_ATTACHMENT_WRITE)
+    }
+
+    fn write_depth_stencil_attachment_intern(
+        &mut self,
+        texture: WriteSlot<Texture>,
+        access: Access,
+    ) -> WriteSlot<Texture> {
+        let old = self
+            .subpass
             .depth_stencil_attachment
-            .replace(texture.index());
+            .replace((texture.index(), access));
+        assert!(old.is_none(), "only one depth stencil attachment allowed");
         // TODO: support early & late fragment tests
-        self.base.writes_texture_intern(
-            texture,
-            Stage::FRAGMENT_TESTS,
-            TextureUsage::DEPTH_STENCIL_ATTACHMENT,
-        )
-    }
-
-    pub fn input_attachment(&mut self, texture: Slot<Texture>) {
-        self.subpass.input_attachments.push(texture.index());
-        self.base.reads_texture_intern(
-            texture,
-            Stage::FRAGMENT_SHADER,
-            TextureUsage::INPUT_ATTACHMENT,
-        )
+        // TODO: support readonly, write depth only, write stencil only
+        self.base.writes_texture_intern(texture, access)
     }
 
     #[inline]
-    pub fn reads_vertex_buffer(&mut self, buffer: Slot<Buffer>) {
-        self.base
-            .reads_buffer_intern(buffer, Stage::VERTEX_INPUT, BufferUsage::VERTEX)
+    pub fn color_input_attachment(&mut self, texture: Slot<Texture>) {
+        self.input_attachment_intern(texture, Access::COLOR_INPUT_ATTACHMENT_READ)
     }
 
     #[inline]
-    pub fn reads_index_buffer(&mut self, buffer: Slot<Buffer>) {
+    pub fn depth_stencil_input_attachment(&mut self, texture: Slot<Texture>) {
+        self.input_attachment_intern(texture, Access::DEPTH_STENCIL_INPUT_ATTACHMENT_READ)
+    }
+
+    fn input_attachment_intern(&mut self, texture: Slot<Texture>, access: Access) {
+        self.subpass
+            .input_attachments
+            .push((texture.index(), access));
+        self.base.reads_texture_intern(texture, access)
+    }
+
+    #[inline]
+    pub fn vertex_buffer(&mut self, buffer: Slot<Buffer>) {
         self.base
-            .reads_buffer_intern(buffer, Stage::VERTEX_INPUT, BufferUsage::INDEX)
+            .reads_buffer_intern(buffer, Access::VERTEX_ATTRIBUTE_READ)
+    }
+
+    #[inline]
+    pub fn index_buffer(&mut self, buffer: Slot<Buffer>) {
+        self.base.reads_buffer_intern(buffer, Access::INDEX_READ)
+    }
+
+    #[inline]
+    pub fn indirect_command_buffer(&mut self, buffer: Slot<Buffer>) {
+        self.base
+            .reads_buffer_intern(buffer, Access::INDIRECT_COMMAND_READ)
     }
 }

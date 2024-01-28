@@ -2,7 +2,10 @@ use ash::vk;
 use pulz_bitset::BitSet;
 use pulz_render::{
     buffer::{BufferDescriptor, BufferUsage},
-    graph::{access::Stage, pass::PipelineBindPoint},
+    graph::{
+        access::{Access, Stage},
+        pass::PipelineBindPoint,
+    },
     math::{USize2, USize3},
     pipeline::{
         BindGroupLayoutDescriptor, BlendFactor, BlendOperation, CompareFunction,
@@ -11,10 +14,7 @@ use pulz_render::{
         PrimitiveTopology, RayTracingPipelineDescriptor, StencilFaceState, StencilOperation,
         StoreOp, VertexFormat,
     },
-    texture::{
-        TextureAspects, TextureDescriptor, TextureDimensions, TextureFormat, TextureLayout,
-        TextureUsage,
-    },
+    texture::{TextureAspects, TextureDescriptor, TextureDimensions, TextureFormat, TextureUsage},
 };
 use scratchbuffer::ScratchBuffer;
 
@@ -60,30 +60,42 @@ impl VkFrom<BufferUsage> for vk::BufferUsageFlags {
     #[inline]
     fn from(val: &BufferUsage) -> Self {
         let mut result = Self::empty();
-        if val.contains(BufferUsage::TRANSFER_SRC) {
-            result |= Self::TRANSFER_SRC;
-        }
-        if val.contains(BufferUsage::TRANSFER_DST) {
-            result |= Self::TRANSFER_DST;
-        }
-        if val.contains(BufferUsage::INDEX) {
-            result |= Self::INDEX_BUFFER;
-        }
-        if val.contains(BufferUsage::UNIFORM) {
-            result |= Self::UNIFORM_BUFFER;
-        }
-        if val.contains(BufferUsage::STORAGE) {
-            result |= Self::STORAGE_BUFFER;
-        }
-        if val.contains(BufferUsage::INDIRECT) {
+        if val.intersects(BufferUsage::INDIRECT) {
             result |= Self::INDIRECT_BUFFER;
         }
-        // if val.contains(BufferUsage::UNIFORM_TEXEL) {
-        //     result |= Self::UNIFORM_TEXEL_BUFFER;
-        // }
-        // if val.contains(BufferUsage::STORAGE_TEXEL) {
-        //     result |= Self::STORAGE_TEXEL_BUFFER;
-        // }
+        if val.intersects(BufferUsage::INDEX) {
+            result |= Self::INDEX_BUFFER;
+        }
+        if val.intersects(BufferUsage::VERTEX) {
+            result |= Self::VERTEX_BUFFER;
+        }
+        if val.intersects(BufferUsage::UNIFORM) {
+            result |= Self::UNIFORM_BUFFER;
+        }
+        if val.intersects(BufferUsage::STORAGE) {
+            result |= Self::STORAGE_BUFFER;
+        }
+        if val.intersects(BufferUsage::UNIFORM_TEXEL) {
+            result |= Self::UNIFORM_TEXEL_BUFFER;
+        }
+        if val.intersects(BufferUsage::STORAGE_TEXEL) {
+            result |= Self::STORAGE_TEXEL_BUFFER;
+        }
+        if val.intersects(BufferUsage::TRANSFER_READ) {
+            result |= Self::TRANSFER_SRC;
+        }
+        if val.intersects(BufferUsage::TRANSFER_WRITE) {
+            result |= Self::TRANSFER_DST;
+        }
+        if val.intersects(BufferUsage::ACCELERATION_STRUCTURE_STORAGE) {
+            result |= Self::ACCELERATION_STRUCTURE_STORAGE_KHR;
+        }
+        if val.intersects(BufferUsage::ACCELERATION_STRUCTURE_BUILD_INPUT) {
+            result |= Self::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR;
+        }
+        if val.intersects(BufferUsage::SHADER_BINDING_TABLE) {
+            result |= Self::SHADER_BINDING_TABLE_KHR;
+        }
         result
     }
 }
@@ -524,127 +536,136 @@ impl VkFrom<VertexFormat> for vk::Format {
 impl VkFrom<TextureUsage> for vk::ImageUsageFlags {
     fn from(val: &TextureUsage) -> Self {
         let mut result = Self::empty();
-        if val.contains(TextureUsage::TRANSFER_SRC) {
-            result |= Self::TRANSFER_SRC;
+        if val.intersects(TextureUsage::INPUT_ATTACHMENT) {
+            result |= Self::INPUT_ATTACHMENT;
         }
-        if val.contains(TextureUsage::TRANSFER_DST) {
-            result |= Self::TRANSFER_DST;
-        }
-        if val.contains(TextureUsage::SAMPLED) {
-            result |= Self::SAMPLED;
-        }
-        if val.contains(TextureUsage::STORAGE) {
-            result |= Self::STORAGE;
-        }
-        if val.contains(TextureUsage::COLOR_ATTACHMENT) {
+        if val.intersects(TextureUsage::COLOR_ATTACHMENT) {
             result |= Self::COLOR_ATTACHMENT;
         }
-        if val.contains(TextureUsage::DEPTH_STENCIL_ATTACHMENT) {
+        if val.intersects(TextureUsage::DEPTH_STENCIL_ATTACHMENT) {
             result |= Self::DEPTH_STENCIL_ATTACHMENT;
         }
-        if val.contains(TextureUsage::INPUT_ATTACHMENT) {
-            result |= Self::INPUT_ATTACHMENT;
+        if val.intersects(TextureUsage::TRANSFER_READ) {
+            result |= Self::TRANSFER_SRC;
+        }
+        if val.intersects(TextureUsage::TRANSFER_WRITE) {
+            result |= Self::TRANSFER_DST;
+        }
+        if val.intersects(TextureUsage::SAMPLED) {
+            result |= Self::SAMPLED;
+        }
+        if val.intersects(TextureUsage::STORAGE) {
+            result |= Self::STORAGE;
         }
         result
     }
 }
 
-impl VkFrom<TextureLayout> for vk::ImageLayout {
+impl VkFrom<Access> for vk::ImageLayout {
     #[inline]
-    fn from(val: &TextureLayout) -> Self {
-        match val {
-            TextureLayout::Undefined => Self::UNDEFINED,
-            TextureLayout::General => Self::GENERAL,
-            TextureLayout::TransferSrc => Self::TRANSFER_SRC_OPTIMAL,
-            TextureLayout::TransferDst => Self::TRANSFER_DST_OPTIMAL,
-            TextureLayout::Preinitialized => Self::PREINITIALIZED,
-            TextureLayout::ShaderReadOnly | TextureLayout::InputAttachment => {
-                Self::SHADER_READ_ONLY_OPTIMAL
-            }
-            TextureLayout::ColorAttachment => Self::COLOR_ATTACHMENT_OPTIMAL,
-            TextureLayout::DepthStencilAttachment => Self::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            TextureLayout::Present => Self::PRESENT_SRC_KHR,
-
-            _ => Self::GENERAL,
+    fn from(val: &Access) -> Self {
+        let mut num = 0;
+        let mut r = Self::UNDEFINED;
+        if val.intersects(Access::COLOR_ATTACHMENT_READ | Access::COLOR_ATTACHMENT_WRITE) {
+            r = Self::COLOR_ATTACHMENT_OPTIMAL;
+            num += 1;
+        }
+        if val.intersects(Access::DEPTH_STENCIL_ATTACHMENT_WRITE) {
+            r = Self::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            // TODO: single write variants
+            num += 1;
+        } else if val.intersects(Access::DEPTH_STENCIL_ATTACHMENT_READ) {
+            r = Self::DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            num += 1;
+        }
+        if val.intersects(Access::TRANSFER_READ) {
+            r = Self::TRANSFER_SRC_OPTIMAL;
+            num += 1;
+        }
+        if val.intersects(Access::TRANSFER_WRITE) {
+            r = Self::TRANSFER_DST_OPTIMAL;
+            num += 1;
+        }
+        if val.intersects(Access::PRESENT) {
+            r = Self::PRESENT_SRC_KHR;
+            num += 1;
+        }
+        if num <= 1 {
+            return r;
+        }
+        if !val.intersects(Access::ANY_WRITE) {
+            Self::READ_ONLY_OPTIMAL
+        } else {
+            Self::GENERAL
         }
     }
 }
 
-pub fn into_texture_usage_read_access(usage: TextureUsage) -> vk::AccessFlags {
-    let mut result = vk::AccessFlags::empty();
-    if usage.contains(TextureUsage::TRANSFER_SRC) | usage.contains(TextureUsage::TRANSFER_DST) {
-        result |= vk::AccessFlags::TRANSFER_READ;
+impl VkFrom<Access> for vk::AccessFlags {
+    #[inline]
+    fn from(val: &Access) -> Self {
+        let mut result = Self::empty();
+        if *val == Access::GENERAL {
+            return Self::MEMORY_READ | Self::MEMORY_WRITE;
+        } else if *val == Access::MEMORY_READ {
+            return Self::MEMORY_READ;
+        } else if *val == Access::MEMORY_WRITE {
+            return Self::MEMORY_WRITE;
+        }
+        if val.intersects(Access::INDIRECT_COMMAND_READ) {
+            result |= Self::INDIRECT_COMMAND_READ;
+        }
+        if val.intersects(Access::INDEX_READ) {
+            result |= Self::INDEX_READ;
+        }
+        if val.intersects(Access::VERTEX_ATTRIBUTE_READ) {
+            result |= Self::VERTEX_ATTRIBUTE_READ;
+        }
+        if val.intersects(
+            Access::COLOR_INPUT_ATTACHMENT_READ | Access::DEPTH_STENCIL_INPUT_ATTACHMENT_READ,
+        ) {
+            result |= Self::INPUT_ATTACHMENT_READ;
+        }
+        if val.intersects(Access::UNIFORM_READ) {
+            result |= Self::UNIFORM_READ;
+        }
+        if val.intersects(Access::SAMPLED_READ | Access::SAMPLED_READ) {
+            result |= Self::SHADER_READ;
+        }
+        if val.intersects(Access::COLOR_ATTACHMENT_READ) {
+            result |= Self::COLOR_ATTACHMENT_READ;
+        }
+        if val.intersects(Access::COLOR_ATTACHMENT_WRITE) {
+            result |= Self::COLOR_ATTACHMENT_WRITE;
+        }
+        if val.intersects(Access::DEPTH_STENCIL_ATTACHMENT_READ) {
+            result |= Self::DEPTH_STENCIL_ATTACHMENT_READ;
+        }
+        if val.intersects(Access::DEPTH_STENCIL_ATTACHMENT_WRITE) {
+            result |= Self::DEPTH_STENCIL_ATTACHMENT_WRITE;
+        }
+        if val.intersects(Access::TRANSFER_READ) {
+            result |= Self::TRANSFER_READ;
+        }
+        if val.intersects(Access::TRANSFER_WRITE) {
+            result |= Self::TRANSFER_WRITE;
+        }
+        if val.intersects(Access::HOST_READ) {
+            result |= Self::HOST_READ;
+        }
+        if val.intersects(Access::HOST_WRITE) {
+            result |= Self::HOST_WRITE;
+        }
+        if val.intersects(
+            Access::ACCELERATION_STRUCTURE_READ | Access::ACCELERATION_STRUCTURE_BUILD_READ,
+        ) {
+            result |= Self::ACCELERATION_STRUCTURE_READ_KHR;
+        }
+        if val.intersects(Access::ACCELERATION_STRUCTURE_BUILD_WRITE) {
+            result |= Self::ACCELERATION_STRUCTURE_WRITE_KHR;
+        }
+        result
     }
-    if usage.contains(TextureUsage::SAMPLED) || usage.contains(TextureUsage::STORAGE) {
-        result |= vk::AccessFlags::SHADER_READ;
-    }
-    if usage.contains(TextureUsage::COLOR_ATTACHMENT) {
-        result |= vk::AccessFlags::COLOR_ATTACHMENT_READ;
-    }
-    if usage.contains(TextureUsage::DEPTH_STENCIL_ATTACHMENT) {
-        result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ;
-    }
-    if usage.contains(TextureUsage::INPUT_ATTACHMENT) {
-        result |= vk::AccessFlags::INPUT_ATTACHMENT_READ;
-    }
-    result
-}
-
-pub fn into_texture_usage_write_access(usage: TextureUsage) -> vk::AccessFlags {
-    let mut result = vk::AccessFlags::empty();
-    if usage.contains(TextureUsage::TRANSFER_SRC) | usage.contains(TextureUsage::TRANSFER_DST) {
-        result |= vk::AccessFlags::TRANSFER_WRITE;
-    }
-    if usage.contains(TextureUsage::STORAGE) {
-        result |= vk::AccessFlags::SHADER_WRITE;
-    }
-    if usage.contains(TextureUsage::COLOR_ATTACHMENT) {
-        result |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
-    }
-    if usage.contains(TextureUsage::DEPTH_STENCIL_ATTACHMENT) {
-        result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
-    }
-    result
-}
-
-pub fn into_buffer_usage_read_access(usage: BufferUsage) -> vk::AccessFlags {
-    let mut result = vk::AccessFlags::empty();
-    if usage.contains(BufferUsage::HOST) {
-        result |= vk::AccessFlags::HOST_READ;
-    }
-    if usage.contains(BufferUsage::TRANSFER_SRC) | usage.contains(BufferUsage::TRANSFER_DST) {
-        result |= vk::AccessFlags::TRANSFER_READ;
-    }
-    if usage.contains(BufferUsage::INDEX) {
-        result |= vk::AccessFlags::INDEX_READ;
-    }
-    if usage.contains(BufferUsage::VERTEX) {
-        result |= vk::AccessFlags::VERTEX_ATTRIBUTE_READ;
-    }
-    if usage.contains(BufferUsage::UNIFORM) {
-        result |= vk::AccessFlags::UNIFORM_READ;
-    }
-    if usage.contains(BufferUsage::STORAGE) {
-        result |= vk::AccessFlags::SHADER_READ;
-    }
-    if usage.contains(BufferUsage::INDIRECT) {
-        result |= vk::AccessFlags::INDIRECT_COMMAND_READ;
-    }
-    result
-}
-
-pub fn into_buffer_usage_write_access(usage: BufferUsage) -> vk::AccessFlags {
-    let mut result = vk::AccessFlags::empty();
-    if usage.contains(BufferUsage::HOST) {
-        result |= vk::AccessFlags::HOST_WRITE;
-    }
-    if usage.contains(BufferUsage::TRANSFER_SRC) | usage.contains(BufferUsage::TRANSFER_DST) {
-        result |= vk::AccessFlags::TRANSFER_WRITE;
-    }
-    if usage.contains(BufferUsage::STORAGE) {
-        result |= vk::AccessFlags::SHADER_WRITE;
-    }
-    result
 }
 
 impl VkFrom<PipelineBindPoint> for vk::PipelineBindPoint {
@@ -967,8 +988,8 @@ impl CreateInfoConverter6 {
                     .stencil_load_op(load_store_ops.load_op.vk_into())
                     .stencil_store_op(load_store_ops.store_op.vk_into())
                     // TODO: initial_layout if load-op == LOAD
-                    .initial_layout(a.initial_layout.vk_into())
-                    .final_layout(a.final_layout.vk_into())
+                    .initial_layout(a.initial_access.vk_into())
+                    .final_layout(a.final_access.vk_into())
                     .build(),
             );
             attachment_dep_data.push((vk::SUBPASS_EXTERNAL, vk::AccessFlags::NONE));
@@ -976,14 +997,15 @@ impl CreateInfoConverter6 {
 
         // calculate subpass deps
         let sp_deps = self.1.clear_and_use_as::<vk::SubpassDependency>();
+        let a_refs = self.2.clear_and_use_as::<vk::AttachmentReference>();
         let num_subpasses = desc.subpasses().len();
         let mut attachment_usage = BitSet::with_capacity_for(num_attachments * num_subpasses);
         for (i, sp) in desc.subpasses().iter().enumerate() {
             // TODO: handle Write>Read>Write!
+            // TODO: also non-attachment dubpass-deps
             let dst = i as u32;
-            for &a in sp.input_attachments() {
+            for &(a, _u) in sp.input_attachments() {
                 let a = a as usize;
-                //attachments[a].final_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
                 let (src, src_access) = attachment_dep_data[a];
                 if src != vk::SUBPASS_EXTERNAL {
                     let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
@@ -991,10 +1013,15 @@ impl CreateInfoConverter6 {
                     dep.dst_access_mask |= vk::AccessFlags::INPUT_ATTACHMENT_READ;
                 }
                 attachment_usage.insert(i * num_attachments + a);
+
+                a_refs.push(vk::AttachmentReference {
+                    attachment: a as u32, // if a==!0 => vk::ATTACHMENT_UNUSED
+                    //layout: u.vk_into(),
+                    layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                });
             }
-            for &a in sp.color_attachments() {
+            for &(a, _u) in sp.color_attachments() {
                 let a = a as usize;
-                //attachments[a].final_layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
                 let (src, src_access) = attachment_dep_data[a];
                 if src != vk::SUBPASS_EXTERNAL {
                     let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
@@ -1003,10 +1030,16 @@ impl CreateInfoConverter6 {
                 }
                 attachment_dep_data[a] = (dst, vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
                 attachment_usage.insert(i * num_attachments + a);
+
+                //attachments[a].final_layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
+                a_refs.push(vk::AttachmentReference {
+                    attachment: a as u32, // if a==!0 => vk::ATTACHMENT_UNUSED
+                    //layout: u.vk_into(),
+                    layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                });
             }
-            if let Some(a) = sp.depth_stencil_attachment() {
+            if let Some((a, _u)) = sp.depth_stencil_attachment() {
                 let a = a as usize;
-                //attachments[a].final_layout = vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 let (src, src_access) = attachment_dep_data[a];
                 if src != vk::SUBPASS_EXTERNAL {
                     let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
@@ -1016,32 +1049,16 @@ impl CreateInfoConverter6 {
                 }
                 attachment_dep_data[a] = (dst, vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
                 attachment_usage.insert(i * num_attachments + a);
-            }
-        }
-        drop(attachment_dep_data);
 
-        // collect references
-        let a_refs = self.2.clear_and_use_as::<vk::AttachmentReference>();
-        for s in desc.subpasses() {
-            for &a in s.input_attachments() {
-                a_refs.push(vk::AttachmentReference {
-                    attachment: a as u32, // if a==!0 => vk::ATTACHMENT_UNUSED
-                    layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                });
-            }
-            for &a in s.color_attachments() {
-                a_refs.push(vk::AttachmentReference {
-                    attachment: a as u32, // if a==!0 => vk::ATTACHMENT_UNUSED
-                    layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                });
-            }
-            if let Some(a) = s.depth_stencil_attachment() {
+                //attachments[a].final_layout = vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 a_refs.push(vk::AttachmentReference {
                     attachment: a as u32,
+                    //layout: u.vk_into(),
                     layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                 });
             }
         }
+        drop(attachment_dep_data);
 
         // preserve attachment
         let mut a_preserve_tmp: Vec<Vec<u32>> = Vec::new();
@@ -1104,7 +1121,6 @@ impl CreateInfoConverter6 {
             }
             subpasses.push(b.build());
         }
-        // TODO: subpass dependencies
 
         let buf = self.5.clear_and_use_as::<vk::RenderPassCreateInfo>();
         buf.reserve(1);
@@ -1112,6 +1128,7 @@ impl CreateInfoConverter6 {
             vk::RenderPassCreateInfo::builder()
                 .attachments(attachments.as_slice())
                 .subpasses(subpasses.as_slice())
+                .dependencies(sp_deps.as_slice())
                 .build(),
         );
         &buf.as_slice()[0]

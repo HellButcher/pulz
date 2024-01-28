@@ -35,46 +35,46 @@ unsafe extern "system" fn debug_callback(
     match message_severity {
         DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
             debug!(
-                ?message_id_name,
-                "Vk[{:?},#{}]: {}",
+                "Vk[{:?},#{},{:?}]: {}",
                 message_type,
                 message_id_number,
+                message_id_name,
                 message.to_string_lossy()
             )
         }
         DebugUtilsMessageSeverityFlagsEXT::INFO => {
             info!(
-                ?message_id_name,
-                "Vk[{:?},#{}]: {}",
+                "Vk[{:?},#{},{:?}]: {}",
                 message_type,
                 message_id_number,
+                message_id_name,
                 message.to_string_lossy()
             )
         }
         DebugUtilsMessageSeverityFlagsEXT::WARNING => {
             warn!(
-                ?message_id_name,
-                "Vk[{:?},#{}]: {}",
+                "Vk[{:?},#{},{:?}]: {}",
                 message_type,
                 message_id_number,
+                message_id_name,
                 message.to_string_lossy()
             )
         }
         DebugUtilsMessageSeverityFlagsEXT::ERROR => {
             error!(
-                ?message_id_name,
-                "Vk[{:?},#{}]: {}",
+                "Vk[{:?},#{},{:?}]: {}",
                 message_type,
                 message_id_number,
+                message_id_name,
                 message.to_string_lossy()
             )
         }
         _ => {
             warn!(
-                ?message_id_name,
-                "Vk[{:?},#{}]: {}",
+                "Vk[{:?},#{},{:?}]: {}",
                 message_type,
                 message_id_number,
+                message_id_name,
                 message.to_string_lossy()
             )
         }

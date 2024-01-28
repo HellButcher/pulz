@@ -1,6 +1,7 @@
 use core::fmt;
 
 use self::{
+    access::Access,
     pass::{run::PassExec, PipelineBindPoint},
     resources::{ExtendedResourceData, Resource, ResourceDeps, ResourceSet},
 };
@@ -28,9 +29,9 @@ const SUBPASS_UNDEFINED: SubPassIndex = (!0, !0);
 pub struct SubPassDescription {
     pass_index: PassIndex,
     name: &'static str,
-    color_attachments: Vec<ResourceIndex>,
-    depth_stencil_attachment: Option<ResourceIndex>,
-    input_attachments: Vec<ResourceIndex>,
+    color_attachments: Vec<(ResourceIndex, Access)>,
+    depth_stencil_attachment: Option<(ResourceIndex, Access)>,
+    input_attachments: Vec<(ResourceIndex, Access)>,
 }
 
 #[derive(Hash, Debug)]
@@ -38,8 +39,8 @@ pub struct PassDescription {
     index: PassIndex,
     name: &'static str,
     bind_point: PipelineBindPoint,
-    textures: ResourceDeps<Texture>,
-    buffers: ResourceDeps<Buffer>,
+    textures: ResourceDeps,
+    buffers: ResourceDeps,
     begin_subpasses: usize,
     end_subpasses: usize, // exclusive!
     active: bool,
@@ -207,15 +208,15 @@ impl SubPassDescription {
     }
 
     #[inline]
-    pub fn color_attachments(&self) -> &[ResourceIndex] {
+    pub fn color_attachments(&self) -> &[(ResourceIndex, Access)] {
         &self.color_attachments
     }
     #[inline]
-    pub fn input_attachments(&self) -> &[ResourceIndex] {
+    pub fn input_attachments(&self) -> &[(ResourceIndex, Access)] {
         &self.input_attachments
     }
     #[inline]
-    pub fn depth_stencil_attachment(&self) -> Option<ResourceIndex> {
+    pub fn depth_stencil_attachment(&self) -> Option<(ResourceIndex, Access)> {
         self.depth_stencil_attachment
     }
 }
@@ -236,12 +237,12 @@ impl PassDescription {
     }
 
     #[inline]
-    pub const fn textures(&self) -> &ResourceDeps<Texture> {
+    pub const fn textures(&self) -> &ResourceDeps {
         &self.textures
     }
 
     #[inline]
-    pub const fn buffers(&self) -> &ResourceDeps<Buffer> {
+    pub const fn buffers(&self) -> &ResourceDeps {
         &self.buffers
     }
 

@@ -1,22 +1,19 @@
-use std::hash::Hash;
-
 use ash::vk::{self, PipelineStageFlags};
 use pulz_assets::Handle;
 use pulz_render::{
     backend::PhysicalResourceResolver,
-    buffer::{Buffer, BufferUsage},
+    buffer::Buffer,
     camera::RenderTarget,
     draw::DrawPhases,
     graph::{
+        access::Access,
         pass::PipelineBindPoint,
         resources::{PhysicalResource, PhysicalResources},
         PassDescription, PassIndex, RenderGraph,
     },
     math::USize2,
     pipeline::{ExtendedGraphicsPassDescriptor, GraphicsPass},
-    texture::{
-        Texture, TextureDescriptor, TextureDimensions, TextureFormat, TextureLayout, TextureUsage,
-    },
+    texture::{Texture, TextureDescriptor, TextureDimensions, TextureFormat},
 };
 use pulz_window::WindowsMirror;
 use tracing::debug;
@@ -96,7 +93,7 @@ impl PhysicalResourceResolver for AshPhysicalResourceResolver<'_> {
                 Some(PhysicalResource {
                     resource: aquired_texture.texture,
                     format: surface.texture_format(),
-                    usage: TextureUsage::PRESENT,
+                    access: Access::PRESENT,
                     size: TextureDimensions::D2(surface.size()),
                 })
             }
@@ -111,14 +108,14 @@ impl PhysicalResourceResolver for AshPhysicalResourceResolver<'_> {
         &mut self,
         format: TextureFormat,
         dimensions: TextureDimensions,
-        usage: TextureUsage,
+        access: Access,
     ) -> Option<Texture> {
         let t = self
             .res
             .create::<Texture>(&TextureDescriptor {
                 format,
                 dimensions,
-                usage,
+                usage: access.as_texture_usage(),
                 ..Default::default()
             })
             .ok()?;
@@ -128,7 +125,7 @@ impl PhysicalResourceResolver for AshPhysicalResourceResolver<'_> {
         Some(t)
     }
 
-    fn create_transient_buffer(&mut self, _size: usize, _usage: BufferUsage) -> Option<Buffer> {
+    fn create_transient_buffer(&mut self, _size: usize, _access: Access) -> Option<Buffer> {
         // TODO: destroy buffers
         // TODO: reuse buffers
         todo!("implement create_transient_buffer")
@@ -140,11 +137,11 @@ impl TopoRenderPass {
         res: &mut AshResources,
         src: &RenderGraph,
         phys: &PhysicalResources,
-        current_texture_layouts: &mut [TextureLayout],
+        current_texture_access: &mut [Access],
         pass: &PassDescription,
     ) -> Result<Self> {
         let pass_descr =
-            ExtendedGraphicsPassDescriptor::from_graph(src, phys, current_texture_layouts, pass)
+            ExtendedGraphicsPassDescriptor::from_graph(src, phys, current_texture_access, pass)
                 .unwrap();
         let graphics_pass = res.create::<GraphicsPass>(&pass_descr.graphics_pass)?;
         let render_pass = res[graphics_pass];
@@ -279,8 +276,8 @@ impl AshRenderGraph {
         self.topo
             .resize_with(num_topological_groups, Default::default);
 
-        let mut current_texture_layouts = Vec::new();
-        current_texture_layouts.resize(src.get_num_textures(), TextureLayout::Undefined);
+        let mut current_texture_access = Vec::new();
+        current_texture_access.resize(src.get_num_textures(), Access::NONE);
         // TODO: get initial layout of external textures
 
         for topo_index in 0..num_topological_groups {
@@ -292,7 +289,7 @@ impl AshRenderGraph {
                             res,
                             src,
                             &self.physical_resources,
-                            &mut current_texture_layouts,
+                            &mut current_texture_access,
                             pass,
                         )?);
                     }

@@ -1,10 +1,10 @@
 use pulz_assets::Handle;
 
 use crate::{
-    buffer::{Buffer, BufferUsage},
+    buffer::Buffer,
     camera::RenderTarget,
-    graph::resources::PhysicalResource,
-    texture::{Texture, TextureDimensions, TextureFormat, TextureUsage},
+    graph::{access::Access, resources::PhysicalResource},
+    texture::{Texture, TextureDimensions, TextureFormat},
 };
 
 pub trait GpuResource: slotmap::Key {
@@ -42,7 +42,7 @@ pub trait PhysicalResourceResolver {
         &mut self,
         format: TextureFormat,
         size: TextureDimensions,
-        usage: TextureUsage,
+        access: Access,
     ) -> Option<Texture>;
-    fn create_transient_buffer(&mut self, size: usize, usage: BufferUsage) -> Option<Buffer>;
+    fn create_transient_buffer(&mut self, size: usize, access: Access) -> Option<Buffer>;
 }

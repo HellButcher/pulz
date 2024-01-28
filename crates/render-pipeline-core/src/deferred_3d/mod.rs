@@ -119,9 +119,9 @@ impl Pass for Composition {
     type Output = WriteSlot<Texture>;
 
     fn build(self, mut build: PassBuilder<'_, Graphics>) -> (Self::Output, PassExec<Graphics>) {
-        build.input_attachment(self.albedo);
-        build.input_attachment(self.position);
-        build.input_attachment(self.normal);
+        build.color_input_attachment(self.albedo);
+        build.color_input_attachment(self.position);
+        build.color_input_attachment(self.normal);
         let output = build.creates_color_attachment();
         (output, PassExec::noop())
     }

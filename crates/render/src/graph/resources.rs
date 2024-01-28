@@ -11,23 +11,28 @@ use pulz_bitset::BitSet;
 use pulz_window::WindowId;
 
 use super::{
-    access::{ResourceAccess, Stage},
+    access::{Access, ResourceAccess, Stage},
     builder::{GraphExport, GraphImport},
     deps::DependencyMatrix,
-    PassDescription, PassIndex, RenderGraph, ResourceIndex, SubPassDescription, SubPassIndex,
-    PASS_UNDEFINED, SUBPASS_UNDEFINED,
+    PassDescription, PassIndex, RenderGraph, ResourceIndex, SubPassIndex, PASS_UNDEFINED,
+    SUBPASS_UNDEFINED,
 };
 use crate::{
     backend::PhysicalResourceResolver,
-    buffer::{Buffer, BufferUsage},
+    buffer::Buffer,
     camera::RenderTarget,
-    texture::{Image, Texture, TextureDimensions, TextureFormat, TextureUsage},
+    texture::{Image, Texture, TextureDimensions, TextureFormat},
 };
 
 #[derive(Copy, Clone)]
-pub struct Slot<R> {
+pub struct SlotRaw {
     pub(crate) index: ResourceIndex,
     pub(crate) last_written_by: SubPassIndex,
+}
+
+#[derive(Copy, Clone)]
+pub struct Slot<R> {
+    raw: SlotRaw,
     _phantom: PhantomData<fn() -> R>,
 }
 
@@ -35,8 +40,16 @@ impl<R> std::fmt::Debug for Slot<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let typename = std::any::type_name::<R>();
         f.debug_tuple(&format!("Slot<{typename}>"))
-            .field(&self.index)
+            .field(&self.raw.index)
             .finish()
+    }
+}
+
+impl<R> Deref for Slot<R> {
+    type Target = SlotRaw;
+    #[inline]
+    fn deref(&self) -> &SlotRaw {
+        &self.raw
     }
 }
 
@@ -47,8 +60,16 @@ impl<R> std::fmt::Debug for WriteSlot<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let typename = std::any::type_name::<R>();
         f.debug_tuple(&format!("WriteSlot<{typename}>"))
-            .field(&self.0.index)
+            .field(&self.raw.index)
             .finish()
+    }
+}
+
+impl<R> Deref for WriteSlot<R> {
+    type Target = Slot<R>;
+    #[inline]
+    fn deref(&self) -> &Slot<R> {
+        &self.0
     }
 }
 
@@ -61,7 +82,7 @@ impl<R> SlotAccess for Slot<R> {
     const WRITE: bool = false;
     #[inline]
     fn index(&self) -> ResourceIndex {
-        self.index
+        self.raw.index
     }
 }
 
@@ -69,23 +90,17 @@ impl<R> SlotAccess for WriteSlot<R> {
     const WRITE: bool = true;
     #[inline]
     fn index(&self) -> ResourceIndex {
-        self.0.index
-    }
-}
-
-impl<R> Deref for WriteSlot<R> {
-    type Target = Slot<R>;
-    #[inline]
-    fn deref(&self) -> &Slot<R> {
-        &self.0
+        self.raw.index
     }
 }
 
 impl<R> Slot<R> {
     const fn new(index: ResourceIndex, last_written_by: SubPassIndex) -> Self {
         Self {
-            index,
-            last_written_by,
+            raw: SlotRaw {
+                index,
+                last_written_by,
+            },
             _phantom: PhantomData,
         }
     }
@@ -113,7 +128,7 @@ pub enum ResourceVariant {
 pub(crate) struct Resource<R: ResourceAccess> {
     first_written: SubPassIndex,
     last_written: SubPassIndex,
-    usage: R::Usage,
+    access: Access,
     format: Option<R::Format>,
     size: Option<R::Size>,
     variant: ResourceVariant,
@@ -137,13 +152,13 @@ impl<R: ResourceAccess> Resource<R> {
         if let Some(f) = self.format {
             f
         } else {
-            R::default_format(self.usage)
+            R::default_format(self.access)
         }
     }
 
     #[inline]
-    pub fn usage(&self) -> R::Usage {
-        self.usage
+    pub fn access(&self) -> Access {
+        self.access
     }
 
     #[inline]
@@ -183,6 +198,7 @@ impl<R: ResourceAccess> Hash for Resource<R> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.first_written.hash(state);
         self.last_written.hash(state);
+        self.access.hash(state);
         self.variant.hash(state);
         self.format.hash(state);
         // ignore size and extern assignment!
@@ -190,21 +206,19 @@ impl<R: ResourceAccess> Hash for Resource<R> {
 }
 
 #[derive(Debug)]
-pub struct ResourceDeps<R: ResourceAccess>(Vec<ResourceDep<R>>);
+pub struct ResourceDeps(Vec<ResourceDep>);
 
-impl<R: ResourceAccess> Hash for ResourceDeps<R> {
+impl Hash for ResourceDeps {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Hash::hash_slice(&self.0, state);
     }
 }
 
 #[derive(Hash, Debug)]
-pub struct ResourceDep<R: ResourceAccess> {
+pub struct ResourceDep {
     index: ResourceIndex,
     last_written_by_pass: PassIndex,
-    write_access: bool,
-    stages: Stage,
-    usage: R::Usage,
+    access: Access,
 }
 
 impl<R: ResourceAccess> ResourceSet<R> {
@@ -228,7 +242,7 @@ impl<R: ResourceAccess> ResourceSet<R> {
         self.resources.push(Resource {
             first_written: SUBPASS_UNDEFINED,
             last_written: SUBPASS_UNDEFINED,
-            usage: Default::default(),
+            access: Access::empty(),
             format: None,
             size: None,
             variant: ResourceVariant::Transient,
@@ -258,15 +272,16 @@ impl<R: ResourceAccess> ResourceSet<R> {
         &mut self,
         slot: WriteSlot<R>,
         new_pass: SubPassIndex,
-        usage: R::Usage,
+        access: Access,
     ) -> WriteSlot<R> {
+        assert!(access.is_empty() || access.is_write());
         let r = &mut self.resources[slot.0.index as usize];
         let last_written_by_pass = r.last_written;
         assert_eq!(
             last_written_by_pass, slot.0.last_written_by,
             "resource also written by an other pass (slot out of sync)"
         );
-        r.usage |= usage;
+        r.access |= access;
         if new_pass != last_written_by_pass {
             r.last_written = new_pass;
             if r.first_written.0 == PASS_UNDEFINED {
@@ -276,7 +291,8 @@ impl<R: ResourceAccess> ResourceSet<R> {
         WriteSlot::new(slot.0.index, new_pass)
     }
 
-    pub(super) fn reads(&mut self, slot: Slot<R>, usage: R::Usage) {
+    pub(super) fn reads(&mut self, slot: Slot<R>, access: Access) {
+        assert!(access.is_empty() || access.is_read());
         assert_ne!(
             slot.last_written_by.0, PASS_UNDEFINED,
             "resource was not yet written!"
@@ -288,7 +304,7 @@ impl<R: ResourceAccess> ResourceSet<R> {
             last_written_by_pass, slot.last_written_by,
             "resource also written by an other pass (slot out of sync)"
         );
-        r.usage |= usage;
+        r.access |= access;
     }
 
     pub(super) fn import(&mut self, extern_resource: R::ExternHandle) -> Slot<R> {
@@ -320,13 +336,13 @@ impl<R: ResourceAccess> ResourceSet<R> {
     }
 }
 
-impl<R: ResourceAccess> ResourceDeps<R> {
+impl ResourceDeps {
     #[inline]
-    pub fn deps(&self) -> &[ResourceDep<R>] {
+    pub fn deps(&self) -> &[ResourceDep] {
         &self.0
     }
 
-    pub fn find_by_resource_index(&self, resource_index: ResourceIndex) -> Option<&ResourceDep<R>> {
+    pub fn find_by_resource_index(&self, resource_index: ResourceIndex) -> Option<&ResourceDep> {
         if let Ok(i) = self.0.binary_search_by_key(&resource_index, |d| d.index) {
             Some(&self.0[i])
         } else {
@@ -373,22 +389,14 @@ impl<R: ResourceAccess> ResourceDeps<R> {
         }
     }
 
-    pub(super) fn access(
-        &mut self,
-        slot: &Slot<R>,
-        write_access: bool,
-        stages: Stage,
-        usage: R::Usage,
-    ) -> bool {
+    pub(super) fn access(&mut self, slot: &SlotRaw, access: Access) -> bool {
         match self.0.binary_search_by_key(&slot.index, |e| e.index) {
             Ok(i) => {
                 let entry = &mut self.0[i];
                 assert_eq!(entry.last_written_by_pass, slot.last_written_by.0);
-                entry.write_access |= write_access;
-                entry.stages |= stages;
-                entry.usage |= usage;
-                if entry.write_access {
-                    R::check_usage_is_pass_compatible(entry.usage);
+                entry.access |= access;
+                if access.is_write() {
+                    //TODO: R::check_usage_is_pass_compatible(entry.usage);
                 }
                 false
             }
@@ -398,9 +406,7 @@ impl<R: ResourceAccess> ResourceDeps<R> {
                     ResourceDep {
                         index: slot.index,
                         last_written_by_pass: slot.last_written_by.0,
-                        write_access,
-                        stages,
-                        usage,
+                        access,
                     },
                 );
                 true
@@ -409,15 +415,15 @@ impl<R: ResourceAccess> ResourceDeps<R> {
     }
 }
 
-impl<R: ResourceAccess> Deref for ResourceDeps<R> {
-    type Target = [ResourceDep<R>];
+impl Deref for ResourceDeps {
+    type Target = [ResourceDep];
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<R: ResourceAccess> ResourceDep<R> {
+impl ResourceDep {
     #[inline]
     pub fn resource_index(&self) -> ResourceIndex {
         self.index
@@ -430,22 +436,22 @@ impl<R: ResourceAccess> ResourceDep<R> {
 
     #[inline]
     pub fn stages(&self) -> Stage {
-        self.stages
+        self.access.as_stage()
     }
 
     #[inline]
-    pub fn usage(&self) -> R::Usage {
-        self.usage
+    pub fn access(&self) -> Access {
+        self.access
     }
 
     #[inline]
     pub fn is_read(&self) -> bool {
-        self.last_written_by_pass != !0
+        self.access.is_read()
     }
 
     #[inline]
     pub fn is_write(&self) -> bool {
-        self.write_access
+        self.access.is_write()
     }
 }
 
@@ -454,12 +460,13 @@ pub struct PhysicalResource<R: ResourceAccess> {
     pub resource: R,
     pub format: R::Format,
     pub size: R::Size,
-    pub usage: R::Usage,
+    pub access: Access,
 }
 
 impl<R: ResourceAccess> Hash for PhysicalResource<R> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.format.hash(state);
+        self.access.hash(state);
         // ignore resource and size
     }
 }
@@ -490,7 +497,7 @@ trait ResolveExtern<R: ResourceAccess> {
     fn resolve_extern(&mut self, handle: &R::ExternHandle) -> Option<PhysicalResource<R>>;
 }
 trait CreateTransient<R: ResourceAccess> {
-    fn create_transient(&mut self, format: R::Format, size: R::Size, usage: R::Usage) -> Option<R>;
+    fn create_transient(&mut self, format: R::Format, size: R::Size, access: Access) -> Option<R>;
 }
 
 impl<R: ResourceAccess> PhysicalResourceSet<R> {
@@ -534,7 +541,7 @@ impl<R: ResourceAccess> PhysicalResourceSet<R> {
         transients: &mut Vec<TransientResource<R>>,
         format: R::Format,
         size: R::Size,
-        usage: R::Usage,
+        access: Access,
         first_topo_group: u16,
         last_topo_group: u16,
     ) -> u16 {
@@ -542,7 +549,7 @@ impl<R: ResourceAccess> PhysicalResourceSet<R> {
             if format == p.physical.format && p.last_topo_group < first_topo_group {
                 if let Some(s) = R::merge_size_max(p.physical.size, size) {
                     p.physical.size = s;
-                    p.physical.usage |= usage;
+                    p.physical.access |= access;
                     p.last_topo_group = last_topo_group;
                     return j as u16;
                 }
@@ -554,7 +561,7 @@ impl<R: ResourceAccess> PhysicalResourceSet<R> {
                 resource: R::default(),
                 format,
                 size,
-                usage,
+                access,
             },
             first_topo_group,
             last_topo_group,
@@ -604,7 +611,7 @@ impl<R: ResourceAccess> PhysicalResourceSet<R> {
             let r = &resources.resources[i];
             let d = &resources_data[i];
             if d.is_active() && matches!(self.assignments[i], ExternalOrTransient::None) {
-                if r.usage == R::Usage::default() {
+                if r.access.is_empty() {
                     panic!(
                         "transient usage is empty, {:?}, {:?}, {}, {}, {:?}, {:?}",
                         r.size,
@@ -612,14 +619,14 @@ impl<R: ResourceAccess> PhysicalResourceSet<R> {
                         d.first_topo_group,
                         d.last_topo_group,
                         r.first_written,
-                        r.usage
+                        r.access
                     );
                 }
                 let transient_index = Self::get_or_create_transient(
                     &mut self.transients,
                     r.format_or_default(),
                     self.assignment_sizes[i].expect("missing size"),
-                    r.usage,
+                    r.access,
                     d.first_topo_group,
                     d.last_topo_group,
                 );
@@ -632,7 +639,7 @@ impl<R: ResourceAccess> PhysicalResourceSet<R> {
                 .create_transient(
                     trans.physical.format,
                     trans.physical.size,
-                    trans.physical.usage,
+                    trans.physical.access,
                 )
                 .expect("unable to create transient"); // TODO: error
         }
@@ -640,35 +647,21 @@ impl<R: ResourceAccess> PhysicalResourceSet<R> {
 }
 
 impl PhysicalResourceSet<Texture> {
-    fn derive_framebuffer_sizes(
-        &mut self,
-        passes: &[PassDescription],
-        subpasses: &[SubPassDescription],
-    ) {
+    fn derive_framebuffer_sizes(&mut self, passes: &[PassDescription]) {
         for pass in passes {
             if pass.active {
-                self.derive_framebuffer_size_for_pass(pass, &subpasses[pass.sub_pass_range()]);
+                self.derive_framebuffer_size_for_pass(pass);
             }
         }
     }
 
-    fn derive_framebuffer_size_for_pass(
-        &mut self,
-        pass: &PassDescription,
-        subpasses: &[SubPassDescription],
-    ) {
+    fn derive_framebuffer_size_for_pass(&mut self, pass: &PassDescription) {
         let mut pass_size = None;
         let mut empty = true;
-        for p in subpasses {
-            for r_index in p
-                .color_attachments
-                .iter()
-                .copied()
-                .chain(p.depth_stencil_attachment.iter().copied())
-                .chain(p.input_attachments.iter().copied())
-            {
+        for r in pass.textures().iter() {
+            if r.access().is_graphics_attachment() {
                 empty = false;
-                if let Some(s) = self.assignment_sizes[r_index as usize] {
+                if let Some(s) = self.assignment_sizes[r.index as usize] {
                     if let Some(s2) = pass_size {
                         assert_eq!(s2, s, "pass attachments have to be the same size");
                     } else {
@@ -687,15 +680,9 @@ impl PhysicalResourceSet<Texture> {
             );
         }
 
-        for p in subpasses {
-            for r_index in p
-                .color_attachments
-                .iter()
-                .copied()
-                .chain(p.depth_stencil_attachment.iter().copied())
-                .chain(p.input_attachments.iter().copied())
-            {
-                let s = &mut self.assignment_sizes[r_index as usize];
+        for r in pass.textures().iter() {
+            if r.access().is_graphics_attachment() {
+                let s = &mut self.assignment_sizes[r.index as usize];
                 if s.is_none() {
                     *s = pass_size;
                 }
@@ -733,8 +720,7 @@ impl PhysicalResources {
         self.buffers
             .assign_externals(&graph.buffers, &graph.buffers_ext, backend);
 
-        self.textures
-            .derive_framebuffer_sizes(&graph.passes, &graph.subpasses);
+        self.textures.derive_framebuffer_sizes(&graph.passes);
 
         self.textures
             .assign_transient(&graph.textures, &graph.textures_ext, backend);
@@ -852,16 +838,16 @@ where
         &mut self,
         format: TextureFormat,
         size: TextureDimensions,
-        usage: TextureUsage,
+        access: Access,
     ) -> Option<Texture> {
-        self.create_transient_texture(format, size, usage)
+        self.create_transient_texture(format, size, access)
     }
 }
 impl<B> CreateTransient<Buffer> for B
 where
     B: PhysicalResourceResolver,
 {
-    fn create_transient(&mut self, _format: (), size: usize, usage: BufferUsage) -> Option<Buffer> {
-        self.create_transient_buffer(size, usage)
+    fn create_transient(&mut self, _format: (), size: usize, access: Access) -> Option<Buffer> {
+        self.create_transient_buffer(size, access)
     }
 }
