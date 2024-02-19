@@ -7,7 +7,7 @@ publish = false
 
 [dev-dependencies]
 pulz-ecs = { path = "../crates/ecs" }
-bevy_ecs = "0.12"
+bevy_ecs = "0.13"
 
 criterion = { version = "0.5", features = [ "html_reports" ] }
 
