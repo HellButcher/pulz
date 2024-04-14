@@ -929,33 +929,53 @@ pub struct CreateInfoConverter6(
 
 pub struct CreateInfoConverter2(ScratchBuffer, ScratchBuffer);
 
-fn get_or_create_subpass_dep(
-    buf: &mut ScratchBuffer<vk::SubpassDependency>,
-    src: u32,
-    dst: u32,
-    src_access_mask: vk::AccessFlags,
-) -> &mut vk::SubpassDependency {
-    buf.binary_search_insert_by_key_with(
-        &(src, dst),
-        |d| (d.src_subpass, d.dst_subpass),
-        || {
-            vk::SubpassDependency::builder()
-                .src_subpass(src)
-                .dst_subpass(dst)
-                .src_stage_mask(
-                    if src_access_mask.contains(vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE) {
-                        vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
-                            | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS
-                    } else {
-                        vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
-                    },
-                )
-                .src_access_mask(src_access_mask)
-                // use BY-REGION by default
-                .dependency_flags(vk::DependencyFlags::BY_REGION)
-                .build()
-        },
-    )
+struct SubpassDepTracker<'a> {
+    subpass_deps: &'a mut ScratchBuffer<vk::SubpassDependency>,
+    attachment_dep_data: Vec<(u32, vk::PipelineStageFlags, vk::AccessFlags)>,
+    attachment_usage: &'a mut BitSet,
+}
+
+impl SubpassDepTracker<'_> {
+    fn get_or_create_subpass_dep(&mut self, src: u32, dst: u32) -> &mut vk::SubpassDependency {
+        self.subpass_deps.binary_search_insert_by_key_with(
+            &(src, dst),
+            |d| (d.src_subpass, d.dst_subpass),
+            || {
+                vk::SubpassDependency::builder()
+                    .src_subpass(src)
+                    .dst_subpass(dst)
+                    // use BY-REGION by default
+                    .dependency_flags(vk::DependencyFlags::BY_REGION)
+                    .build()
+            },
+        )
+    }
+
+    fn mark_subpass_attachment(
+        &mut self,
+        attachment: usize,
+        dst: usize,
+        dst_stage: vk::PipelineStageFlags,
+        dst_access: vk::AccessFlags,
+        next_access: vk::AccessFlags,
+    ) {
+        let (src, src_stage, src_access) = self.attachment_dep_data[attachment];
+        if src != vk::SUBPASS_EXTERNAL {
+            let dep = self.get_or_create_subpass_dep(src, dst as u32);
+            dep.src_stage_mask |= src_stage;
+            dep.dst_access_mask |= src_access;
+            dep.dst_stage_mask |= dst_stage;
+            dep.dst_access_mask |= dst_access;
+        }
+
+        if next_access != vk::AccessFlags::NONE {
+            self.attachment_dep_data[attachment] = (dst as u32, dst_stage, next_access);
+        }
+
+        let num_attachments = self.attachment_dep_data.len();
+        self.attachment_usage
+            .insert(dst * num_attachments + attachment);
+    }
 }
 
 impl CreateInfoConverter6 {
@@ -995,7 +1015,11 @@ impl CreateInfoConverter6 {
                     .final_layout(a.final_access.vk_into())
                     .build(),
             );
-            attachment_dep_data.push((vk::SUBPASS_EXTERNAL, vk::AccessFlags::NONE));
+            attachment_dep_data.push((
+                vk::SUBPASS_EXTERNAL,
+                vk::PipelineStageFlags::NONE,
+                vk::AccessFlags::NONE,
+            ));
         }
 
         // calculate subpass deps
@@ -1003,20 +1027,25 @@ impl CreateInfoConverter6 {
         let a_refs = self.2.clear_and_use_as::<vk::AttachmentReference>();
         let num_subpasses = desc.subpasses().len();
         let mut attachment_usage = BitSet::with_capacity_for(num_attachments * num_subpasses);
+        let mut subpass_tracker = SubpassDepTracker {
+            attachment_dep_data,
+            subpass_deps: sp_deps,
+            attachment_usage: &mut attachment_usage,
+        };
         for (i, sp) in desc.subpasses().iter().enumerate() {
             // TODO: handle Write>Read>Write!
             // TODO: also non-attachment dubpass-deps
             let dst = i as u32;
             for &(a, _u) in sp.input_attachments() {
-                let a = a as usize;
-                let (src, src_access) = attachment_dep_data[a];
-                if src != vk::SUBPASS_EXTERNAL {
-                    let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
-                    dep.dst_stage_mask |= vk::PipelineStageFlags::FRAGMENT_SHADER;
-                    dep.dst_access_mask |= vk::AccessFlags::INPUT_ATTACHMENT_READ;
-                }
-                attachment_usage.insert(i * num_attachments + a);
+                subpass_tracker.mark_subpass_attachment(
+                    a as usize,
+                    i,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                    vk::AccessFlags::INPUT_ATTACHMENT_READ,
+                    vk::AccessFlags::NONE,
+                );
 
+                //attachments[a].final_layout = vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL;
                 a_refs.push(vk::AttachmentReference {
                     attachment: a as u32, // if a==!0 => vk::ATTACHMENT_UNUSED
                     //layout: u.vk_into(),
@@ -1024,15 +1053,13 @@ impl CreateInfoConverter6 {
                 });
             }
             for &(a, _u) in sp.color_attachments() {
-                let a = a as usize;
-                let (src, src_access) = attachment_dep_data[a];
-                if src != vk::SUBPASS_EXTERNAL {
-                    let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
-                    dep.dst_stage_mask |= vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
-                    dep.dst_access_mask |= vk::AccessFlags::COLOR_ATTACHMENT_READ;
-                }
-                attachment_dep_data[a] = (dst, vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
-                attachment_usage.insert(i * num_attachments + a);
+                subpass_tracker.mark_subpass_attachment(
+                    a as usize,
+                    i,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::AccessFlags::COLOR_ATTACHMENT_READ,
+                    vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                );
 
                 //attachments[a].final_layout = vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL;
                 a_refs.push(vk::AttachmentReference {
@@ -1042,16 +1069,14 @@ impl CreateInfoConverter6 {
                 });
             }
             if let Some((a, _u)) = sp.depth_stencil_attachment() {
-                let a = a as usize;
-                let (src, src_access) = attachment_dep_data[a];
-                if src != vk::SUBPASS_EXTERNAL {
-                    let dep = get_or_create_subpass_dep(sp_deps, src, dst, src_access);
-                    dep.dst_stage_mask |= vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
-                        | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS;
-                    dep.dst_access_mask |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ;
-                }
-                attachment_dep_data[a] = (dst, vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
-                attachment_usage.insert(i * num_attachments + a);
+                subpass_tracker.mark_subpass_attachment(
+                    a as usize,
+                    i,
+                    vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+                        | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+                    vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ,
+                    vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                );
 
                 //attachments[a].final_layout = vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 a_refs.push(vk::AttachmentReference {
@@ -1061,7 +1086,7 @@ impl CreateInfoConverter6 {
                 });
             }
         }
-        drop(attachment_dep_data);
+        drop(subpass_tracker);
 
         // preserve attachment
         let mut a_preserve_tmp: Vec<Vec<u32>> = Vec::new();

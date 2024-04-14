@@ -32,6 +32,12 @@ fn join_path(base_path: &mut PathBuf, asset_path: &AssetPath) {
     }
 }
 
+impl Default for FileSystemAssetLoaderIo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileSystemAssetLoaderIo {
     pub const fn new() -> Self {
         Self { dirs: Vec::new() }

@@ -27,7 +27,7 @@
 
 use std::{backtrace::Backtrace, ffi::CStr, rc::Rc, sync::Arc};
 
-use ash::vk::{self, PipelineStageFlags};
+use ash::vk;
 use bitflags::bitflags;
 use convert::default_clear_color_value_for_format;
 use device::AshDevice;
@@ -321,7 +321,7 @@ impl AshRendererFull {
             let sem = self.frames[self.current_frame]
                 .command_pool
                 .request_semaphore()?;
-            submission_group.wait(sem, PipelineStageFlags::TRANSFER);
+            submission_group.wait(sem, vk::PipelineStageFlags::TRANSFER);
             let surface = &mut self.surfaces[window_id];
             if let Some(acquired) = surface.acquire_next_image(&mut self.res, sem)? {
                 images.push((

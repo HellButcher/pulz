@@ -216,6 +216,12 @@ pub struct Camera {
     pub projection_matrix: Mat4,
 }
 
+impl Default for Camera {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Camera {
     pub const fn new() -> Self {
         Self {

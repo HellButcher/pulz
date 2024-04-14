@@ -107,7 +107,7 @@ fn get_instance_extensions(
     let available_extensions = entry.enumerate_instance_extension_properties(None)?;
 
     let mut extensions = Vec::with_capacity(5);
-    extensions.push(ash::extensions::khr::Surface::name());
+    extensions.push(khr::Surface::name());
 
     if cfg!(target_os = "windows") {
         extensions.push(khr::Win32Surface::name());

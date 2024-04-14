@@ -702,6 +702,12 @@ pub struct PhysicalResources {
     hash: u64,
 }
 
+impl Default for PhysicalResources {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PhysicalResources {
     pub const fn new() -> Self {
         Self {
@@ -794,6 +800,12 @@ pub struct PhysicalResourceAccessTracker {
     textures: PhysicalResourceMap<Texture, Access>,
     buffers: PhysicalResourceMap<Buffer, Access>,
     total: Access,
+}
+
+impl Default for PhysicalResourceAccessTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PhysicalResourceAccessTracker {

@@ -108,6 +108,12 @@ pub struct AssetServer {
     io: Box<dyn AssetOpen>,
 }
 
+impl Default for AssetServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AssetServer {
     #[cfg(not(target_os = "android"))]
     pub fn new() -> Self {

@@ -311,6 +311,12 @@ impl<I: PhaseItem> SystemData for Draw<'_, I> {
 
 pub struct PhaseModule<I>(PhantomData<fn(&I)>);
 
+impl<I: PhaseItem + Sync> Default for PhaseModule<I> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<I: PhaseItem + Sync> PhaseModule<I> {
     #[inline]
     pub const fn new() -> Self {

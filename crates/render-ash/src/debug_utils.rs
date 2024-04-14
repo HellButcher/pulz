@@ -145,7 +145,7 @@ impl DebugUtils {
         if message_severities.is_empty() {
             Self {
                 functions,
-                utils_messenger: ash::vk::DebugUtilsMessengerEXT::null(),
+                utils_messenger: vk::DebugUtilsMessengerEXT::null(),
             }
         } else {
             let utils_messenger = unsafe {
