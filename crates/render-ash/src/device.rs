@@ -4,7 +4,9 @@ use ash::vk;
 use pulz_render::graph::pass::PipelineBindPoint;
 use tracing::{debug, info, warn};
 
-use crate::{debug_utils, instance::AshInstance, AshRendererFlags, Error, ErrorNoExtension, Result};
+use crate::{
+    debug_utils, instance::AshInstance, AshRendererFlags, Error, ErrorNoExtension, Result,
+};
 
 pub struct AshDevice {
     device_raw: ash::Device,
@@ -72,7 +74,9 @@ impl AshDevice {
             device.ext_sync2 = Some(ash::khr::synchronization2::Device::new(instance, &device))
         }
         if device.has_device_extension(ash::khr::ray_tracing_pipeline::NAME) {
-            device.ext_raytracing_pipeline = Some(ash::khr::ray_tracing_pipeline::Device::new(instance, &device))
+            device.ext_raytracing_pipeline = Some(ash::khr::ray_tracing_pipeline::Device::new(
+                instance, &device,
+            ))
         }
 
         Ok(Arc::new(device))
@@ -118,7 +122,9 @@ impl AshDevice {
     }
 
     #[inline]
-    pub(crate) fn ext_sync2(&self) -> Result<&ash::khr::synchronization2::Device, ErrorNoExtension> {
+    pub(crate) fn ext_sync2(
+        &self,
+    ) -> Result<&ash::khr::synchronization2::Device, ErrorNoExtension> {
         self.ext_sync2
             .as_ref()
             .ok_or(ErrorNoExtension(ash::khr::synchronization2::NAME))

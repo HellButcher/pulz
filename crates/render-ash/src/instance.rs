@@ -54,7 +54,10 @@ impl AshInstance {
         }
 
         if instance.has_instance_extension(ash::khr::surface::NAME) {
-            instance.ext_surface = Some(ash::khr::surface::Instance::new(instance.entry(), &instance));
+            instance.ext_surface = Some(ash::khr::surface::Instance::new(
+                instance.entry(),
+                &instance,
+            ));
         }
 
         Ok(Arc::new(instance))

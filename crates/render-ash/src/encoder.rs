@@ -358,11 +358,7 @@ impl SubmissionGroup {
 
     pub fn submit(&mut self, device: &AshDevice, fence: vk::Fence) -> VkResult<&mut Self> {
         unsafe {
-            device.queue_submit(
-                device.queues().graphics,
-                &[self.submit_info()],
-                fence,
-            )?;
+            device.queue_submit(device.queues().graphics, &[self.submit_info()], fence)?;
         }
         self.reset();
         Ok(self)

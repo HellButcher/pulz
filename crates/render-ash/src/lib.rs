@@ -201,10 +201,8 @@ impl Frame {
 impl Frame {
     unsafe fn create(device: &Arc<AshDevice>) -> Result<Self> {
         let command_pool = device.new_command_pool(device.queues().graphics_family)?;
-        let finished_fence = device.create(
-            &vk::FenceCreateInfo::default()
-                .flags(vk::FenceCreateFlags::SIGNALED)
-        )?;
+        let finished_fence =
+            device.create(&vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED))?;
         let finished_semaphore = device.create(&vk::SemaphoreCreateInfo::default())?;
         Ok(Self {
             command_pool,

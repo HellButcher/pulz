@@ -361,12 +361,14 @@ impl AshGpuResource for RayTracingPipeline {
         let ext = res.device().ext_raytracing_pipeline()?;
         let mut conv = CreateInfoConverter2::new();
         let create_infos = conv.ray_tracing_pipeline_descriptor(res, std::slice::from_ref(descr));
-        let raw = ext.create_ray_tracing_pipelines(
-            vk::DeferredOperationKHR::null(),
-            res.pipeline_cache,
-            create_infos,
-            None,
-        ).map_err(|(_,e)|e)?;
+        let raw = ext
+            .create_ray_tracing_pipelines(
+                vk::DeferredOperationKHR::null(),
+                res.pipeline_cache,
+                create_infos,
+                None,
+            )
+            .map_err(|(_, e)| e)?;
         let raw = res.device().hold(raw[0]);
         if let Some(label) = descr.label {
             res.device().object_name(raw.raw(), label);

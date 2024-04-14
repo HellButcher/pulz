@@ -136,7 +136,6 @@ pub struct InstanceDebugUtils {
 pub struct DeviceDebugUtils(ash::ext::debug_utils::Device);
 
 impl InstanceDebugUtils {
-
     pub fn new(
         entry: &ash::Entry,
         instance: &ash::Instance,
@@ -179,28 +178,17 @@ impl InstanceDebugUtils {
 }
 
 impl DeviceDebugUtils {
-    pub fn new(
-        instance: &ash::Instance,
-        device: &ash::Device,
-    ) -> Self {
+    pub fn new(instance: &ash::Instance, device: &ash::Device) -> Self {
         let functions = ash::ext::debug_utils::Device::new(instance, device);
         Self(functions)
     }
 
     #[inline(always)]
-    pub unsafe fn object_name<H: Handle>(
-        &self,
-        handle: H,
-        object_name: &str,
-    ) {
+    pub unsafe fn object_name<H: Handle>(&self, handle: H, object_name: &str) {
         self._object_name(H::TYPE, handle.as_raw(), object_name)
     }
     #[inline(always)]
-    pub unsafe fn object_name_cstr<H: Handle>(
-        &self,
-        handle: H,
-        object_name: &CStr,
-    ) {
+    pub unsafe fn object_name_cstr<H: Handle>(&self, handle: H, object_name: &CStr) {
         self._object_name_cstr(H::TYPE, handle.as_raw(), object_name)
     }
 
@@ -216,11 +204,7 @@ impl DeviceDebugUtils {
         }
 
         let mut cstr_buf = CStrBuf::new();
-        self._object_name_cstr(
-            object_type,
-            object_handle,
-            cstr_buf.get_cstr(object_name),
-        )
+        self._object_name_cstr(object_type, object_handle, cstr_buf.get_cstr(object_name))
     }
 
     unsafe fn _object_name_cstr(
@@ -232,14 +216,14 @@ impl DeviceDebugUtils {
         if object_handle == 0 {
             return;
         }
-        let _result = self.0.set_debug_utils_object_name(
-            &vk::DebugUtilsObjectNameInfoEXT {
+        let _result = self
+            .0
+            .set_debug_utils_object_name(&vk::DebugUtilsObjectNameInfoEXT {
                 object_handle,
-                object_type,    
+                object_type,
                 p_object_name: object_name.as_ptr(),
                 ..Default::default()
-            },
-        );
+            });
     }
 
     #[inline]
@@ -322,5 +306,3 @@ impl Drop for InstanceDebugUtils {
         }
     }
 }
-
-

@@ -120,8 +120,7 @@ impl AshResources {
                 self.pipeline_cache = vk::PipelineCache::null();
             }
             self.pipeline_cache = self.alloc.device().create_pipeline_cache(
-                &vk::PipelineCacheCreateInfo::default()
-                    .initial_data(initial_data),
+                &vk::PipelineCacheCreateInfo::default().initial_data(initial_data),
                 None,
             )?;
         }

@@ -609,7 +609,7 @@ impl AshSurfaceSwapchain {
                                 .base_mip_level(0)
                                 .level_count(1)
                                 .base_array_layer(0)
-                                .layer_count(1)
+                                .layer_count(1),
                         ),
                     None,
                 )?;
@@ -786,7 +786,7 @@ impl AshRendererFull {
                     .wait_semaphores(wait_semaphores)
                     .swapchains(&swapchains)
                     .image_indices(&image_indices)
-                    .results(&mut results)
+                    .results(&mut results),
             )
         };
 

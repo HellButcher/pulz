@@ -355,7 +355,7 @@ impl AshRenderGraph {
                             .render_area(
                                 vk::Rect2D::default()
                                     .offset(vk::Offset2D { x: 0, y: 0 })
-                                    .extent(topo_render_pass.size.vk_into())
+                                    .extent(topo_render_pass.size.vk_into()),
                             ),
                         vk::SubpassContents::INLINE,
                     );

@@ -135,7 +135,7 @@ impl VkFrom<TextureDescriptor> for vk::ImageViewCreateInfo<'static> {
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
-                    .layer_count(get_array_layers(&val.dimensions))
+                    .layer_count(get_array_layers(&val.dimensions)),
             )
     }
 }
@@ -986,7 +986,10 @@ impl CreateInfoConverter6 {
         )
     }
 
-    pub fn graphics_pass(&mut self, desc: &GraphicsPassDescriptor) -> &vk::RenderPassCreateInfo<'_> {
+    pub fn graphics_pass(
+        &mut self,
+        desc: &GraphicsPassDescriptor,
+    ) -> &vk::RenderPassCreateInfo<'_> {
         // collect attachments
         let attachments = self.0.clear_and_use_as::<vk::AttachmentDescription>();
         let num_attachments = desc.attachments().len();
@@ -1007,7 +1010,7 @@ impl CreateInfoConverter6 {
                     } else {
                         vk::ImageLayout::UNDEFINED
                     })
-                    .final_layout(a.final_access.vk_into())
+                    .final_layout(a.final_access.vk_into()),
             );
             attachment_dep_data.push((
                 vk::SUBPASS_EXTERNAL,
@@ -1149,7 +1152,7 @@ impl CreateInfoConverter6 {
             vk::RenderPassCreateInfo::default()
                 .attachments(attachments.as_slice())
                 .subpasses(subpasses.as_slice())
-                .dependencies(sp_deps.as_slice())
+                .dependencies(sp_deps.as_slice()),
         );
         &buf.as_slice()[0]
     }
@@ -1165,13 +1168,15 @@ impl CreateInfoConverter2 {
         &mut self,
         desc: &BindGroupLayoutDescriptor<'_>,
     ) -> &vk::DescriptorSetLayoutCreateInfo<'_> {
-        let buf0 = self.0.clear_and_use_as::<vk::DescriptorSetLayoutBinding<'_>>();
+        let buf0 = self
+            .0
+            .clear_and_use_as::<vk::DescriptorSetLayoutBinding<'_>>();
         buf0.reserve(desc.entries.len());
         for e in desc.entries.as_ref() {
             buf0.push(
                 vk::DescriptorSetLayoutBinding::default()
                     .binding(e.binding)
-                    .descriptor_count(e.count)
+                    .descriptor_count(e.count),
             );
             // TODO: descriptor_type, stage_flags, immutable_samplers
             todo!();
@@ -1181,10 +1186,7 @@ impl CreateInfoConverter2 {
             .1
             .clear_and_use_as::<vk::DescriptorSetLayoutCreateInfo<'_>>();
         buf.reserve(1);
-        buf.push(
-            vk::DescriptorSetLayoutCreateInfo::default()
-                .bindings(buf0.as_slice())
-        );
+        buf.push(vk::DescriptorSetLayoutCreateInfo::default().bindings(buf0.as_slice()));
         &buf.as_slice()[0]
     }
 
@@ -1199,12 +1201,11 @@ impl CreateInfoConverter2 {
             buf0.push(res.bind_group_layouts[*bgl]);
         }
 
-        let buf = self.1.clear_and_use_as::<vk::PipelineLayoutCreateInfo<'_>>();
+        let buf = self
+            .1
+            .clear_and_use_as::<vk::PipelineLayoutCreateInfo<'_>>();
         buf.reserve(1);
-        buf.push(
-            vk::PipelineLayoutCreateInfo::default()
-                .set_layouts(buf0.as_slice())
-        );
+        buf.push(vk::PipelineLayoutCreateInfo::default().set_layouts(buf0.as_slice()));
         &buf.as_slice()[0]
     }
 
@@ -1213,16 +1214,15 @@ impl CreateInfoConverter2 {
         res: &AshResources,
         descs: &[GraphicsPipelineDescriptor<'_>],
     ) -> &[vk::GraphicsPipelineCreateInfo<'_>] {
-        let buf = self.0.clear_and_use_as::<vk::GraphicsPipelineCreateInfo<'_>>();
+        let buf = self
+            .0
+            .clear_and_use_as::<vk::GraphicsPipelineCreateInfo<'_>>();
         buf.reserve(descs.len());
         for desc in descs {
             let layout = desc
                 .layout
                 .map_or(vk::PipelineLayout::null(), |l| res.pipeline_layouts[l]);
-            buf.push(
-                vk::GraphicsPipelineCreateInfo::default()
-                    .layout(layout)
-            );
+            buf.push(vk::GraphicsPipelineCreateInfo::default().layout(layout));
             // TODO: vertex, primitive, depth_stencil, fragment, samples, specialization
             todo!(" implement graphics_pipeline_descriptor");
         }
@@ -1234,17 +1234,16 @@ impl CreateInfoConverter2 {
         res: &AshResources,
         descs: &[ComputePipelineDescriptor<'_>],
     ) -> &[vk::ComputePipelineCreateInfo<'_>] {
-        let buf = self.0.clear_and_use_as::<vk::ComputePipelineCreateInfo<'_>>();
+        let buf = self
+            .0
+            .clear_and_use_as::<vk::ComputePipelineCreateInfo<'_>>();
         buf.reserve(descs.len());
         for desc in descs {
             let layout = desc
                 .layout
                 .map_or(vk::PipelineLayout::null(), |l| res.pipeline_layouts[l]);
             // TODO: module, entry_point, specialization
-            buf.push(
-                vk::ComputePipelineCreateInfo::default()
-                    .layout(layout)
-            );
+            buf.push(vk::ComputePipelineCreateInfo::default().layout(layout));
             todo!(" implement compute_pipeline_descriptor");
         }
         buf.as_slice()
@@ -1267,7 +1266,7 @@ impl CreateInfoConverter2 {
             buf.push(
                 vk::RayTracingPipelineCreateInfoKHR::default()
                     .layout(layout)
-                    .max_pipeline_ray_recursion_depth(desc.max_recursion_depth)
+                    .max_pipeline_ray_recursion_depth(desc.max_recursion_depth),
             );
             todo!(" implement ray_tracing_pipeline_descriptor");
         }
