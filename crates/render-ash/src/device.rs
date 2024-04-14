@@ -1,19 +1,20 @@
 use std::{ffi::CStr, ops::Deref, os::raw::c_char, sync::Arc};
 
-use ash::{extensions::khr, vk};
+use ash::vk;
 use pulz_render::graph::pass::PipelineBindPoint;
 use tracing::{debug, info, warn};
 
-use crate::{instance::AshInstance, Error, ErrorNoExtension, Result};
+use crate::{debug_utils, instance::AshInstance, AshRendererFlags, Error, ErrorNoExtension, Result};
 
 pub struct AshDevice {
     device_raw: ash::Device,
     instance: Arc<AshInstance>,
     physical_device: vk::PhysicalDevice,
     device_extensions: Vec<&'static CStr>,
-    ext_swapchain: Option<khr::Swapchain>,
-    ext_sync2: Option<khr::Synchronization2>,
-    ext_raytracing_pipeline: Option<khr::RayTracingPipeline>,
+    debug_utils: Option<debug_utils::DeviceDebugUtils>,
+    ext_swapchain: Option<ash::khr::swapchain::Device>,
+    ext_sync2: Option<ash::khr::synchronization2::Device>,
+    ext_raytracing_pipeline: Option<ash::khr::ray_tracing_pipeline::Device>,
     queues: Queues,
 }
 
@@ -54,20 +55,24 @@ impl AshDevice {
             physical_device,
             device_raw,
             device_extensions,
+            debug_utils: None,
             ext_swapchain: None,
             ext_sync2: None,
             ext_raytracing_pipeline: None,
             queues,
         };
 
-        if device.has_device_extension(khr::Swapchain::name()) {
-            device.ext_swapchain = Some(khr::Swapchain::new(instance, &device));
+        if instance.debug_utils().is_ok() {
+            device.debug_utils = Some(debug_utils::DeviceDebugUtils::new(instance, &device));
         }
-        if device.has_device_extension(khr::Synchronization2::name()) {
-            device.ext_sync2 = Some(khr::Synchronization2::new(instance, &device))
+        if device.has_device_extension(ash::khr::swapchain::NAME) {
+            device.ext_swapchain = Some(ash::khr::swapchain::Device::new(instance, &device));
         }
-        if device.has_device_extension(khr::RayTracingPipeline::name()) {
-            device.ext_raytracing_pipeline = Some(khr::RayTracingPipeline::new(instance, &device))
+        if device.has_device_extension(ash::khr::synchronization2::NAME) {
+            device.ext_sync2 = Some(ash::khr::synchronization2::Device::new(instance, &device))
+        }
+        if device.has_device_extension(ash::khr::ray_tracing_pipeline::NAME) {
+            device.ext_raytracing_pipeline = Some(ash::khr::ray_tracing_pipeline::Device::new(instance, &device))
         }
 
         Ok(Arc::new(device))
@@ -99,32 +104,39 @@ impl AshDevice {
     }
 
     #[inline]
-    pub(crate) fn ext_swapchain(&self) -> Result<&khr::Swapchain, ErrorNoExtension> {
-        self.ext_swapchain
+    pub(crate) fn debug_utils(&self) -> Result<&debug_utils::DeviceDebugUtils, ErrorNoExtension> {
+        self.debug_utils
             .as_ref()
-            .ok_or(ErrorNoExtension(khr::Swapchain::name()))
+            .ok_or(ErrorNoExtension(ash::ext::debug_utils::NAME))
     }
 
     #[inline]
-    pub(crate) fn ext_sync2(&self) -> Result<&khr::Synchronization2, ErrorNoExtension> {
+    pub(crate) fn ext_swapchain(&self) -> Result<&ash::khr::swapchain::Device, ErrorNoExtension> {
+        self.ext_swapchain
+            .as_ref()
+            .ok_or(ErrorNoExtension(ash::khr::swapchain::NAME))
+    }
+
+    #[inline]
+    pub(crate) fn ext_sync2(&self) -> Result<&ash::khr::synchronization2::Device, ErrorNoExtension> {
         self.ext_sync2
             .as_ref()
-            .ok_or(ErrorNoExtension(khr::Synchronization2::name()))
+            .ok_or(ErrorNoExtension(ash::khr::synchronization2::NAME))
     }
 
     #[inline]
     pub(crate) fn ext_raytracing_pipeline(
         &self,
-    ) -> Result<&khr::RayTracingPipeline, ErrorNoExtension> {
+    ) -> Result<&ash::khr::ray_tracing_pipeline::Device, ErrorNoExtension> {
         self.ext_raytracing_pipeline
             .as_ref()
-            .ok_or(ErrorNoExtension(khr::RayTracingPipeline::name()))
+            .ok_or(ErrorNoExtension(ash::khr::ray_tracing_pipeline::NAME))
     }
 
     #[inline]
     pub unsafe fn object_name<H: vk::Handle>(&self, handle: H, name: &str) {
-        if let Ok(debug_utils) = self.instance.ext_debug_utils() {
-            debug_utils.object_name(self.handle(), handle, name)
+        if let Some(debug_utils) = &self.debug_utils {
+            debug_utils.object_name(handle, name)
         }
     }
 }
@@ -147,8 +159,8 @@ fn get_device_extensions(
         unsafe { instance.enumerate_device_extension_properties(physical_device)? };
 
     let mut extensions = Vec::with_capacity(4);
-    extensions.push(khr::Swapchain::name());
-    extensions.push(khr::Synchronization2::name());
+    extensions.push(ash::khr::swapchain::NAME);
+    extensions.push(ash::khr::synchronization2::NAME);
 
     // Only keep available extensions.
     extensions.retain(|&ext| {
@@ -236,7 +248,7 @@ impl AshInstance {
         let extensions = get_device_extensions(self, physical_device).ok()?;
 
         if for_surface_opt != vk::SurfaceKHR::null()
-            && (!extensions.contains(&khr::Swapchain::name())
+            && (!extensions.contains(&ash::khr::swapchain::NAME)
                 || self
                     .query_swapchain_support(for_surface_opt, physical_device)
                     .is_none())
@@ -267,11 +279,10 @@ impl AshInstance {
         let device = unsafe {
             self.create_device(
                 physical_device,
-                &vk::DeviceCreateInfo::builder()
-                    .queue_create_infos(&[vk::DeviceQueueCreateInfo::builder()
+                &vk::DeviceCreateInfo::default()
+                    .queue_create_infos(&[vk::DeviceQueueCreateInfo::default()
                         .queue_family_index(indices.graphics_family)
-                        .queue_priorities(&[1.0_f32])
-                        .build()])
+                        .queue_priorities(&[1.0_f32])])
                     .enabled_extension_names(extensions_ptr),
                 // .enabled_features(&vk::PhysicalDeviceFeatures {
                 //     ..Default::default() // default just enable no feature.

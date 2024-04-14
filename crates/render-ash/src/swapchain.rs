@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use ash::{extensions::khr, vk};
+use ash::vk;
 use pulz_render::{
     math::{uvec2, USize2},
     texture::{Texture, TextureFormat},
@@ -40,12 +40,12 @@ impl Destroy for vk::SwapchainKHR {
     }
 }
 
-macro_rules! check_and_get_extension {
-    ($self:ident => $ext:ty) => {{
-        if !$self.has_instance_extension(<$ext>::name()) {
-            return Err(Error::ExtensionNotSupported(<$ext>::name()));
+macro_rules! check_and_get_instance_extension {
+    ($self:ident => $ext:ident :: $extname:ident) => {{
+        if !$self.has_instance_extension(::ash::$ext::$extname::NAME) {
+            return Err(Error::ExtensionNotSupported(::ash::$ext::$extname::NAME));
         }
-        <$ext>::new($self.entry(), $self)
+        ::ash::$ext::$extname::Instance::new($self.entry(), $self)
     }};
 }
 
@@ -61,9 +61,9 @@ impl AshInstance {
         dpy: *mut vk::Display,
         window: vk::Window,
     ) -> Result<vk::SurfaceKHR> {
-        let functions = check_and_get_extension!(self => khr::XlibSurface);
+        let functions = check_and_get_instance_extension!(self => khr::xlib_surface);
         let surface = functions.create_xlib_surface(
-            &vk::XlibSurfaceCreateInfoKHR::builder()
+            &vk::XlibSurfaceCreateInfoKHR::default()
                 .dpy(dpy)
                 .window(window),
             None,
@@ -82,9 +82,9 @@ impl AshInstance {
         connection: *mut vk::xcb_connection_t,
         window: vk::xcb_window_t,
     ) -> Result<vk::SurfaceKHR> {
-        let functions = check_and_get_extension!(self => khr::XcbSurface);
+        let functions = check_and_get_instance_extension!(self => khr::xcb_surface);
         let surface = functions.create_xcb_surface(
-            &vk::XcbSurfaceCreateInfoKHR::builder()
+            &vk::XcbSurfaceCreateInfoKHR::default()
                 .connection(connection)
                 .window(window),
             None,
@@ -103,9 +103,9 @@ impl AshInstance {
         display: *mut vk::wl_display,
         surface: *mut vk::wl_surface,
     ) -> Result<vk::SurfaceKHR> {
-        let functions = check_and_get_extension!(self => khr::WaylandSurface);
+        let functions = check_and_get_instance_extension!(self => khr::wayland_surface);
         let surface = functions.create_wayland_surface(
-            &vk::WaylandSurfaceCreateInfoKHR::builder()
+            &vk::WaylandSurfaceCreateInfoKHR::default()
                 .display(display)
                 .surface(surface),
             None,
@@ -118,9 +118,9 @@ impl AshInstance {
         &self,
         window: *mut vk::ANativeWindow,
     ) -> Result<vk::SurfaceKHR> {
-        let functions = check_and_get_extension!(self => khr::AndroidSurface);
+        let functions = check_and_get_instance_extension!(self => khr::android_surface);
         let surface = functions.create_android_surface(
-            &vk::AndroidSurfaceCreateInfoKHR::builder()
+            &vk::AndroidSurfaceCreateInfoKHR::default()
                 .window(window)
                 .build(),
             None,
@@ -134,9 +134,9 @@ impl AshInstance {
         hinstance: vk::HINSTANCE,
         hwnd: vk::HWND,
     ) -> Result<vk::SurfaceKHR> {
-        let functions = check_and_get_extension!(self => khr::Win32Surface);
+        let functions = check_and_get_instance_extension!(self => khr::win32_surface);
         let surface = functions.create_win32_surface(
-            &vk::Win32SurfaceCreateInfoKHR::builder()
+            &vk::Win32SurfaceCreateInfoKHR::default()
                 .hinstance(hinstance)
                 .hwnd(hwnd)
                 .build(),
@@ -150,10 +150,9 @@ impl AshInstance {
         &self,
         layer: *const vk::CAMetalLayer,
     ) -> Result<vk::SurfaceKHR> {
-        use ash::extensions::ext;
-        let functions = check_and_get_extension!(self => ext::MetalSurface);
+        let functions = check_and_get_extension!(self => ext::metal_surface);
         let surface = functions.create_metal_surface(
-            &vk::MetalSurfaceCreateInfoEXT::builder()
+            &vk::MetalSurfaceCreateInfoEXT::default()
                 .layer(layer)
                 .build(),
             None,
@@ -558,7 +557,7 @@ impl AshSurfaceSwapchain {
         let old_swapchain = self.put_to_garbage(res);
         self.swapchain_raw = unsafe {
             res.device().ext_swapchain()?.create_swapchain(
-                &vk::SwapchainCreateInfoKHR::builder()
+                &vk::SwapchainCreateInfoKHR::default()
                     .surface(self.surface_raw)
                     .min_image_count(self.image_count)
                     .image_format(self.surface_format.format)
@@ -582,8 +581,7 @@ impl AshSurfaceSwapchain {
                     .present_mode(self.present_mode)
                     .clipped(true)
                     .old_swapchain(old_swapchain)
-                    .image_array_layers(1)
-                    .build(),
+                    .image_array_layers(1),
                 None,
             )?
         };
@@ -601,20 +599,18 @@ impl AshSurfaceSwapchain {
         for image in self.images.iter().copied() {
             unsafe {
                 let image_view = res.device().create_image_view(
-                    &vk::ImageViewCreateInfo::builder()
+                    &vk::ImageViewCreateInfo::default()
                         .image(image)
                         .view_type(vk::ImageViewType::TYPE_2D)
                         .format(self.surface_format.format)
                         .subresource_range(
-                            vk::ImageSubresourceRange::builder()
+                            vk::ImageSubresourceRange::default()
                                 .aspect_mask(vk::ImageAspectFlags::COLOR)
                                 .base_mip_level(0)
                                 .level_count(1)
                                 .base_array_layer(0)
                                 .layer_count(1)
-                                .build(),
-                        )
-                        .build(),
+                        ),
                     None,
                 )?;
                 self.image_views.push(image_view);
@@ -786,12 +782,11 @@ impl AshRendererFull {
         let result = unsafe {
             ext_swapchain.queue_present(
                 self.device.queues().present,
-                &vk::PresentInfoKHR::builder()
+                &vk::PresentInfoKHR::default()
                     .wait_semaphores(wait_semaphores)
                     .swapchains(&swapchains)
                     .image_indices(&image_indices)
                     .results(&mut results)
-                    .build(),
             )
         };
 

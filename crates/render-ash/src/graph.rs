@@ -53,8 +53,8 @@ struct TopoRenderPass {
 
 #[derive(Debug)]
 pub struct Barrier {
-    image: Vec<vk::ImageMemoryBarrier>,
-    buffer: Vec<vk::BufferMemoryBarrier>,
+    image: Vec<vk::ImageMemoryBarrier<'static>>,
+    buffer: Vec<vk::BufferMemoryBarrier<'static>>,
 }
 
 // implement Send+Sync manually, because vk::*MemoryBarrier have unused p_next pointers
@@ -200,14 +200,14 @@ impl TopoRenderPass {
         }
         */
 
-        let create_info = vk::FramebufferCreateInfo::builder()
+        let create_info = vk::FramebufferCreateInfo::default()
             .render_pass(self.render_pass)
             // TODO
             .attachments(&image_views)
             .width(self.size.x)
             .height(self.size.y)
             .layers(1);
-        let fb = unsafe { res.device().create(&create_info.build())? };
+        let fb = unsafe { res.device().create(&create_info)? };
         self.framebuffer = fb.take();
         //self.framebuffers_cache.insert(key, self.framebuffer);
         Ok(())
@@ -348,17 +348,15 @@ impl AshRenderGraph {
                     // TODO: caching of framebuffer
                     // TODO: clear-values, render-area, ...
                     encoder.begin_render_pass(
-                        &vk::RenderPassBeginInfo::builder()
+                        &vk::RenderPassBeginInfo::default()
                             .render_pass(topo_render_pass.render_pass)
                             .framebuffer(topo_render_pass.framebuffer)
                             .clear_values(&clear_values)
                             .render_area(
-                                vk::Rect2D::builder()
+                                vk::Rect2D::default()
                                     .offset(vk::Offset2D { x: 0, y: 0 })
                                     .extent(topo_render_pass.size.vk_into())
-                                    .build(),
-                            )
-                            .build(),
+                            ),
                         vk::SubpassContents::INLINE,
                     );
                     let mut first = true;

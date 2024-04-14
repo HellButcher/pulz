@@ -23,7 +23,7 @@ impl AshDevice {
     ) -> VkResult<AshCommandPool> {
         let pool = unsafe {
             self.create_command_pool(
-                &vk::CommandPoolCreateInfo::builder()
+                &vk::CommandPoolCreateInfo::default()
                     .queue_family_index(queue_family_index)
                     .flags(vk::CommandPoolCreateFlags::TRANSIENT),
                 None,
@@ -66,7 +66,7 @@ impl AshCommandPool {
         } else {
             unsafe {
                 self.device
-                    .create_semaphore(&vk::SemaphoreCreateInfo::builder().build(), None)?
+                    .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?
             }
         };
         self.used_semaphores.push(s);
@@ -77,7 +77,7 @@ impl AshCommandPool {
         if self.fresh_buffers.is_empty() {
             let new_buffers = unsafe {
                 self.device.allocate_command_buffers(
-                    &vk::CommandBufferAllocateInfo::builder()
+                    &vk::CommandBufferAllocateInfo::default()
                         .command_pool(self.pool)
                         .level(vk::CommandBufferLevel::PRIMARY)
                         .command_buffer_count(self.new_allocation_count),
@@ -89,7 +89,7 @@ impl AshCommandPool {
         unsafe {
             self.device.begin_command_buffer(
                 buffer,
-                &vk::CommandBufferBeginInfo::builder()
+                &vk::CommandBufferBeginInfo::default()
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
         }
@@ -154,7 +154,7 @@ impl AshCommandEncoder<'_> {
     }
 
     pub fn insert_debug_label(&self, label: &str) {
-        if let Ok(debug_utils) = self.pool.device.instance().ext_debug_utils() {
+        if let Ok(debug_utils) = self.pool.device.debug_utils() {
             unsafe {
                 debug_utils.cmd_begin_debug_label(self.buffer, label);
             }
@@ -162,7 +162,7 @@ impl AshCommandEncoder<'_> {
     }
 
     pub fn begin_debug_label(&self, label: &str) {
-        if let Ok(debug_utils) = self.pool.device.instance().ext_debug_utils() {
+        if let Ok(debug_utils) = self.pool.device.debug_utils() {
             unsafe {
                 debug_utils.cmd_begin_debug_label(self.buffer, label);
             }
@@ -172,7 +172,7 @@ impl AshCommandEncoder<'_> {
     }
 
     pub fn end_debug_label(&self) {
-        if let Ok(debug_utils) = self.pool.device.instance().ext_debug_utils() {
+        if let Ok(debug_utils) = self.pool.device.debug_utils() {
             unsafe {
                 debug_utils.cmd_end_debug_label(self.buffer);
             }
@@ -187,7 +187,7 @@ impl AshCommandEncoder<'_> {
         let debug_levels = self.debug_levels.get();
         if debug_levels > 0 {
             self.debug_levels.set(0);
-            if let Ok(debug_utils) = self.pool.device.instance().ext_debug_utils() {
+            if let Ok(debug_utils) = self.pool.device.debug_utils() {
                 for _i in 0..debug_levels {
                     unsafe {
                         debug_utils.cmd_end_debug_label(self.buffer);
@@ -233,9 +233,9 @@ impl AshCommandEncoder<'_> {
         &self,
         src_stage_mask: vk::PipelineStageFlags,
         dst_stage_mask: vk::PipelineStageFlags,
-        memory_barriers: &[vk::MemoryBarrier],
-        buffer_memory_barriers: &[vk::BufferMemoryBarrier],
-        image_memory_barriers: &[vk::ImageMemoryBarrier],
+        memory_barriers: &[vk::MemoryBarrier<'_>],
+        buffer_memory_barriers: &[vk::BufferMemoryBarrier<'_>],
+        image_memory_barriers: &[vk::ImageMemoryBarrier<'_>],
     ) {
         self.pool.device().cmd_pipeline_barrier(
             self.buffer,
@@ -250,7 +250,7 @@ impl AshCommandEncoder<'_> {
 
     pub unsafe fn begin_render_pass(
         &self,
-        create_info: &vk::RenderPassBeginInfo,
+        create_info: &vk::RenderPassBeginInfo<'_>,
         contents: vk::SubpassContents,
     ) {
         self.pool
@@ -348,8 +348,8 @@ impl SubmissionGroup {
         self.command_buffers.is_empty()
     }
 
-    pub fn submit_info(&self) -> vk::SubmitInfoBuilder<'_> {
-        vk::SubmitInfo::builder()
+    pub fn submit_info(&self) -> vk::SubmitInfo<'_> {
+        vk::SubmitInfo::default()
             .wait_semaphores(&self.wait_semaphores)
             .wait_dst_stage_mask(&self.wait_semaphores_dst_stages)
             .command_buffers(&self.command_buffers)
@@ -360,7 +360,7 @@ impl SubmissionGroup {
         unsafe {
             device.queue_submit(
                 device.queues().graphics,
-                &[self.submit_info().build()],
+                &[self.submit_info()],
                 fence,
             )?;
         }

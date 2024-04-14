@@ -3,12 +3,14 @@ use std::{
     os::raw::c_char,
 };
 
-use ash::vk;
+use ash::vk::{self, Handle};
 use tracing::{debug, error, info, warn};
+
+pub const EXT_NAME: &'static CStr = ash::ext::debug_utils::NAME;
 
 unsafe fn c_str_from_ptr<'a>(str_ptr: *const c_char) -> &'a CStr {
     if str_ptr.is_null() {
-        CStr::from_bytes_with_nul_unchecked(b"\0")
+        c""
     } else {
         CStr::from_ptr(str_ptr)
     }
@@ -17,7 +19,7 @@ unsafe fn c_str_from_ptr<'a>(str_ptr: *const c_char) -> &'a CStr {
 unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
     _p_user_data: *mut c_void,
 ) -> vk::Bool32 {
     use vk::DebugUtilsMessageSeverityFlagsEXT;
@@ -126,22 +128,21 @@ impl CStrBuf {
     }
 }
 
-pub struct DebugUtils {
-    functions: ash::extensions::ext::DebugUtils,
+pub struct InstanceDebugUtils {
+    functions: ash::ext::debug_utils::Instance,
     utils_messenger: vk::DebugUtilsMessengerEXT,
 }
+#[repr(transparent)]
+pub struct DeviceDebugUtils(ash::ext::debug_utils::Device);
 
-impl DebugUtils {
-    pub const fn name() -> &'static CStr {
-        ash::extensions::ext::DebugUtils::name()
-    }
+impl InstanceDebugUtils {
 
     pub fn new(
         entry: &ash::Entry,
         instance: &ash::Instance,
         message_severities: vk::DebugUtilsMessageSeverityFlagsEXT,
     ) -> Self {
-        let functions = ash::extensions::ext::DebugUtils::new(entry, instance);
+        let functions = ash::ext::debug_utils::Instance::new(entry, instance);
         if message_severities.is_empty() {
             Self {
                 functions,
@@ -151,7 +152,7 @@ impl DebugUtils {
             let utils_messenger = unsafe {
                 functions
                     .create_debug_utils_messenger(
-                        &vk::DebugUtilsMessengerCreateInfoEXT::builder()
+                        &vk::DebugUtilsMessengerCreateInfoEXT::default()
                             .message_severity(message_severities)
                             .message_type(
                                 vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
@@ -173,32 +174,39 @@ impl DebugUtils {
 
     #[inline(always)]
     pub fn is_messenger_enabled(&self) -> bool {
-        self.utils_messenger != vk::DebugUtilsMessengerEXT::null()
+        !self.utils_messenger.is_null()
+    }
+}
+
+impl DeviceDebugUtils {
+    pub fn new(
+        instance: &ash::Instance,
+        device: &ash::Device,
+    ) -> Self {
+        let functions = ash::ext::debug_utils::Device::new(instance, device);
+        Self(functions)
     }
 
     #[inline(always)]
-    pub unsafe fn object_name<H: vk::Handle>(
+    pub unsafe fn object_name<H: Handle>(
         &self,
-        device: vk::Device,
         handle: H,
         object_name: &str,
     ) {
-        self._object_name(device, H::TYPE, handle.as_raw(), object_name)
+        self._object_name(H::TYPE, handle.as_raw(), object_name)
     }
     #[inline(always)]
-    pub unsafe fn object_name_cstr<H: vk::Handle>(
+    pub unsafe fn object_name_cstr<H: Handle>(
         &self,
-        device: vk::Device,
         handle: H,
         object_name: &CStr,
     ) {
-        self._object_name_cstr(device, H::TYPE, handle.as_raw(), object_name)
+        self._object_name_cstr(H::TYPE, handle.as_raw(), object_name)
     }
 
     #[inline]
     unsafe fn _object_name(
         &self,
-        device: vk::Device,
         object_type: vk::ObjectType,
         object_handle: u64,
         object_name: &str,
@@ -209,7 +217,6 @@ impl DebugUtils {
 
         let mut cstr_buf = CStrBuf::new();
         self._object_name_cstr(
-            device,
             object_type,
             object_handle,
             cstr_buf.get_cstr(object_name),
@@ -218,7 +225,6 @@ impl DebugUtils {
 
     unsafe fn _object_name_cstr(
         &self,
-        device: vk::Device,
         object_type: vk::ObjectType,
         object_handle: u64,
         object_name: &CStr,
@@ -226,12 +232,13 @@ impl DebugUtils {
         if object_handle == 0 {
             return;
         }
-        let _result = self.functions.set_debug_utils_object_name(
-            device,
-            &vk::DebugUtilsObjectNameInfoEXT::builder()
-                .object_type(object_type)
-                .object_handle(object_handle)
-                .object_name(object_name),
+        let _result = self.0.set_debug_utils_object_name(
+            &vk::DebugUtilsObjectNameInfoEXT {
+                object_handle,
+                object_type,    
+                p_object_name: object_name.as_ptr(),
+                ..Default::default()
+            },
         );
     }
 
@@ -245,9 +252,9 @@ impl DebugUtils {
         command_buffer: vk::CommandBuffer,
         label: &CStr,
     ) {
-        self.functions.cmd_insert_debug_utils_label(
+        self.0.cmd_insert_debug_utils_label(
             command_buffer,
-            &vk::DebugUtilsLabelEXT::builder().label_name(label),
+            &vk::DebugUtilsLabelEXT::default().label_name(label),
         );
     }
 
@@ -261,15 +268,15 @@ impl DebugUtils {
         command_buffer: vk::CommandBuffer,
         label: &CStr,
     ) {
-        self.functions.cmd_begin_debug_utils_label(
+        self.0.cmd_begin_debug_utils_label(
             command_buffer,
-            &vk::DebugUtilsLabelEXT::builder().label_name(label),
+            &vk::DebugUtilsLabelEXT::default().label_name(label),
         );
     }
 
     #[inline]
     pub unsafe fn cmd_end_debug_label(&self, command_buffer: vk::CommandBuffer) {
-        self.functions.cmd_end_debug_utils_label(command_buffer);
+        self.0.cmd_end_debug_utils_label(command_buffer);
     }
 
     #[inline]
@@ -279,9 +286,9 @@ impl DebugUtils {
     }
 
     pub unsafe fn queue_insert_debug_label_cstr(&self, queue: vk::Queue, label: &CStr) {
-        self.functions.queue_insert_debug_utils_label(
+        self.0.queue_insert_debug_utils_label(
             queue,
-            &vk::DebugUtilsLabelEXT::builder().label_name(label),
+            &vk::DebugUtilsLabelEXT::default().label_name(label),
         );
     }
 
@@ -292,19 +299,19 @@ impl DebugUtils {
     }
 
     pub unsafe fn queue_begin_debug_label_cstr(&self, queue: vk::Queue, label: &CStr) {
-        self.functions.queue_begin_debug_utils_label(
+        self.0.queue_begin_debug_utils_label(
             queue,
-            &vk::DebugUtilsLabelEXT::builder().label_name(label),
+            &vk::DebugUtilsLabelEXT::default().label_name(label),
         );
     }
 
     #[inline]
     pub unsafe fn queue_end_debug_label(&self, queue: vk::Queue) {
-        self.functions.queue_end_debug_utils_label(queue);
+        self.0.queue_end_debug_utils_label(queue);
     }
 }
 
-impl Drop for DebugUtils {
+impl Drop for InstanceDebugUtils {
     fn drop(&mut self) {
         if self.utils_messenger != vk::DebugUtilsMessengerEXT::null() {
             let utils_messenger = std::mem::take(&mut self.utils_messenger);
@@ -315,3 +322,5 @@ impl Drop for DebugUtils {
         }
     }
 }
+
+

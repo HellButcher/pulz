@@ -36,7 +36,7 @@ impl AshGpuResource for Buffer {
     ) -> Result<Self::Raw> {
         let alloc = &mut res.alloc;
         let device = alloc.device_arc();
-        let create_info: vk::BufferCreateInfo = descr.vk_into();
+        let create_info: vk::BufferCreateInfo<'static> = descr.vk_into();
         let buf = device.create(&create_info)?;
         let mreq = device.get_buffer_memory_requirements(buf.raw());
         let mem = alloc.alloc(gpu_alloc::Request {
@@ -84,7 +84,7 @@ impl AshGpuResource for Texture {
     ) -> Result<Self::Raw> {
         let alloc = &mut res.alloc;
         let device = alloc.device_arc();
-        let img_create_info: vk::ImageCreateInfo = descr.vk_into();
+        let img_create_info: vk::ImageCreateInfo<'static> = descr.vk_into();
         let img = device.create(&img_create_info)?;
         let mreq = device.get_image_memory_requirements(img.raw());
         let mem = alloc.alloc(gpu_alloc::Request {
@@ -94,7 +94,7 @@ impl AshGpuResource for Texture {
             memory_types: mreq.memory_type_bits,
         })?;
         device.bind_image_memory(img.raw(), *mem.memory(), mem.offset())?;
-        let mut view_create_info: vk::ImageViewCreateInfo = descr.vk_into();
+        let mut view_create_info: vk::ImageViewCreateInfo<'static> = descr.vk_into();
         view_create_info.image = img.raw();
         let view = device.create(&view_create_info)?;
         Ok((img.take(), view.take(), Some(mem.take())))
@@ -169,7 +169,7 @@ impl AshGpuResource for ShaderModule {
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
         let code = compie_into_spv(&descr.source)?;
-        let create_info = vk::ShaderModuleCreateInfo::builder().code(&code).build();
+        let create_info = vk::ShaderModuleCreateInfo::default().code(&code);
         let raw = res.device().create(&create_info)?;
         if let Some(label) = descr.label {
             res.device().object_name(raw.raw(), label);
@@ -366,7 +366,7 @@ impl AshGpuResource for RayTracingPipeline {
             res.pipeline_cache,
             create_infos,
             None,
-        )?;
+        ).map_err(|(_,e)|e)?;
         let raw = res.device().hold(raw[0]);
         if let Some(label) = descr.label {
             res.device().object_name(raw.raw(), label);

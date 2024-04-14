@@ -202,11 +202,10 @@ impl Frame {
     unsafe fn create(device: &Arc<AshDevice>) -> Result<Self> {
         let command_pool = device.new_command_pool(device.queues().graphics_family)?;
         let finished_fence = device.create(
-            &vk::FenceCreateInfo::builder()
+            &vk::FenceCreateInfo::default()
                 .flags(vk::FenceCreateFlags::SIGNALED)
-                .build(),
         )?;
-        let finished_semaphore = device.create(&vk::SemaphoreCreateInfo::builder().build())?;
+        let finished_semaphore = device.create(&vk::SemaphoreCreateInfo::default())?;
         Ok(Self {
             command_pool,
             finished_fence: finished_fence.take(),
@@ -331,23 +330,21 @@ impl AshRendererFull {
             }
         }
 
-        let subrange = vk::ImageSubresourceRange::builder()
+        let subrange = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .layer_count(vk::REMAINING_ARRAY_LAYERS)
-            .level_count(vk::REMAINING_MIP_LEVELS)
-            .build();
+            .level_count(vk::REMAINING_MIP_LEVELS);
 
         let barriers = images
             .iter()
             .map(|(image, _)| {
-                vk::ImageMemoryBarrier::builder()
+                vk::ImageMemoryBarrier::default()
                     .src_access_mask(vk::AccessFlags::empty())
                     .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                     .old_layout(vk::ImageLayout::UNDEFINED)
                     .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                     .subresource_range(subrange)
                     .image(*image)
-                    .build()
             })
             .collect::<Vec<_>>();
 
@@ -379,14 +376,13 @@ impl AshRendererFull {
         let barriers = images
             .iter()
             .map(|(image, _)| {
-                vk::ImageMemoryBarrier::builder()
+                vk::ImageMemoryBarrier::default()
                     .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                     .dst_access_mask(vk::AccessFlags::empty())
                     .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                     .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
                     .subresource_range(subrange)
                     .image(*image)
-                    .build()
             })
             .collect::<Vec<_>>();
         unsafe {

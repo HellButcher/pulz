@@ -21,11 +21,11 @@ slotmap = { workspace = true }
 serde = { workspace = true }
 fnv = { workspace = true }
 raw-window-handle = { workspace = true }
-ash = "0.37"
+ash = "0.38"
 scratchbuffer = "0.1.0-alpha.1"
 gpu-alloc = "0.6"
-gpu-alloc-ash = "0.6"
-gpu-descriptor = "0.2"
+gpu-alloc-ash = "0.7"
+gpu-descriptor = "0.3"
 crossbeam-queue = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]

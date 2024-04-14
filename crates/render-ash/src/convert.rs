@@ -45,14 +45,13 @@ impl<T: VkFrom<V>, V> VkFrom<Option<V>> for Option<T> {
     }
 }
 
-impl VkFrom<BufferDescriptor> for vk::BufferCreateInfo {
+impl VkFrom<BufferDescriptor> for vk::BufferCreateInfo<'static> {
     #[inline]
     fn from(val: &BufferDescriptor) -> Self {
-        Self::builder()
+        Self::default()
             .size(val.size as u64)
             .usage(val.usage.vk_into())
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .build()
     }
 }
 
@@ -109,9 +108,9 @@ fn get_array_layers(dimensions: &TextureDimensions) -> u32 {
     }
 }
 
-impl VkFrom<TextureDescriptor> for vk::ImageCreateInfo {
+impl VkFrom<TextureDescriptor> for vk::ImageCreateInfo<'static> {
     fn from(val: &TextureDescriptor) -> Self {
-        Self::builder()
+        Self::default()
             .image_type(val.dimensions.vk_into())
             .format(val.format.vk_into())
             .extent(val.dimensions.vk_into())
@@ -122,25 +121,22 @@ impl VkFrom<TextureDescriptor> for vk::ImageCreateInfo {
             .tiling(vk::ImageTiling::OPTIMAL)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
-            .build()
     }
 }
 
-impl VkFrom<TextureDescriptor> for vk::ImageViewCreateInfo {
+impl VkFrom<TextureDescriptor> for vk::ImageViewCreateInfo<'static> {
     fn from(val: &TextureDescriptor) -> Self {
-        Self::builder()
+        Self::default()
             .view_type(val.dimensions.vk_into())
             .format(val.format.vk_into())
             .subresource_range(
-                vk::ImageSubresourceRange::builder()
+                vk::ImageSubresourceRange::default()
                     .aspect_mask(val.aspects().vk_into())
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
                     .layer_count(get_array_layers(&val.dimensions))
-                    .build(),
             )
-            .build()
     }
 }
 
@@ -732,44 +728,44 @@ impl VkFrom<Stage> for vk::PipelineStageFlags {
     }
 }
 
-impl VkFrom<PrimitiveState> for vk::PipelineInputAssemblyStateCreateInfo {
+impl VkFrom<PrimitiveState> for vk::PipelineInputAssemblyStateCreateInfo<'static> {
     #[inline]
     fn from(val: &PrimitiveState) -> Self {
-        Self::builder().topology(val.topology.vk_into()).build()
+        Self::default().topology(val.topology.vk_into())
     }
 }
 
-impl VkFrom<PrimitiveState> for vk::PipelineRasterizationStateCreateInfo {
+impl VkFrom<PrimitiveState> for vk::PipelineRasterizationStateCreateInfo<'static> {
     #[inline]
     fn from(val: &PrimitiveState) -> Self {
-        let mut builder = Self::builder()
+        let mut r = Self::default()
             .polygon_mode(vk::PolygonMode::FILL)
             .front_face(val.front_face.vk_into())
             .line_width(1.0);
         if let Some(cull_mode) = val.cull_mode {
-            builder = builder.cull_mode(cull_mode.vk_into())
+            r = r.cull_mode(cull_mode.vk_into())
         }
-        builder.build()
+        r
     }
 }
 
-impl VkFrom<DepthStencilState> for vk::PipelineDepthStencilStateCreateInfo {
+impl VkFrom<DepthStencilState> for vk::PipelineDepthStencilStateCreateInfo<'static> {
     #[inline]
     fn from(val: &DepthStencilState) -> Self {
-        let mut builder = Self::builder();
+        let mut r = Self::default();
         if val.is_depth_enabled() {
-            builder = builder
+            r = r
                 .depth_test_enable(true)
                 .depth_write_enable(val.depth.write_enabled)
                 .depth_compare_op(val.depth.compare.vk_into());
         }
         if val.stencil.is_enabled() {
-            builder = builder
+            r = r
                 .stencil_test_enable(true)
                 .front(val.stencil.front.vk_into())
                 .back(val.stencil.back.vk_into());
         }
-        builder.build()
+        r
     }
 }
 
@@ -941,12 +937,11 @@ impl SubpassDepTracker<'_> {
             &(src, dst),
             |d| (d.src_subpass, d.dst_subpass),
             || {
-                vk::SubpassDependency::builder()
+                vk::SubpassDependency::default()
                     .src_subpass(src)
                     .dst_subpass(dst)
                     // use BY-REGION by default
                     .dependency_flags(vk::DependencyFlags::BY_REGION)
-                    .build()
             },
         )
     }
@@ -991,7 +986,7 @@ impl CreateInfoConverter6 {
         )
     }
 
-    pub fn graphics_pass(&mut self, desc: &GraphicsPassDescriptor) -> &vk::RenderPassCreateInfo {
+    pub fn graphics_pass(&mut self, desc: &GraphicsPassDescriptor) -> &vk::RenderPassCreateInfo<'_> {
         // collect attachments
         let attachments = self.0.clear_and_use_as::<vk::AttachmentDescription>();
         let num_attachments = desc.attachments().len();
@@ -1000,7 +995,7 @@ impl CreateInfoConverter6 {
         for (i, a) in desc.attachments().iter().enumerate() {
             let load_store_ops = desc.load_store_ops().get(i).copied().unwrap_or_default();
             attachments.push(
-                vk::AttachmentDescription::builder()
+                vk::AttachmentDescription::default()
                     .format(a.format.vk_into())
                     .samples(vk::SampleCountFlags::from_raw(a.samples as u32))
                     .load_op(load_store_ops.load_op.vk_into())
@@ -1013,7 +1008,6 @@ impl CreateInfoConverter6 {
                         vk::ImageLayout::UNDEFINED
                     })
                     .final_layout(a.final_access.vk_into())
-                    .build(),
             );
             attachment_dep_data.push((
                 vk::SUBPASS_EXTERNAL,
@@ -1032,14 +1026,13 @@ impl CreateInfoConverter6 {
             subpass_deps: sp_deps,
             attachment_usage: &mut attachment_usage,
         };
-        for (i, sp) in desc.subpasses().iter().enumerate() {
+        for (dst, sp) in desc.subpasses().iter().enumerate() {
             // TODO: handle Write>Read>Write!
             // TODO: also non-attachment dubpass-deps
-            let dst = i as u32;
             for &(a, _u) in sp.input_attachments() {
                 subpass_tracker.mark_subpass_attachment(
                     a as usize,
-                    i,
+                    dst,
                     vk::PipelineStageFlags::FRAGMENT_SHADER,
                     vk::AccessFlags::INPUT_ATTACHMENT_READ,
                     vk::AccessFlags::NONE,
@@ -1055,7 +1048,7 @@ impl CreateInfoConverter6 {
             for &(a, _u) in sp.color_attachments() {
                 subpass_tracker.mark_subpass_attachment(
                     a as usize,
-                    i,
+                    dst,
                     vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                     vk::AccessFlags::COLOR_ATTACHMENT_READ,
                     vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
@@ -1071,7 +1064,7 @@ impl CreateInfoConverter6 {
             if let Some((a, _u)) = sp.depth_stencil_attachment() {
                 subpass_tracker.mark_subpass_attachment(
                     a as usize,
-                    i,
+                    dst,
                     vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
                         | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
                     vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ,
@@ -1128,14 +1121,14 @@ impl CreateInfoConverter6 {
 
         let a_refs = a_refs.as_slice();
         let a_preserves = a_preserves.as_slice();
-        let subpasses = self.4.clear_and_use_as::<vk::SubpassDescription>();
+        let subpasses = self.4.clear_and_use_as::<vk::SubpassDescription<'_>>();
         let mut a_refs_offset = 0;
         let mut a_preserves_offset = 0;
         for (i, s) in desc.subpasses().iter().enumerate() {
             let end_input_offset = a_refs_offset + s.input_attachments().len();
             let end_color_offset = end_input_offset + s.color_attachments().len();
             let end_preserves_offset = a_preserves_offset + a_preserve_tmp[i].len();
-            let mut b = vk::SubpassDescription::builder()
+            let mut b = vk::SubpassDescription::default()
                 .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
                 .preserve_attachments(&a_preserves[a_preserves_offset..end_preserves_offset])
                 .input_attachments(&a_refs[a_refs_offset..end_input_offset])
@@ -1147,17 +1140,16 @@ impl CreateInfoConverter6 {
                 a_refs_offset += 1;
                 b = b.depth_stencil_attachment(&a_refs[end_color_offset]);
             }
-            subpasses.push(b.build());
+            subpasses.push(b);
         }
 
-        let buf = self.5.clear_and_use_as::<vk::RenderPassCreateInfo>();
+        let buf = self.5.clear_and_use_as::<vk::RenderPassCreateInfo<'_>>();
         buf.reserve(1);
         buf.push(
-            vk::RenderPassCreateInfo::builder()
+            vk::RenderPassCreateInfo::default()
                 .attachments(attachments.as_slice())
                 .subpasses(subpasses.as_slice())
                 .dependencies(sp_deps.as_slice())
-                .build(),
         );
         &buf.as_slice()[0]
     }
@@ -1172,15 +1164,14 @@ impl CreateInfoConverter2 {
     pub fn bind_group_layout(
         &mut self,
         desc: &BindGroupLayoutDescriptor<'_>,
-    ) -> &vk::DescriptorSetLayoutCreateInfo {
-        let buf0 = self.0.clear_and_use_as::<vk::DescriptorSetLayoutBinding>();
+    ) -> &vk::DescriptorSetLayoutCreateInfo<'_> {
+        let buf0 = self.0.clear_and_use_as::<vk::DescriptorSetLayoutBinding<'_>>();
         buf0.reserve(desc.entries.len());
         for e in desc.entries.as_ref() {
             buf0.push(
-                vk::DescriptorSetLayoutBinding::builder()
+                vk::DescriptorSetLayoutBinding::default()
                     .binding(e.binding)
                     .descriptor_count(e.count)
-                    .build(),
             );
             // TODO: descriptor_type, stage_flags, immutable_samplers
             todo!();
@@ -1188,12 +1179,11 @@ impl CreateInfoConverter2 {
 
         let buf = self
             .1
-            .clear_and_use_as::<vk::DescriptorSetLayoutCreateInfo>();
+            .clear_and_use_as::<vk::DescriptorSetLayoutCreateInfo<'_>>();
         buf.reserve(1);
         buf.push(
-            vk::DescriptorSetLayoutCreateInfo::builder()
+            vk::DescriptorSetLayoutCreateInfo::default()
                 .bindings(buf0.as_slice())
-                .build(),
         );
         &buf.as_slice()[0]
     }
@@ -1202,19 +1192,18 @@ impl CreateInfoConverter2 {
         &mut self,
         res: &AshResources,
         desc: &PipelineLayoutDescriptor<'_>,
-    ) -> &vk::PipelineLayoutCreateInfo {
+    ) -> &vk::PipelineLayoutCreateInfo<'_> {
         let buf0 = self.0.clear_and_use_as::<vk::DescriptorSetLayout>();
         buf0.reserve(desc.bind_group_layouts.len());
         for bgl in desc.bind_group_layouts.as_ref() {
             buf0.push(res.bind_group_layouts[*bgl]);
         }
 
-        let buf = self.1.clear_and_use_as::<vk::PipelineLayoutCreateInfo>();
+        let buf = self.1.clear_and_use_as::<vk::PipelineLayoutCreateInfo<'_>>();
         buf.reserve(1);
         buf.push(
-            vk::PipelineLayoutCreateInfo::builder()
+            vk::PipelineLayoutCreateInfo::default()
                 .set_layouts(buf0.as_slice())
-                .build(),
         );
         &buf.as_slice()[0]
     }
@@ -1223,17 +1212,16 @@ impl CreateInfoConverter2 {
         &mut self,
         res: &AshResources,
         descs: &[GraphicsPipelineDescriptor<'_>],
-    ) -> &[vk::GraphicsPipelineCreateInfo] {
-        let buf = self.0.clear_and_use_as::<vk::GraphicsPipelineCreateInfo>();
+    ) -> &[vk::GraphicsPipelineCreateInfo<'_>] {
+        let buf = self.0.clear_and_use_as::<vk::GraphicsPipelineCreateInfo<'_>>();
         buf.reserve(descs.len());
         for desc in descs {
             let layout = desc
                 .layout
                 .map_or(vk::PipelineLayout::null(), |l| res.pipeline_layouts[l]);
             buf.push(
-                vk::GraphicsPipelineCreateInfo::builder()
+                vk::GraphicsPipelineCreateInfo::default()
                     .layout(layout)
-                    .build(),
             );
             // TODO: vertex, primitive, depth_stencil, fragment, samples, specialization
             todo!(" implement graphics_pipeline_descriptor");
@@ -1245,8 +1233,8 @@ impl CreateInfoConverter2 {
         &mut self,
         res: &AshResources,
         descs: &[ComputePipelineDescriptor<'_>],
-    ) -> &[vk::ComputePipelineCreateInfo] {
-        let buf = self.0.clear_and_use_as::<vk::ComputePipelineCreateInfo>();
+    ) -> &[vk::ComputePipelineCreateInfo<'_>] {
+        let buf = self.0.clear_and_use_as::<vk::ComputePipelineCreateInfo<'_>>();
         buf.reserve(descs.len());
         for desc in descs {
             let layout = desc
@@ -1254,9 +1242,8 @@ impl CreateInfoConverter2 {
                 .map_or(vk::PipelineLayout::null(), |l| res.pipeline_layouts[l]);
             // TODO: module, entry_point, specialization
             buf.push(
-                vk::ComputePipelineCreateInfo::builder()
+                vk::ComputePipelineCreateInfo::default()
                     .layout(layout)
-                    .build(),
             );
             todo!(" implement compute_pipeline_descriptor");
         }
@@ -1267,10 +1254,10 @@ impl CreateInfoConverter2 {
         &mut self,
         res: &AshResources,
         descs: &[RayTracingPipelineDescriptor<'_>],
-    ) -> &[vk::RayTracingPipelineCreateInfoKHR] {
+    ) -> &[vk::RayTracingPipelineCreateInfoKHR<'_>] {
         let buf = self
             .0
-            .clear_and_use_as::<vk::RayTracingPipelineCreateInfoKHR>();
+            .clear_and_use_as::<vk::RayTracingPipelineCreateInfoKHR<'_>>();
         buf.reserve(descs.len());
         for desc in descs {
             let layout = desc
@@ -1278,10 +1265,9 @@ impl CreateInfoConverter2 {
                 .map_or(vk::PipelineLayout::null(), |l| res.pipeline_layouts[l]);
             // TODO: modules, groups, specialization
             buf.push(
-                vk::RayTracingPipelineCreateInfoKHR::builder()
+                vk::RayTracingPipelineCreateInfoKHR::default()
                     .layout(layout)
                     .max_pipeline_ray_recursion_depth(desc.max_recursion_depth)
-                    .build(),
             );
             todo!(" implement ray_tracing_pipeline_descriptor");
         }

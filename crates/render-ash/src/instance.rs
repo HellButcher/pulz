@@ -1,12 +1,9 @@
 use std::{ffi::CStr, ops::Deref, os::raw::c_char, sync::Arc};
 
-use ash::{
-    extensions::{ext, khr},
-    vk,
-};
+use ash::vk;
 use tracing::{debug, warn};
 
-use crate::{debug_utils::DebugUtils, AshRendererFlags, ErrorNoExtension, Result};
+use crate::{debug_utils, AshRendererFlags, ErrorNoExtension, Result};
 
 pub const ENGINE_NAME: &[u8] = concat!(env!("CARGO_PKG_NAME"), "\0").as_bytes();
 pub const ENGINE_VERSION: u32 = parse_version(env!("CARGO_PKG_VERSION"));
@@ -16,8 +13,8 @@ pub struct AshInstance {
     instance_raw: ash::Instance,
     entry: ash::Entry,
     instance_extensions: Vec<&'static CStr>,
-    ext_debug_utils: Option<DebugUtils>,
-    ext_surface: Option<khr::Surface>,
+    debug_utils: Option<debug_utils::InstanceDebugUtils>,
+    ext_surface: Option<ash::khr::surface::Instance>,
     flags: AshRendererFlags,
 }
 
@@ -39,13 +36,13 @@ impl AshInstance {
             entry,
             instance_raw,
             instance_extensions,
-            ext_debug_utils: None,
+            debug_utils: None,
             ext_surface: None,
             flags,
         };
 
-        if instance.has_instance_extension(DebugUtils::name()) {
-            instance.ext_debug_utils = Some(DebugUtils::new(
+        if instance.has_instance_extension(debug_utils::EXT_NAME) {
+            instance.debug_utils = Some(debug_utils::InstanceDebugUtils::new(
                 instance.entry(),
                 &instance,
                 // TODO: filter activated severities
@@ -56,8 +53,8 @@ impl AshInstance {
             ));
         }
 
-        if instance.has_instance_extension(khr::Surface::name()) {
-            instance.ext_surface = Some(khr::Surface::new(instance.entry(), &instance));
+        if instance.has_instance_extension(ash::khr::surface::NAME) {
+            instance.ext_surface = Some(ash::khr::surface::Instance::new(instance.entry(), &instance));
         }
 
         Ok(Arc::new(instance))
@@ -74,17 +71,17 @@ impl AshInstance {
     }
 
     #[inline]
-    pub(crate) fn ext_surface(&self) -> Result<&khr::Surface, ErrorNoExtension> {
+    pub(crate) fn ext_surface(&self) -> Result<&ash::khr::surface::Instance, ErrorNoExtension> {
         self.ext_surface
             .as_ref()
-            .ok_or(ErrorNoExtension(khr::Surface::name()))
+            .ok_or(ErrorNoExtension(ash::khr::surface::NAME))
     }
 
     #[inline]
-    pub(crate) fn ext_debug_utils(&self) -> Result<&DebugUtils, ErrorNoExtension> {
-        self.ext_debug_utils
+    pub(crate) fn debug_utils(&self) -> Result<&debug_utils::InstanceDebugUtils, ErrorNoExtension> {
+        self.debug_utils
             .as_ref()
-            .ok_or(ErrorNoExtension(ext::DebugUtils::name()))
+            .ok_or(ErrorNoExtension(debug_utils::EXT_NAME))
     }
 
     #[inline]
@@ -95,7 +92,7 @@ impl AshInstance {
 
 impl Drop for AshInstance {
     fn drop(&mut self) {
-        self.ext_debug_utils = None;
+        self.debug_utils = None;
         unsafe { self.instance_raw.destroy_instance(None) }
     }
 }
@@ -104,25 +101,25 @@ fn get_instance_extensions(
     entry: &ash::Entry,
     flags: AshRendererFlags,
 ) -> Result<Vec<&'static CStr>> {
-    let available_extensions = entry.enumerate_instance_extension_properties(None)?;
+    let available_extensions = unsafe { entry.enumerate_instance_extension_properties(None)? };
 
     let mut extensions = Vec::with_capacity(5);
-    extensions.push(khr::Surface::name());
+    extensions.push(ash::khr::surface::NAME);
 
     if cfg!(target_os = "windows") {
-        extensions.push(khr::Win32Surface::name());
+        extensions.push(ash::khr::win32_surface::NAME);
     } else if cfg!(target_os = "android") {
-        extensions.push(khr::AndroidSurface::name());
+        extensions.push(ash::khr::android_surface::NAME);
     } else if cfg!(any(target_os = "macos", target_os = "ios")) {
-        extensions.push(ext::MetalSurface::name());
+        extensions.push(ash::ext::metal_surface::NAME);
     } else if cfg!(unix) {
-        extensions.push(khr::XlibSurface::name());
-        extensions.push(khr::XcbSurface::name());
-        extensions.push(khr::WaylandSurface::name());
+        extensions.push(ash::khr::xlib_surface::NAME);
+        extensions.push(ash::khr::xcb_surface::NAME);
+        extensions.push(ash::khr::wayland_surface::NAME);
     }
 
     if flags.contains(AshRendererFlags::DEBUG) {
-        extensions.push(DebugUtils::name());
+        extensions.push(debug_utils::EXT_NAME);
     }
 
     // Only keep available extensions.
@@ -156,9 +153,9 @@ fn _create_instance(entry: &ash::Entry, extensions_ptr: &[*const c_char]) -> Res
 
     let instance = unsafe {
         entry.create_instance(
-            &vk::InstanceCreateInfo::builder()
+            &vk::InstanceCreateInfo::default()
                 .application_info(
-                    &vk::ApplicationInfo::builder()
+                    &vk::ApplicationInfo::default()
                         .application_name(engine_name)
                         .application_version(ENGINE_VERSION)
                         .engine_name(engine_name)
