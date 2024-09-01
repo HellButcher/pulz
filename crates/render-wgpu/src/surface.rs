@@ -1,9 +1,6 @@
-use std::{
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+use std::ops::{Deref, DerefMut};
 
-use pulz_window::{HasWindowAndDisplayHandle, Size2, Window};
+use pulz_window::{DisplayHandle, Size2, Window, WindowHandle};
 use tracing::info;
 
 use crate::{Error, Result};
@@ -13,14 +10,15 @@ pub struct Surface {
     size: Size2,
     vsync: bool,
     format: wgpu::TextureFormat,
-    window: Rc<dyn HasWindowAndDisplayHandle>,
 }
 
 impl Surface {
-    pub fn create(
+    /// UNSAFE: needs to ensure, whndow is alive while surface is alive
+    pub unsafe fn create(
         instance: &wgpu::Instance,
-        window_descriptor: &Window,
-        window: Rc<dyn HasWindowAndDisplayHandle>,
+        window: &Window,
+        display_handle: DisplayHandle<'_>,
+        window_handle: WindowHandle<'_>,
     ) -> Result<Self> {
         fn map_handle_error(e: raw_window_handle::HandleError) -> Error {
             use raw_window_handle::HandleError;
@@ -29,8 +27,8 @@ impl Surface {
                 _ => Error::UnsupportedWindowSystem,
             }
         }
-        let raw_display_handle = window.display_handle().map_err(map_handle_error)?.as_raw();
-        let raw_window_handle = window.window_handle().map_err(map_handle_error)?.as_raw();
+        let raw_display_handle = display_handle.as_raw();
+        let raw_window_handle = window_handle.as_raw();
         let surface = unsafe {
             instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
                 raw_display_handle,
@@ -39,10 +37,9 @@ impl Surface {
         };
         Ok(Self {
             surface,
-            size: window_descriptor.size,
-            vsync: window_descriptor.vsync,
+            size: window.size,
+            vsync: window.vsync,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            window,
         })
     }
 

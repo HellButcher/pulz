@@ -25,7 +25,7 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-use std::{backtrace::Backtrace, ffi::CStr, rc::Rc, sync::Arc};
+use std::{backtrace::Backtrace, ffi::CStr, sync::Arc};
 
 use ash::vk;
 use bitflags::bitflags;
@@ -52,7 +52,7 @@ mod shader;
 mod swapchain;
 
 use pulz_window::{
-    listener::WindowSystemListener, HasWindowAndDisplayHandle, Window, WindowId, Windows,
+    listener::WindowSystemListener, DisplayHandle, Window, WindowHandle, WindowId, Windows,
     WindowsMirror,
 };
 
@@ -474,26 +474,29 @@ impl AshRenderer {
         Ok(renderer)
     }
 
-    fn init_window(
+    /// UNSAFE: needs to ensure, window is kept alive while surface/swapchain is alive
+    unsafe fn init_window(
         &mut self,
         window_id: WindowId,
-        window_descriptor: &Window,
-        window: Rc<dyn HasWindowAndDisplayHandle>,
+        window: &Window,
+        display_handle: DisplayHandle<'_>,
+        window_handle: WindowHandle<'_>,
     ) -> Result<&mut AshRendererFull> {
         if let AshRendererInner::Full(renderer) = &mut self.0 {
             let device = renderer.device.clone();
             // SAVETY: window is kept alive
-            let surface = unsafe { device.instance().new_surface(&*window)? };
-            renderer.init_swapchain(window_id, window_descriptor, window, surface)?;
-        } else {
-            let AshRendererInner::Early(instance) = &self.0 else {
-                unreachable!()
+            let surface = unsafe {
+                device
+                    .instance()
+                    .new_surface(display_handle, window_handle)?
             };
+            renderer.init_swapchain(window_id, window, surface)?;
+        } else if let AshRendererInner::Early(instance) = &self.0 {
             // SAVETY: window is kept alive
-            let surface = unsafe { instance.new_surface(&*window)? };
+            let surface = unsafe { instance.new_surface(display_handle, window_handle)? };
             let device = instance.new_device(surface.raw())?;
             let mut renderer = AshRendererFull::from_device(device)?;
-            renderer.init_swapchain(window_id, window_descriptor, window, surface)?;
+            renderer.init_swapchain(window_id, window, surface)?;
             self.0 = AshRendererInner::Full(renderer);
         }
         let AshRendererInner::Full(renderer) = &mut self.0 else {
@@ -515,10 +518,15 @@ impl WindowSystemListener for AshRenderer {
     fn on_created(
         &mut self,
         window_id: WindowId,
-        window_desc: &Window,
-        window: Rc<dyn HasWindowAndDisplayHandle>,
+        window: &Window,
+        display_handle: DisplayHandle<'_>,
+        window_handle: WindowHandle<'_>,
     ) {
-        self.init_window(window_id, window_desc, window).unwrap();
+        // SAVETY: surface/swapchain is desproyed on_suspenden/on_close
+        unsafe {
+            self.init_window(window_id, window, display_handle, window_handle)
+                .unwrap();
+        }
     }
     fn on_resumed(&mut self) {
         self.init().unwrap();

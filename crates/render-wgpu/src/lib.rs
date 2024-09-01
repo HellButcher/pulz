@@ -25,20 +25,19 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-use std::rc::Rc;
-
 use convert::ConversionError;
 use graph::WgpuRenderGraph;
 use pulz_ecs::prelude::*;
 use pulz_render::{draw::DrawPhases, graph::RenderGraph, RenderModule, RenderSystemPhase};
 use pulz_window::{
-    listener::WindowSystemListener, HasWindowAndDisplayHandle, Window, WindowId, Windows,
+    listener::WindowSystemListener, DisplayHandle, Window, WindowHandle, WindowId, Windows,
     WindowsMirror,
 };
 use resources::WgpuResources;
 use surface::Surface;
 use thiserror::Error;
 use tracing::info;
+use wgpu::MemoryHints;
 
 mod backend;
 mod convert;
@@ -101,6 +100,7 @@ impl WgpuRendererFull {
                     // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
                     required_limits: wgpu::Limits::downlevel_defaults()
                         .using_resolution(adapter.limits()),
+                    memory_hints: MemoryHints::Performance,
                 },
                 trace_dir.ok().as_ref().map(std::path::Path::new),
             )
@@ -218,15 +218,22 @@ impl WgpuRenderer {
         Ok(Self(WgpuRendererInner::Early { instance }))
     }
 
-    fn init_window(
+    /// UNSAFE: needs to ensure window is alive while surface is alive
+    unsafe fn init_window(
         &mut self,
         window_id: WindowId,
         window_descriptor: &Window,
-        window: Rc<dyn HasWindowAndDisplayHandle>,
+        display_handle: DisplayHandle<'_>,
+        window_handle: WindowHandle<'_>,
     ) -> Result<&mut WgpuRendererFull> {
         if let WgpuRendererInner::Full(renderer) = &mut self.0 {
             renderer.surfaces.remove(window_id); // replaces old surface
-            let surface = Surface::create(&renderer.instance, window_descriptor, window)?;
+            let surface = Surface::create(
+                &renderer.instance,
+                window_descriptor,
+                display_handle,
+                window_handle,
+            )?;
             renderer.surfaces.insert(window_id, surface);
         } else {
             // Delayed initialization
@@ -237,7 +244,8 @@ impl WgpuRenderer {
                 else {
                     panic!("unexpected state");
                 };
-                let surface = Surface::create(&instance, window_descriptor, window)?;
+                let surface =
+                    Surface::create(&instance, window_descriptor, display_handle, window_handle)?;
                 let mut renderer = pollster::block_on(async {
                     let adapter = wgpu::util::initialize_adapter_from_env_or_default(
                         &instance,
@@ -293,9 +301,14 @@ impl WindowSystemListener for WgpuRenderer {
         &mut self,
         window_id: WindowId,
         window_desc: &Window,
-        window: Rc<dyn HasWindowAndDisplayHandle>,
+        display_handle: DisplayHandle<'_>,
+        window_handle: WindowHandle<'_>,
     ) {
-        self.init_window(window_id, window_desc, window).unwrap();
+        // SAFETY: surface destroyed on_closed/on_suspended
+        unsafe {
+            self.init_window(window_id, window_desc, display_handle, window_handle)
+                .unwrap();
+        }
     }
     fn on_resumed(&mut self) {
         self.init().unwrap();

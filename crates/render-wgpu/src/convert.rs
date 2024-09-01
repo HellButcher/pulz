@@ -354,6 +354,8 @@ pub fn convert_compute_pipeline_descriptor<'l, 'r: 'l>(
         layout,
         module,
         entry_point: desc.entry_point,
+        compilation_options: Default::default(),
+        cache: None,
     })
 }
 
@@ -401,6 +403,7 @@ pub fn convert_graphics_pipeline_descriptor<'l, 'r: 'l>(
         },
         fragment,
         multiview: None,
+        cache: None,
     })
 }
 
@@ -442,6 +445,7 @@ fn convert_vertex_state<'l, 'r: 'l>(
         module,
         entry_point: state.entry_point,
         buffers: buffers_tmp,
+        compilation_options: Default::default(),
     })
 }
 
@@ -464,6 +468,7 @@ fn convert_fragment_state<'l, 'r: 'l>(
         module,
         entry_point: state.entry_point,
         targets: targets_tmp,
+        compilation_options: Default::default(),
     })
 }
 

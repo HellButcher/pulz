@@ -5,7 +5,11 @@ use tracing::{debug, warn};
 
 use crate::{debug_utils, AshRendererFlags, ErrorNoExtension, Result};
 
-pub const ENGINE_NAME: &[u8] = concat!(env!("CARGO_PKG_NAME"), "\0").as_bytes();
+pub const ENGINE_NAME: &CStr =
+    match CStr::from_bytes_with_nul(concat!(env!("CARGO_PKG_NAME"), "\0").as_bytes()) {
+        Ok(s) => s,
+        Err(_) => panic!("invalid CStr"),
+    };
 pub const ENGINE_VERSION: u32 = parse_version(env!("CARGO_PKG_VERSION"));
 pub const VK_API_VERSION: u32 = vk::API_VERSION_1_1;
 
@@ -152,16 +156,14 @@ fn create_instance<'a>(
 }
 
 fn _create_instance(entry: &ash::Entry, extensions_ptr: &[*const c_char]) -> Result<ash::Instance> {
-    let engine_name = unsafe { CStr::from_bytes_with_nul_unchecked(ENGINE_NAME) };
-
     let instance = unsafe {
         entry.create_instance(
             &vk::InstanceCreateInfo::default()
                 .application_info(
                     &vk::ApplicationInfo::default()
-                        .application_name(engine_name)
+                        .application_name(ENGINE_NAME)
                         .application_version(ENGINE_VERSION)
-                        .engine_name(engine_name)
+                        .engine_name(ENGINE_NAME)
                         .engine_version(ENGINE_VERSION)
                         .api_version(VK_API_VERSION),
                 )

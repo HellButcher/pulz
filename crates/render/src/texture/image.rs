@@ -43,7 +43,7 @@ impl Image {
         P::Subpixel: bytemuck::Pod,
     {
         let (width, height) = image.dimensions();
-        let bytes_per_pixel = std::mem::size_of::<P>();
+        let bytes_per_pixel = size_of::<P>();
         let bytes_per_row = bytes_per_pixel as u32 * width;
         let data = image.into_raw();
         let bytes: Vec<u8> = bytemuck::cast_vec(data);

@@ -4,9 +4,7 @@ use ash::vk;
 use pulz_render::graph::pass::PipelineBindPoint;
 use tracing::{debug, info, warn};
 
-use crate::{
-    debug_utils, instance::AshInstance, AshRendererFlags, Error, ErrorNoExtension, Result,
-};
+use crate::{debug_utils, instance::AshInstance, Error, ErrorNoExtension, Result};
 
 pub struct AshDevice {
     device_raw: ash::Device,

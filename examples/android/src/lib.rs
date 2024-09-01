@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use log::info;
 #[cfg(target_os = "android")]
 use platform::android::activity::AndroidApp;
@@ -7,24 +5,20 @@ use pulz_ecs::prelude::*;
 use pulz_render::camera::{Camera, RenderTarget};
 use pulz_render_ash::AshRenderer;
 use pulz_render_pipeline_core::core_3d::CoreShadingModule;
-use pulz_window::{WindowDescriptor, WindowId};
-use pulz_window_winit::{winit, WinitWindowModule, WinitWindowSystem};
-use winit::{event_loop::EventLoopWindowTarget, window::Window};
+use pulz_window::{WindowAttributes, WindowId, WindowModule};
 
-fn init(event_loop: &EventLoopWindowTarget<()>) -> (Resources, Rc<Window>, WinitWindowSystem) {
+fn init() -> Resources {
     info!("Initializing...");
     let mut resources = Resources::new();
     resources.install(CoreShadingModule);
     resources.install(AshRenderer::new().unwrap());
 
-    let (window_system, window_id, window) =
-        WinitWindowModule::new(WindowDescriptor::default(), event_loop)
-            .unwrap()
-            .install(&mut resources);
+    let windows = resources.install(WindowModule);
+    let window_id = windows.create(WindowAttributes::new());
 
     setup_demo_scene(&mut resources, window_id);
 
-    (resources, window, window_system)
+    resources
 }
 
 fn setup_demo_scene(resources: &mut Resources, window: WindowId) {
@@ -39,6 +33,7 @@ fn setup_demo_scene(resources: &mut Resources, window: WindowId) {
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub fn android_main(app: AndroidApp) {
+    use pulz_window_winit::Application;
     use winit::platform::android::EventLoopBuilderExtAndroid;
     // #[cfg(debug_assertions)]
     // std::env::set_var("RUST_BACKTRACE", "1");
@@ -47,6 +42,7 @@ pub fn android_main(app: AndroidApp) {
     );
 
     let event_loop = EventLoopBuilder::new().with_android_app(app).build();
-    let (resources, _window, window_system) = init(&event_loop);
-    window_system.run(resources, event_loop);
+    let resources = init();
+    let mut app = Application::new(resources);
+    event_loop.run_app(&mut app).unwrap();
 }

@@ -1,26 +1,17 @@
-use std::rc::Rc;
+use std::error::Error;
 
 use pulz_ecs::prelude::*;
 use pulz_render::camera::{Camera, RenderTarget};
 use pulz_render_pipeline_core::core_3d::CoreShadingModule;
 use pulz_render_wgpu::WgpuRenderer;
-use pulz_window::{WindowDescriptor, WindowId};
-use pulz_window_winit::{
-    winit::{event_loop::EventLoop, window::Window},
-    WinitWindowModule, WinitWindowSystem,
-};
+use pulz_window::{WindowAttributes, WindowId, WindowModule};
+use pulz_window_winit::{winit::event_loop::EventLoop, Application};
 use tracing::*;
 
-async fn init() -> (Resources, EventLoop<()>, Rc<Window>, WinitWindowSystem) {
+async fn init() -> Resources {
     info!("Initializing...");
     let mut resources = Resources::new();
     resources.install(CoreShadingModule);
-
-    let event_loop = EventLoop::new().unwrap();
-    let (window_system, window_id, window) =
-        WinitWindowModule::new(WindowDescriptor::default(), &event_loop)
-            .unwrap()
-            .install(&mut resources);
 
     WgpuRenderer::new().await.unwrap().install(&mut resources);
 
@@ -29,9 +20,12 @@ async fn init() -> (Resources, EventLoop<()>, Rc<Window>, WinitWindowSystem) {
     // schedule.debug_dump_if_env(None).unwrap();
     // resources.insert_again(schedule);
 
+    let windows = resources.install(WindowModule);
+    let window_id = windows.create(WindowAttributes::new());
+
     setup_demo_scene(&mut resources, window_id);
 
-    (resources, event_loop, window, window_system)
+    resources
 }
 
 fn setup_demo_scene(resources: &mut Resources, window: WindowId) {
@@ -44,7 +38,7 @@ fn setup_demo_scene(resources: &mut Resources, window: WindowId) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     // todo: run blocking!
     use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -54,9 +48,10 @@ fn main() {
         .init();
 
     pollster::block_on(async move {
-        let (mut resources, event_loop, _window, window_system) = init().await;
-
-        window_system.run(&mut resources, event_loop).unwrap();
+        let event_loop = EventLoop::new().unwrap();
+        let resources = init().await;
+        let mut app = Application::new(resources);
+        event_loop.run_app(&mut app).map_err(Into::into)
     })
 }
 
@@ -70,8 +65,11 @@ fn main() {
     tracing_wasm::set_as_global_default();
 
     wasm_bindgen_futures::spawn_local(async move {
-        let (resources, event_loop, window, window_system) = init().await;
+        let event_loop = EventLoop::new().unwrap();
+        let resources = init().await;
+        let app = Application::new(resources);
 
+        /*
         let canvas = window.canvas();
         canvas.style().set_css_text("background-color: teal;");
         web_sys::window()
@@ -79,7 +77,7 @@ fn main() {
             .and_then(|doc| doc.body())
             .and_then(|body| body.append_child(&web_sys::Element::from(canvas)).ok())
             .expect("couldn't append canvas to document body");
-
-        window_system.spawn(resources, event_loop);
+        */
+        event_loop.spawn_app(app);
     })
 }

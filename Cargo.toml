@@ -19,29 +19,29 @@ edition = "2024"
 rust-version = "1.86"
 
 [workspace.dependencies]
-glam = "0.25"
+glam = "0.28"
 serde = "1.0"
 raw-window-handle = "0.6"
 slotmap = "1.0"
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
-bitflags = "2.5"
+bitflags = "2.6"
 fnv = "1.0"
 radsort = "0.1"
-bytemuck = "1.15"
+bytemuck = "1.17"
 blink-alloc = "0.3"
 downcast-rs = "1.2"
 dynsequence = { version = "0.1.0-alpha.4" }
-blocking = "1.5"
+blocking = "1.6"
 threadpool = "1.8"
 backtrace = "0.3"
-gametime = "0.3"
+gametime = "0.5"
 atomic_refcell = "0.1"
 palette = { version = "0.7", default-features = false }
-image = { version = "0.24", default-features = false }
-encase = { version = "0.7", features = ["glam"], default-features = false }
-encase_derive_impl = { version = "0.7" }
+image = { version = "0.25", default-features = false }
+encase = { version = "0.9", features = ["glam"], default-features = false }
+encase_derive_impl = { version = "0.9" }
 crossbeam-utils = "0.8"
 crossbeam-queue = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -52,7 +52,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = "0.3"
-ndk = "0.8"
+ndk = "0.9"
 ndk-glue = "0.7"
 darling = "0.20"
 proc-macro2 = "1.0"

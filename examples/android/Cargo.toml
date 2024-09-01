@@ -20,5 +20,5 @@ pulz-window = { path = "../../crates/window" }
 pulz-window-winit = { path = "../../crates/window-winit", features = ["android-game-activity"]}
 
 log = "0.4"
-android_logger = "0.13"
+android_logger = "0.14"
 tracing = { workspace = true, features = ["log"] }

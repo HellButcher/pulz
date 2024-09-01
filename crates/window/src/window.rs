@@ -1,10 +1,6 @@
-use std::{
-    borrow::Cow,
-    collections::VecDeque,
-    ops::{Deref, DerefMut},
-};
+use std::{borrow::Cow, collections::VecDeque};
 
-use pulz_ecs::Component;
+use pulz_ecs::{module::ModuleWithOutput, Component};
 use slotmap::{new_key_type, SlotMap};
 
 use crate::Size2;
@@ -19,55 +15,69 @@ pub type IterMut<'a, T = Window> = slotmap::basic::IterMut<'a, WindowId, T>;
 pub type WindowsMirror<T> = slotmap::SecondaryMap<WindowId, T>;
 
 #[derive(Debug)]
-pub struct WindowDescriptor {
-    pub size: Size2,
-    pub scale_factor: f64,
+pub struct WindowAttributes {
+    pub size: Option<Size2>,
     pub title: Cow<'static, str>,
     pub vsync: bool,
 }
 
 pub struct Window {
-    descriptor: WindowDescriptor,
-    pub close_requested: bool,
+    pub size: Size2,
+    pub scale_factor: f64,
+    pub vsync: bool,
+    pub is_pending: bool,
+    pub is_close_requested: bool,
     command_queue: VecDeque<WindowCommand>,
 }
 
 pub struct Windows {
     windows: SlotMap<WindowId, Window>,
-    created: VecDeque<WindowId>,
+    created: VecDeque<(WindowId, WindowAttributes)>,
 }
 
-impl WindowDescriptor {
-    pub const DEFAULT_TITLE: &'static str =
-        concat!(env!("CARGO_PKG_NAME"), ": ", env!("CARGO_PKG_VERSION"));
-    #[inline]
-    pub fn new() -> Self {
+impl WindowAttributes {
+    pub const fn new() -> Self {
         Self {
-            size: Size2::ZERO,
-            scale_factor: 1.0,
-            title: Cow::Borrowed(Self::DEFAULT_TITLE),
+            size: None,
+            title: Cow::Borrowed(""),
             vsync: true,
         }
     }
 }
 
-impl Default for WindowDescriptor {
+impl Default for WindowAttributes {
     #[inline]
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Deref for Window {
-    type Target = WindowDescriptor;
-    fn deref(&self) -> &Self::Target {
-        &self.descriptor
+impl Window {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            size: Size2::ZERO,
+            scale_factor: 1.0,
+            vsync: true,
+            is_pending: true,
+            is_close_requested: false,
+            command_queue: VecDeque::new(),
+        }
+    }
+
+    pub fn from_attributes(attributes: &WindowAttributes) -> Self {
+        Self {
+            size: attributes.size.unwrap_or(Size2::ZERO),
+            vsync: attributes.vsync,
+            ..Self::new()
+        }
     }
 }
 
-impl DerefMut for Window {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.descriptor
+impl Default for Window {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -80,16 +90,32 @@ impl Windows {
     }
 
     #[inline]
-    pub fn create(&mut self, descriptor: WindowDescriptor) -> WindowId {
-        let window = Window {
-            descriptor,
-            close_requested: false,
-            command_queue: VecDeque::new(),
-        };
-
+    pub fn create(&mut self, attributes: WindowAttributes) -> WindowId {
+        let window = Window::from_attributes(&attributes);
         let id = self.windows.insert(window);
-        self.created.push_back(id);
+        self.created.push_back((id, attributes));
         id
+    }
+
+    #[doc(hidden)]
+    pub fn create_new(&mut self) -> (WindowId, &mut Window) {
+        let id = self.windows.insert(Window::new());
+        let window = self.get_mut(id).unwrap();
+        (id, window)
+    }
+
+    #[doc(hidden)]
+    pub fn pop_next_window_to_create(
+        &mut self,
+    ) -> Option<(WindowId, &mut Window, WindowAttributes)> {
+        let (id, attributes) = loop {
+            let (id, attributes) = self.created.pop_front()?;
+            if self.windows.contains_key(id) {
+                break (id, attributes);
+            }
+        };
+        let window = self.windows.get_mut(id).unwrap();
+        Some((id, window, attributes))
     }
 
     #[inline]
@@ -115,16 +141,6 @@ impl Windows {
     #[inline]
     pub fn close(&mut self, id: WindowId) -> bool {
         self.windows.remove(id).is_some()
-    }
-
-    pub fn pop_next_created_window(&mut self) -> Option<(WindowId, &mut Window)> {
-        let id = loop {
-            let id = self.created.pop_front()?;
-            if self.windows.contains_key(id) {
-                break id;
-            }
-        };
-        Some((id, &mut self.windows[id]))
     }
 
     #[inline]
@@ -164,5 +180,18 @@ impl std::ops::IndexMut<WindowId> for Windows {
 #[non_exhaustive]
 pub enum WindowCommand {
     SetTitle(Cow<'static, String>),
+    SetVisible(bool),
+    SetFullscreen(bool),
     Close,
+}
+
+pub struct WindowModule;
+
+impl ModuleWithOutput for WindowModule {
+    type Output<'l> = &'l mut Windows;
+
+    fn install_resources(self, resources: &mut pulz_ecs::prelude::Resources) -> Self::Output<'_> {
+        let id = resources.init::<Windows>();
+        resources.get_mut_id(id).unwrap()
+    }
 }

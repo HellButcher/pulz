@@ -32,10 +32,6 @@ mod window;
 pub type Point2 = glam::IVec2;
 pub type Size2 = glam::UVec2;
 
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+pub use raw_window_handle::{DisplayHandle, WindowHandle};
 
 pub use crate::window::*;
-
-pub trait HasWindowAndDisplayHandle: HasWindowHandle + HasDisplayHandle {}
-
-impl<T> HasWindowAndDisplayHandle for T where T: HasWindowHandle + HasDisplayHandle {}

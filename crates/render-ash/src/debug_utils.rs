@@ -6,7 +6,7 @@ use std::{
 use ash::vk::{self, Handle};
 use tracing::{debug, error, info, warn};
 
-pub const EXT_NAME: &'static CStr = ash::ext::debug_utils::NAME;
+pub const EXT_NAME: &CStr = ash::ext::debug_utils::NAME;
 
 unsafe fn c_str_from_ptr<'a>(str_ptr: *const c_char) -> &'a CStr {
     if str_ptr.is_null() {

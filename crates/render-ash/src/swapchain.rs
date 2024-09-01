@@ -1,11 +1,9 @@
-use std::rc::Rc;
-
 use ash::vk;
 use pulz_render::{
     math::{uvec2, USize2},
     texture::{Texture, TextureFormat},
 };
-use pulz_window::{HasWindowAndDisplayHandle, Size2, Window, WindowDescriptor, WindowId, Windows};
+use pulz_window::{DisplayHandle, Size2, Window, WindowHandle, WindowId, Windows};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use tracing::{debug, info};
 
@@ -233,7 +231,8 @@ impl AshInstance {
     /// SAFETY: display and window handles must be valid for the complete lifetime of surface
     pub(crate) unsafe fn new_surface(
         &self,
-        window: &dyn HasWindowAndDisplayHandle,
+        display_handle: DisplayHandle<'_>,
+        window_handle: WindowHandle<'_>,
     ) -> Result<Guard<'_, vk::SurfaceKHR>> {
         fn map_handle_error(e: raw_window_handle::HandleError) -> Error {
             use raw_window_handle::HandleError;
@@ -242,8 +241,8 @@ impl AshInstance {
                 _ => Error::UnsupportedWindowSystem,
             }
         }
-        let raw_display_handle = window.display_handle().map_err(map_handle_error)?.as_raw();
-        let raw_window_handle = window.window_handle().map_err(map_handle_error)?.as_raw();
+        let raw_display_handle = display_handle.as_raw();
+        let raw_window_handle = window_handle.as_raw();
         let surface_raw = self.create_surface_raw(raw_display_handle, raw_window_handle)?;
         Ok(Guard::new(self, surface_raw))
     }
@@ -373,11 +372,10 @@ pub struct AshSurfaceSwapchain {
     image_views: Vec<vk::ImageView>,
     textures: Vec<Texture>,
     acquired_image: u32,
-    window: Rc<dyn HasWindowAndDisplayHandle>, // for keeping ownership
 }
 
 impl AshSurfaceSwapchain {
-    fn window_swapchain_config(window: &WindowDescriptor) -> (u32, vk::PresentModeKHR, USize2) {
+    fn window_swapchain_config(window: &Window) -> (u32, vk::PresentModeKHR, USize2) {
         let (image_count, present_mode) = if window.vsync {
             (3, vk::PresentModeKHR::MAILBOX)
         } else {
@@ -386,10 +384,7 @@ impl AshSurfaceSwapchain {
         (image_count, present_mode, window.size)
     }
 
-    fn new_unconfigured(
-        window: Rc<dyn HasWindowAndDisplayHandle>,
-        surface_raw: vk::SurfaceKHR,
-    ) -> Self {
+    fn new_unconfigured(surface_raw: vk::SurfaceKHR) -> Self {
         Self {
             surface_raw,
             swapchain_raw: vk::SwapchainKHR::null(),
@@ -403,7 +398,6 @@ impl AshSurfaceSwapchain {
             image_views: Vec::new(),
             textures: Vec::new(),
             acquired_image: !0,
-            window,
         }
     }
 
@@ -483,7 +477,7 @@ impl AshSurfaceSwapchain {
         Ok(())
     }
 
-    fn configure_with(&mut self, res: &mut AshResources, window: &WindowDescriptor) -> Result<()> {
+    fn configure_with(&mut self, res: &mut AshResources, window: &Window) -> Result<()> {
         let (suggested_image_count, suggested_present_mode, suggessted_size) =
             Self::window_swapchain_config(window);
         self.image_count = suggested_image_count;
@@ -690,19 +684,18 @@ impl AshRendererFull {
     pub(crate) fn init_swapchain(
         &mut self,
         window_id: WindowId,
-        window_descriptor: &Window,
-        window: Rc<dyn HasWindowAndDisplayHandle>,
+        window: &Window,
         surface: Guard<'_, vk::SurfaceKHR>,
     ) -> Result<&mut AshSurfaceSwapchain> {
         assert!(self
             .surfaces
             .insert(
                 window_id,
-                AshSurfaceSwapchain::new_unconfigured(window, surface.take())
+                AshSurfaceSwapchain::new_unconfigured(surface.take())
             )
             .is_none());
         let swapchain = self.surfaces.get_mut(window_id).unwrap();
-        swapchain.configure_with(&mut self.res, window_descriptor)?;
+        swapchain.configure_with(&mut self.res, window)?;
         Ok(swapchain)
     }
 
