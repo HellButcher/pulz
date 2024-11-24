@@ -182,7 +182,7 @@ fn convert_texture_format(val: TextureFormat) -> Result<wgpu::TextureFormat> {
         // Packed 32-bit formats
         TextureFormat::Rgb9E5Ufloat => wgpu::TextureFormat::Rgb9e5Ufloat,
         TextureFormat::Rgb10A2Unorm => wgpu::TextureFormat::Rgb10a2Unorm,
-        TextureFormat::Rg11B10Float => wgpu::TextureFormat::Rg11b10Float,
+        TextureFormat::Rg11B10Float => wgpu::TextureFormat::Rg11b10Ufloat,
 
         // 64-bit formats
         TextureFormat::Rg32Uint => wgpu::TextureFormat::Rg32Uint,
@@ -353,7 +353,7 @@ pub fn convert_compute_pipeline_descriptor<'l, 'r: 'l>(
         label: desc.label,
         layout,
         module,
-        entry_point: desc.entry_point,
+        entry_point: Some(desc.entry_point),
         compilation_options: Default::default(),
         cache: None,
     })
@@ -443,7 +443,7 @@ fn convert_vertex_state<'l, 'r: 'l>(
 
     Ok(wgpu::VertexState::<'l> {
         module,
-        entry_point: state.entry_point,
+        entry_point: Some(state.entry_point),
         buffers: buffers_tmp,
         compilation_options: Default::default(),
     })
@@ -466,7 +466,7 @@ fn convert_fragment_state<'l, 'r: 'l>(
 
     Ok(wgpu::FragmentState {
         module,
-        entry_point: state.entry_point,
+        entry_point: Some(state.entry_point),
         targets: targets_tmp,
         compilation_options: Default::default(),
     })

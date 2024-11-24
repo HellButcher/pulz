@@ -29,7 +29,7 @@ gpu-descriptor = "0.3"
 crossbeam-queue = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-raw-window-metal = "0.4"
+raw-window-metal = "1.0"
 
 [dev-dependencies]
 anyhow = { workspace = true }
