@@ -373,7 +373,9 @@ impl Schedule {
             for (s, access) in self.get_system_accesses(group) {
                 if let Err(e) = resources.mark_access(access, g, s, result) {
                     let _ = self.debug_dump_if_env_ext(Some(groups), None);
-                    panic!("resource conflict ({e:?})\nuse PULZ_DUMP_SCHEDULE=[path] to dump a .dot file of the schedule.");
+                    panic!(
+                        "resource conflict ({e:?})\nuse PULZ_DUMP_SCHEDULE=[path] to dump a .dot file of the schedule."
+                    );
                 }
             }
         }
@@ -477,7 +479,9 @@ impl Schedule {
             Ok(groups) => groups,
             Err(groups) => {
                 let _ = self.debug_dump_if_env_ext(Some(&groups), None);
-                panic!("unable to build topological order: probbably cycles in systems.\nuse PULZ_DUMP_SCHEDULE=[path] to dump a .dot file of the schedule.");
+                panic!(
+                    "unable to build topological order: probbably cycles in systems.\nuse PULZ_DUMP_SCHEDULE=[path] to dump a .dot file of the schedule."
+                );
             }
         };
 
@@ -1218,7 +1222,7 @@ macro_rules! dump_schedule_dot {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{atomic::AtomicUsize, Arc};
+    use std::sync::{Arc, atomic::AtomicUsize};
 
     use super::*;
     use crate::system::{ExclusiveSystem, System};

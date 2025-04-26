@@ -6,7 +6,7 @@ use pulz_schedule::{
     system::data::{SystemData, SystemDataFetch, SystemDataState},
 };
 
-use crate::{storage::Tracked, Component, Entity};
+use crate::{Component, Entity, storage::Tracked};
 
 // tracks removed components
 pub struct RemovedComponents<'a, C>(&'a [Entity], PhantomData<fn(C)>);

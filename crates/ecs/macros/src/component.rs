@@ -1,10 +1,10 @@
 use darling::{
-    util::{Flag, SpannedValue},
     Error, FromDeriveInput, Result,
+    util::{Flag, SpannedValue},
 };
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse_quote, DeriveInput, Path};
+use syn::{DeriveInput, Path, parse_quote};
 
 use crate::utils::resolve_crate;
 

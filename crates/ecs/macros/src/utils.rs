@@ -1,5 +1,5 @@
-use proc_macro2::{Ident, Span};
 use proc_macro_crate::FoundCrate;
+use proc_macro2::{Ident, Span};
 use syn::{Error, Path, Result, Token};
 
 pub fn resolve_crate(name: &str) -> Result<Path> {

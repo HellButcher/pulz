@@ -48,7 +48,10 @@ pub struct QryRefFetch<'w, T: Component>(Res<'w, T::Storage>);
 
 impl<'w, T: Component> QueryParamFetch<'w> for QryRefFetch<'w, T> {
     type State = QryRefState<T>;
-    type Item<'a> = &'a T where Self: 'a;
+    type Item<'a>
+        = &'a T
+    where
+        Self: 'a;
 
     #[inline]
     fn fetch(res: &'w ResourcesSend, state: &QryRefState<T>) -> Self {
@@ -108,7 +111,10 @@ pub struct QryRefMutFetch<'w, T: Component>(ResMut<'w, T::Storage>);
 
 impl<'w, T: Component> QueryParamFetch<'w> for QryRefMutFetch<'w, T> {
     type State = QryRefMutState<T>;
-    type Item<'a> = &'a mut T where Self: 'a;
+    type Item<'a>
+        = &'a mut T
+    where
+        Self: 'a;
 
     #[inline]
     fn fetch(res: &'w ResourcesSend, state: &QryRefMutState<T>) -> Self {
@@ -195,7 +201,10 @@ where
     F: QueryParamFetch<'w>,
 {
     type State = QryOptionState<F::State>;
-    type Item<'a> = Option<F::Item<'a>> where Self: 'a;
+    type Item<'a>
+        = Option<F::Item<'a>>
+    where
+        Self: 'a;
 
     #[inline]
     fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {

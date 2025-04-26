@@ -1,9 +1,9 @@
-use super::{data::SystemDataFetch, IntoExclusiveSystem, IntoSystem};
+use super::{IntoExclusiveSystem, IntoSystem, data::SystemDataFetch};
 use crate::{
     resource::{ResourceAccess, Resources},
     system::{
-        data::{SystemData, SystemDataState},
         ExclusiveSystem, System,
+        data::{SystemData, SystemDataState},
     },
 };
 

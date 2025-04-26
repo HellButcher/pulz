@@ -103,7 +103,10 @@ where
     Q: QueryParamFetch<'w>,
 {
     type State = QryWithoutFilterState<F::State, Q::State>;
-    type Item<'a> = Q::Item<'a> where Self: 'a;
+    type Item<'a>
+        = Q::Item<'a>
+    where
+        Self: 'a;
 
     #[inline]
     fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {
@@ -174,7 +177,10 @@ where
     Q: QueryParamFetch<'w>,
 {
     type State = QryWithFilterState<F::State, Q::State>;
-    type Item<'a> = Q::Item<'a> where Self: 'a;
+    type Item<'a>
+        = Q::Item<'a>
+    where
+        Self: 'a;
 
     #[inline(always)]
     fn fetch(res: &'w ResourcesSend, state: &Self::State) -> Self {

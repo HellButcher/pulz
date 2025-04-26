@@ -6,11 +6,11 @@ use pulz_schedule::{
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
 use crate::{
+    Entity,
     archetype::{Archetype, ArchetypeId},
     component::ComponentDetails,
     insert_sorted,
     resource::FromResourcesMut,
-    Entity,
 };
 
 pub trait Storage: Send + Sync + Any + FromResourcesMut {
@@ -54,7 +54,7 @@ pub trait Storage: Send + Sync + Any + FromResourcesMut {
     ) -> Option<usize>;
 
     fn get(&self, entity: Entity, archetype: ArchetypeId, index: usize)
-        -> Option<&Self::Component>;
+    -> Option<&Self::Component>;
 
     fn get_mut(
         &mut self,

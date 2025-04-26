@@ -1,13 +1,13 @@
 use std::sync::{
-    atomic::{AtomicPtr, AtomicUsize, Ordering},
     Mutex,
+    atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
 pub use self::exec::Query;
 use crate::{
+    WorldInner,
     archetype::{Archetype, ArchetypeId, ArchetypeSet},
     component::Components,
-    WorldInner,
 };
 
 // mostly based on `hecs` (https://github.com/Ralith/hecs/blob/9a2405c703ea0eb6481ad00d55e74ddd226c1494/src/query.rs)
@@ -172,7 +172,7 @@ mod test {
 
     use pulz_schedule::resource::Resources;
 
-    use crate::{component::Component, prelude::Query, WorldExt};
+    use crate::{WorldExt, component::Component, prelude::Query};
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Component)]
     struct A(usize);

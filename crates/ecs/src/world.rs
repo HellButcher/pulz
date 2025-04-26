@@ -4,13 +4,13 @@ use std::{
 };
 
 use crate::{
+    WorldInner,
     archetype::Archetypes,
     component::{Component, ComponentId, Components},
     entity::{Entities, Entity},
     get_or_init_component,
     query::{Query, QueryParam},
     resource::{RemovedResource, Res, Resources},
-    WorldInner,
 };
 
 pub struct World<'a> {

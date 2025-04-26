@@ -1,6 +1,7 @@
 use std::any::TypeId;
 
 use crate::{
+    WorldInner,
     archetype::{Archetype, ArchetypeId},
     component::{Component, ComponentDetails, ComponentId, Ref, RefMut},
     entity::{Entity, EntityLocation},
@@ -8,7 +9,6 @@ use crate::{
     resource::{Res, ResMut, ResourceId, Resources},
     storage::{AnyStorage, Storage},
     world::{World, WorldMut},
-    WorldInner,
 };
 
 /// A shared reference to a entity of a world.

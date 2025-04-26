@@ -30,7 +30,7 @@ use alloc::vec::Vec;
 use core::{
     cmp::max,
     iter::{FromIterator, FusedIterator},
-    mem::{replace, ManuallyDrop},
+    mem::{ManuallyDrop, replace},
     num::NonZeroU32,
     ops::DerefMut,
 };
@@ -1908,12 +1908,14 @@ mod tests {
             .ok()
             .unwrap();
         assert_eq!(3, arena.len());
-        assert!(arena
-            .try_insert_with(|i| Element {
-                index: i,
-                value: 99
-            })
-            .is_err());
+        assert!(
+            arena
+                .try_insert_with(|i| Element {
+                    index: i,
+                    value: 99
+                })
+                .is_err()
+        );
         assert_eq!(3, arena.capacity());
         assert_eq!(index0, arena[index0].index);
         assert_eq!(index1, arena[index1].index);

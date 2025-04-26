@@ -4,12 +4,12 @@ use pulz_schedule::system::data::SystemDataFetch;
 
 use super::QueryParamState;
 use crate::{
+    WorldInner,
     archetype::{Archetype, ArchetypeId, ArchetypeSet, ArchetypeSetIter},
     entity::Entity,
     query::{QueryItem, QueryParam, QueryParamFetch, QueryState},
     resource::{Res, ResourceAccess, ResourceId, Resources},
     system::data::{SystemData, SystemDataState},
-    WorldInner,
 };
 
 pub struct Query<'w, Q>

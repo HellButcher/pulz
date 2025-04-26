@@ -1,4 +1,4 @@
-use slotmap::{new_key_type, SlotMap};
+use slotmap::{SlotMap, new_key_type};
 
 use crate::archetype::ArchetypeId;
 pub use crate::entity_ref::{EntityMut, EntityRef};

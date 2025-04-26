@@ -1,10 +1,10 @@
 use proc_macro2::{Delimiter, Group, Ident, Literal, Span, TokenStream, TokenTree};
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::{
-    bracketed,
+    LitInt, Result, Token, bracketed,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
-    token, LitInt, Result, Token,
+    token,
 };
 
 const DEFAULT_TO: usize = 20;
