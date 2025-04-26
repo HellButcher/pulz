@@ -7,7 +7,7 @@ use crate::{
 
 pub struct Local<'l, T>(&'l mut T);
 
-impl<'l, T> Deref for Local<'l, T> {
+impl<T> Deref for Local<'_, T> {
     type Target = T;
 
     #[inline]
@@ -16,7 +16,7 @@ impl<'l, T> Deref for Local<'l, T> {
     }
 }
 
-impl<'l, T> DerefMut for Local<'l, T> {
+impl<T> DerefMut for Local<'_, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0

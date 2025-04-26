@@ -233,7 +233,7 @@ impl Resources {
     where
         T: 'static,
     {
-        let type_id = std::any::TypeId::of::<T>();
+        let type_id = TypeId::of::<T>();
         self.by_type_id.get(&type_id).copied().map(ResourceId::cast)
     }
 
@@ -270,7 +270,7 @@ impl Resources {
     where
         T: 'static,
     {
-        let type_id = std::any::TypeId::of::<T>();
+        let type_id = TypeId::of::<T>();
         let resources = &mut self.resources;
         let id = self
             .by_type_id
@@ -474,6 +474,13 @@ impl Resources {
             .get_mut(removed.id.0)
             .unwrap()
             .insert_again(removed)
+    }
+
+    pub fn clear(&mut self) {
+        self.resources.clear();
+        self.by_type_id.clear();
+        self.meta_by_type_id.clear();
+        self.modules.clear();
     }
 }
 

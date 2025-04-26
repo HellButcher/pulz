@@ -399,7 +399,7 @@ impl<'l> BitSetIter<'l> {
     }
 }
 
-impl<'l> Iterator for BitSetIter<'l> {
+impl Iterator for BitSetIter<'_> {
     type Item = usize;
     #[inline]
     fn next(&mut self) -> Option<usize> {
@@ -433,7 +433,7 @@ impl<'l> BitSetDrain<'l> {
     }
 }
 
-impl<'l> Iterator for BitSetDrain<'l> {
+impl Iterator for BitSetDrain<'_> {
     type Item = usize;
     #[inline]
     fn next(&mut self) -> Option<usize> {

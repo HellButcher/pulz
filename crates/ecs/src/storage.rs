@@ -134,7 +134,7 @@ where
     fn contains(&self, _entity: Entity, archetype: ArchetypeId, index: usize) -> bool {
         self.data
             .get(archetype.index())
-            .map_or(false, |col| index < col.len())
+            .is_some_and(|col| index < col.len())
     }
 
     #[inline]
@@ -237,7 +237,7 @@ where
         _archetype: &Archetype,
     ) -> bool {
         res.borrow_res_id(component.storage_id.typed::<Self>())
-            .map_or(false, |s| s.contains_key(entity))
+            .is_some_and(|s| s.contains_key(entity))
     }
 
     #[inline]

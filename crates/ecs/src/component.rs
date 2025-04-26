@@ -137,7 +137,7 @@ impl Components {
     where
         T: Component,
     {
-        let type_id = std::any::TypeId::of::<T>();
+        let type_id = TypeId::of::<T>();
         self.by_type_id
             .get(&type_id)
             .copied()
@@ -167,7 +167,7 @@ impl Components {
     where
         T: Component,
     {
-        let type_id = std::any::TypeId::of::<T>();
+        let type_id = TypeId::of::<T>();
         let components = &mut self.components;
         match self.by_type_id.entry(type_id) {
             Entry::Vacant(entry) => {

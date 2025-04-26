@@ -127,14 +127,10 @@ pub struct EventSubscriber<'w, T> {
     events: &'w Events<T>,
 }
 
-impl<'w, T> EventSubscriber<'w, T> {
+impl<T> EventSubscriber<'_, T> {
     #[inline]
     fn offset(&self) -> usize {
-        if self.next_id > self.events.first_id {
-            self.next_id - self.events.first_id
-        } else {
-            0
-        }
+        self.next_id.saturating_sub(self.events.first_id)
     }
 
     pub fn iter(&mut self) -> Iter<'_, T> {
@@ -154,7 +150,7 @@ impl<'w, T> EventSubscriber<'w, T> {
 
 pub struct EventWriter<'w, T>(&'w mut Events<T>);
 
-impl<'w, T> EventWriter<'w, T> {
+impl<T> EventWriter<'_, T> {
     pub fn send(&mut self, event: T) {
         self.0.send(event);
     }
@@ -164,7 +160,7 @@ impl<'w, T> EventWriter<'w, T> {
     }
 }
 
-impl<'w, T> Extend<T> for EventWriter<'w, T> {
+impl<T> Extend<T> for EventWriter<'_, T> {
     fn extend<I>(&mut self, events: I)
     where
         I: IntoIterator<Item = T>,
@@ -189,9 +185,6 @@ where
         }
     }
 }
-
-#[doc(hidden)]
-pub struct EventWriterFetch<'r, T>(ResMut<'r, Events<T>>);
 
 impl<T> SystemData for EventWriter<'_, T>
 where

@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use crossbeam_utils::sync::WaitGroup;
+use fnv::FnvHashMap as HashMap;
 use pulz_bitset::BitSet;
 
 use crate::{
@@ -8,8 +9,6 @@ use crate::{
     resource::{ResourceAccess, Resources},
     system::{ExclusiveSystem, IntoSystemDescriptor, System, SystemDescriptor, SystemVariant},
 };
-
-type HashMap<K, V> = std::collections::HashMap<K, V, fnv::FnvBuildHasher>;
 
 enum TaskGroup {
     // topoligical order of the systems, and the offset (index into this array) where a resource
@@ -422,7 +421,7 @@ impl Schedule {
 
     fn move_nonsync_and_exclusive(
         &self,
-        groups: &mut Vec<Vec<usize>>,
+        groups: &mut [Vec<usize>],
         system_conflict_groups: &[usize],
     ) {
         if groups.is_empty() {
@@ -554,7 +553,7 @@ impl Schedule {
         self.executor(resources).run();
     }
 
-    pub fn executor<'s>(&'s mut self, resources: &'s mut Resources) -> ScheduleExecution<'_> {
+    pub fn executor<'s>(&'s mut self, resources: &'s mut Resources) -> ScheduleExecution<'s> {
         self.init(resources);
         ScheduleExecution {
             systems: &mut self.systems,
@@ -1059,7 +1058,7 @@ pub mod threadpool {
     }
 }
 
-impl<'s> ScheduleExecution<'s> {
+impl ScheduleExecution<'_> {
     /// Runs a single iteration of all active systems on the *current thread*.
     pub fn run_local(&mut self) {
         for group in self.ordered_task_groups {
@@ -1111,7 +1110,7 @@ impl<'s> ScheduleExecution<'s> {
     }
 }
 
-impl<'s> SharedScheduleExecution<'s> {
+impl SharedScheduleExecution<'_> {
     /// Runs a single iteration of all active systems on the *current thread*.
     pub fn run_local(&mut self) {
         for &(system_index, _signal_task) in self.concurrent_tasks {
@@ -1166,7 +1165,7 @@ impl<'s> SharedScheduleExecution<'s> {
 
             if system.is_send() {
                 let resources = resources.as_send(); // shared borrow
-                self::threadpool::spawn(move || {
+                threadpool::spawn(move || {
                     current_wait_group.wait();
                     system.run_send(resources, ());
                     drop(signal_wait_group);

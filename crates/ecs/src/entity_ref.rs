@@ -301,7 +301,7 @@ impl<'w> EntityMut<'w> {
     }
 }
 
-impl<'w> Drop for EntityMut<'w> {
+impl Drop for EntityMut<'_> {
     fn drop(&mut self) {
         let old = self.location;
         let old_archetype = self

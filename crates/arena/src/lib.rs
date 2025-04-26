@@ -150,14 +150,14 @@ impl core::fmt::Debug for Generation {
 impl Generation {
     /// The first/initial generation of an [`Index`].
     // SAFETY: `1` is not zero!
-    pub const ONE: Self = Self(unsafe { NonZeroU32::new_unchecked(1) });
+    pub const ONE: Self = Self(NonZeroU32::new(1).unwrap());
 
     // SAFETY: `!1u32` is not zero!
-    const NEW: Self = Self(unsafe { NonZeroU32::new_unchecked(!1u32) });
+    const NEW: Self = Self(NonZeroU32::new(!1u32).unwrap());
 
     // SAFETY: `u32::MAX >> 1` is not zero!
     #[cfg(test)]
-    const MAX: Self = Self(unsafe { NonZeroU32::new_unchecked(u32::MAX >> 1) });
+    const MAX: Self = Self(NonZeroU32::new(u32::MAX >> 1).unwrap());
 
     /// Retrieves the value of this `Generation`
     #[inline]
@@ -1019,15 +1019,15 @@ pub struct Drain<'a, T> {
     inner: core::iter::Enumerate<alloc::vec::Drain<'a, Entry<T>>>,
 }
 
-impl<'a, T> Iterator for Drain<'a, T> {
+impl<T> Iterator for Drain<'_, T> {
     type Item = (Index, T);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.inner.next() {
                 Some((_, entry)) if entry.is_removed() => continue,
-                Some((offset, Entry(gen, mut entry))) => {
-                    let idx = Index(offset as u32, gen);
+                Some((offset, Entry(generation, mut entry))) => {
+                    let idx = Index(offset as u32, generation);
                     // SAFETY: entry was not marked as removed, so it is occupied
                     let value = unsafe { ManuallyDrop::take(&mut entry.occupied) };
                     self.len -= 1;
@@ -1046,13 +1046,13 @@ impl<'a, T> Iterator for Drain<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
+impl<T> DoubleEndedIterator for Drain<'_, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
             match self.inner.next_back() {
                 Some((_, entry)) if entry.is_removed() => continue,
-                Some((offset, Entry(gen, mut entry))) => {
-                    let idx = Index(offset as u32, gen);
+                Some((offset, Entry(generation, mut entry))) => {
+                    let idx = Index(offset as u32, generation);
                     // SAFETY: entry was not marked as removed, so it is occupied
                     let value = unsafe { ManuallyDrop::take(&mut entry.occupied) };
                     self.len -= 1;
@@ -1067,15 +1067,15 @@ impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
     }
 }
 
-impl<'a, T> FusedIterator for Drain<'a, T> {}
+impl<T> FusedIterator for Drain<'_, T> {}
 
-impl<'a, T> ExactSizeIterator for Drain<'a, T> {
+impl<T> ExactSizeIterator for Drain<'_, T> {
     fn len(&self) -> usize {
         self.len
     }
 }
 
-impl<'a, T> Drop for Drain<'a, T> {
+impl<T> Drop for Drain<'_, T> {
     fn drop(&mut self) {
         for item in self {
             drop(item);
@@ -1096,8 +1096,8 @@ impl<'a, T> Iterator for Iter<'a, T> {
         loop {
             match self.inner.next() {
                 Some((_, entry)) if entry.is_removed() => continue,
-                Some((offset, Entry(gen, entry))) => {
-                    let idx = Index(offset as u32, *gen);
+                Some((offset, Entry(generation, entry))) => {
+                    let idx = Index(offset as u32, *generation);
                     // SAFETY: entry was not removed: so it is occupied
                     let value = unsafe { &entry.occupied };
                     self.len -= 1;
@@ -1116,13 +1116,13 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
+impl<T> DoubleEndedIterator for Iter<'_, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
             match self.inner.next_back() {
                 Some((_, entry)) if entry.is_removed() => continue,
-                Some((offset, Entry(gen, entry))) => {
-                    let idx = Index(offset as u32, *gen);
+                Some((offset, Entry(generation, entry))) => {
+                    let idx = Index(offset as u32, *generation);
                     // SAFETY: entry was not removed: so it is occupied
                     let value = unsafe { &entry.occupied };
                     self.len -= 1;
@@ -1137,13 +1137,13 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for Iter<'a, T> {
+impl<T> ExactSizeIterator for Iter<'_, T> {
     fn len(&self) -> usize {
         self.len
     }
 }
 
-impl<'a, T> FusedIterator for Iter<'a, T> {}
+impl<T> FusedIterator for Iter<'_, T> {}
 
 /// An mutable iterator for `Arena<T>` created by [`Arena::iter_mut`].
 pub struct IterMut<'a, T> {
@@ -1158,8 +1158,8 @@ impl<'a, T> Iterator for IterMut<'a, T> {
         loop {
             match self.inner.next() {
                 Some((_, entry)) if entry.is_removed() => continue,
-                Some((offset, Entry(gen, entry))) => {
-                    let idx = Index(offset as u32, *gen);
+                Some((offset, Entry(generation, entry))) => {
+                    let idx = Index(offset as u32, *generation);
                     // SAFETY: entry was not removed: so it is occupied
                     let value = unsafe { &mut entry.occupied };
                     self.len -= 1;
@@ -1178,13 +1178,13 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
+impl<T> DoubleEndedIterator for IterMut<'_, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         loop {
             match self.inner.next_back() {
                 Some((_, entry)) if entry.is_removed() => continue,
-                Some((offset, Entry(gen, entry))) => {
-                    let idx = Index(offset as u32, *gen);
+                Some((offset, Entry(generation, entry))) => {
+                    let idx = Index(offset as u32, *generation);
                     // SAFETY: entry was not removed: so it is occupied
                     let value = unsafe { &mut entry.occupied };
                     self.len -= 1;
@@ -1199,13 +1199,13 @@ impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for IterMut<'a, T> {
+impl<T> ExactSizeIterator for IterMut<'_, T> {
     fn len(&self) -> usize {
         self.len
     }
 }
 
-impl<'a, T> FusedIterator for IterMut<'a, T> {}
+impl<T> FusedIterator for IterMut<'_, T> {}
 
 /// A `Arena`-like collection-type that shares the Indices with an `Arena`.
 ///

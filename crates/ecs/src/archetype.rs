@@ -231,7 +231,7 @@ where
 
 pub struct ArchetypeSetIter<'l>(BitSetIter<'l>);
 
-impl<'l> Iterator for ArchetypeSetIter<'l> {
+impl Iterator for ArchetypeSetIter<'_> {
     type Item = ArchetypeId;
     #[inline]
     fn next(&mut self) -> Option<ArchetypeId> {
