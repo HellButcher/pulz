@@ -470,9 +470,7 @@ impl WorldMut<'_> {
     /// Returns an exclusive reference ([`EntityMut`]) to the entity with the
     /// given id.
     pub fn entity_mut(&mut self, entity: Entity) -> Option<EntityMut<'_>> {
-        let Some(location) = self.world.entities.get_mut(entity) else {
-            return None;
-        };
+        let location = self.world.entities.get_mut(entity)?;
         let location = *location;
         Some(EntityMut::new(self.res, &mut self.world, entity, location))
     }

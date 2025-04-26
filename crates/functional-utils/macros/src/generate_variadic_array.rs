@@ -11,7 +11,7 @@ const DEFAULT_TO: usize = 20;
 
 enum ItemTemplate {
     Itent(Ident),
-    Index(Token![#]),
+    Index, // Token![#]
 }
 
 struct GeneratorArgs {
@@ -31,7 +31,7 @@ pub struct VariadicTupleGenerator {
 impl ItemTemplate {
     fn gen_item(&self, index: usize) -> TokenTree {
         match self {
-            Self::Index(_) => TokenTree::Literal(Literal::usize_unsuffixed(index)),
+            Self::Index => TokenTree::Literal(Literal::usize_unsuffixed(index)),
             Self::Itent(ident) => TokenTree::Ident(format_ident!("{}{}", ident, index)),
         }
     }
@@ -85,8 +85,8 @@ impl Default for GeneratorArgs {
 
 impl Parse for ItemTemplate {
     fn parse(input: ParseStream) -> Result<Self> {
-        if let Ok(hash_token) = input.parse::<Token![#]>() {
-            Ok(Self::Index(hash_token))
+        if let Ok(_hash_token) = input.parse::<Token![#]>() {
+            Ok(Self::Index)
         } else {
             Ok(Self::Itent(input.parse::<Ident>()?))
         }

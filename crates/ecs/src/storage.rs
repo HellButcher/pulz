@@ -170,9 +170,7 @@ where
     }
 
     fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize> {
-        let Some(value) = self.tmp.take() else {
-            return None;
-        };
+        let value = self.tmp.take()?;
         let col = vec_make_available(&mut self.data, archetype.index());
         let index = col.len();
         col.push(value);
@@ -188,9 +186,7 @@ where
         if remove_from_archetype == insert_to_archetype {
             return None;
         }
-        let Some(col) = self.data.get_mut(remove_from_archetype.index()) else {
-            return None;
-        };
+        let col = self.data.get_mut(remove_from_archetype.index())?;
         if remove_from_index >= col.len() {
             return None;
         }
