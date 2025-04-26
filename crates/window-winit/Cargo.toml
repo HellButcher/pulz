@@ -1,0 +1,41 @@
+[package]
+name = "pulz-window-winit"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[features]
+default = ["x11", "wayland"]
+x11 = ["winit/x11"]
+wayland = ["winit/wayland", "winit/wayland-dlopen", "winit/wayland-csd-adwaita"]
+android-native-activity = ["winit/android-native-activity"]
+android-game-activity = ["winit/android-game-activity"]
+
+[dependencies]
+pulz-ecs = { path = "../ecs" }
+pulz-window = { path = "../window" }
+pulz-input = { path = "../input" }
+
+fnv = { workspace = true }
+tracing = { workspace = true }
+image = { workspace = true, features = ["png"] }
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+raw-window-handle = { workspace = true, features = ["std"] }
+
+[target.'cfg(not(target_os = "unknown"))'.dev-dependencies]
+tracing-subscriber = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+tracing-wasm = { workspace = true }
+tracing-log = { workspace = true }
+console_error_panic_hook = { workspace = true }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["HtmlCanvasElement"] }
+
+[package.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu"]
+rustdoc-args = ["--cfg", "docsrs"]

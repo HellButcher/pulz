@@ -1,0 +1,37 @@
+[package]
+name = "pulz-render-ash"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+pulz-ecs = { path = "../ecs" }
+pulz-window = { path = "../window" }
+pulz-render = { path = "../render" }
+pulz-bitset = { path = "../bitset" }
+pulz-assets = { path = "../assets" }
+
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bitflags = { workspace = true }
+slotmap = { workspace = true }
+serde = { workspace = true }
+fnv = { workspace = true }
+raw-window-handle = { workspace = true }
+ash = "0.38"
+scratchbuffer = "0.1.0-alpha.1"
+gpu-alloc = "0.6"
+gpu-alloc-ash = "0.7"
+gpu-descriptor = "0.3"
+crossbeam-queue = { workspace = true }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+raw-window-metal = "1.1"
+
+[dev-dependencies]
+pulz-window-winit = { path = "../window-winit" }
+pulz-render-pipeline-core = { path = "../render-pipeline-core" }
+tracing-subscriber = { workspace = true }

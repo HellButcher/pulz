@@ -1,0 +1,34 @@
+[package]
+name = "pulz-render"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+keywords = ["game", "game-engine"]
+categories = ["game-engines", "game-development"]
+readme = "README.md"
+
+[dependencies]
+pulz-bitset = { path = "../bitset" }
+pulz-ecs = { path = "../ecs" }
+pulz-assets = { path = "../assets" }
+pulz-transform = { path = "../transform" }
+pulz-window = { path = "../window" }
+pulz-render-macros = { path = "macros" }
+pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
+
+atomic_refcell = { workspace = true }
+serde = { workspace = true }
+dynsequence = { workspace = true }
+palette = { workspace = true, features = ["std"], default-features = false }
+image = { workspace = true, default-features = false }
+slotmap = { workspace = true }
+bytemuck = { workspace = true }
+fnv = { workspace = true }
+bitflags = { workspace = true, features = ["serde"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+crossbeam-queue = { workspace = true }
+encase = { workspace = true }
+

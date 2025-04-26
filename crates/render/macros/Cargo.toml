@@ -1,0 +1,25 @@
+[package]
+name = "pulz-render-macros"
+description = "Proc-Macros for pulz-render"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+keywords = ["ecs", "game"]
+categories = ["data-structures", "game-engines", "game-development"]
+readme = "../README.md"
+
+[features]
+unstable = []
+
+[lib]
+proc-macro = true
+
+[dependencies]
+darling = { workspace = true }
+proc-macro2 = { workspace = true }
+syn = { workspace = true }
+quote = { workspace = true }
+proc-macro-crate = { workspace = true }
+encase_derive_impl = { workspace = true }
