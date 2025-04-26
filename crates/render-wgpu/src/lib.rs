@@ -28,10 +28,10 @@
 use convert::ConversionError;
 use graph::WgpuRenderGraph;
 use pulz_ecs::prelude::*;
-use pulz_render::{draw::DrawPhases, graph::RenderGraph, RenderModule, RenderSystemPhase};
+use pulz_render::{RenderModule, RenderSystemPhase, draw::DrawPhases, graph::RenderGraph};
 use pulz_window::{
-    listener::WindowSystemListener, DisplayHandle, Window, WindowHandle, WindowId, Windows,
-    WindowsMirror,
+    DisplayHandle, Window, WindowHandle, WindowId, Windows, WindowsMirror,
+    listener::WindowSystemListener,
 };
 use resources::WgpuResources;
 use surface::Surface;
@@ -48,9 +48,6 @@ mod surface;
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("No suitable GPU adapters found on the system!")]
-    NoAdapter,
-
     #[error("Unable to request a suitable device!")]
     NoDevice,
 
@@ -60,7 +57,10 @@ pub enum Error {
     #[error("The used Window-System is not supported")]
     UnsupportedWindowSystem,
 
-    #[error("Unable to create surface")]
+    #[error("Unable to request an Adapter: {0}")]
+    RequestAdapterError(#[from] wgpu::RequestAdapterError),
+
+    #[error("Unable to create surface: {0}")]
     CreateSurfaceError(#[from] wgpu::CreateSurfaceError),
 
     #[error("Unable to convert objects")]
@@ -91,19 +91,28 @@ struct WgpuRendererFull {
 
 impl WgpuRendererFull {
     async fn for_adapter(instance: wgpu::Instance, adapter: wgpu::Adapter) -> Result<Self> {
-        let trace_dir = std::env::var("WGPU_TRACE");
+        #[cfg(feature = "trace")]
+        let trace = if let Some(path) = std::env::var_os("WGPU_TRACE").map(std::path::PathBuf::from)
+        {
+            wgpu::Trace::Dictionary(path)
+        } else {
+            wgpu::Trace::Off
+        };
+
+        #[cfg(not(feature = "trace"))]
+        let trace = wgpu::Trace::Off;
+
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                    required_limits: wgpu::Limits::downlevel_defaults()
-                        .using_resolution(adapter.limits()),
-                    memory_hints: MemoryHints::Performance,
-                },
-                trace_dir.ok().as_ref().map(std::path::Path::new),
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
+                required_limits: wgpu::Limits::downlevel_defaults()
+                    .using_resolution(adapter.limits())
+                    .using_alignment(adapter.limits()),
+                memory_hints: MemoryHints::Performance,
+                trace,
+            })
             .await?;
 
         Ok(Self {
@@ -146,7 +155,7 @@ impl WgpuRendererFull {
                         .get_current_texture()
                         .expect("Failed to acquire next surface texture!")
                 }
-                Err(e) => panic!("unable to aquire next frame: {}", e), // TODO: better error handling
+                Err(e) => panic!("unable to aquire next frame: {e}"), // TODO: better error handling
             };
             self.tmp_surface_textures.push(tex);
         }
@@ -198,11 +207,13 @@ pub struct WgpuRenderer(WgpuRendererInner);
 
 impl WgpuRenderer {
     pub async fn new() -> Result<Self> {
-        let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY);
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends,
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(
+            &wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::PRIMARY,
+                ..Default::default()
+            }
+            .with_env(),
+        );
         #[cfg(target_arch = "wasm32")]
         {
             // full-initialization on wasm32:
@@ -226,43 +237,48 @@ impl WgpuRenderer {
         display_handle: DisplayHandle<'_>,
         window_handle: WindowHandle<'_>,
     ) -> Result<&mut WgpuRendererFull> {
-        if let WgpuRendererInner::Full(renderer) = &mut self.0 {
-            renderer.surfaces.remove(window_id); // replaces old surface
-            let surface = Surface::create(
-                &renderer.instance,
-                window_descriptor,
-                display_handle,
-                window_handle,
-            )?;
-            renderer.surfaces.insert(window_id, surface);
-        } else {
-            // Delayed initialization
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let WgpuRendererInner::Early { instance } =
-                    std::mem::replace(&mut self.0, WgpuRendererInner::Tmp)
-                else {
-                    panic!("unexpected state");
-                };
-                let surface =
-                    Surface::create(&instance, window_descriptor, display_handle, window_handle)?;
-                let mut renderer = pollster::block_on(async {
-                    let adapter = wgpu::util::initialize_adapter_from_env_or_default(
-                        &instance,
-                        Some(&surface),
-                    )
-                    .await
-                    .ok_or(Error::NoAdapter)?;
-                    WgpuRendererFull::for_adapter(instance, adapter).await
-                })?;
+        unsafe {
+            if let WgpuRendererInner::Full(renderer) = &mut self.0 {
+                renderer.surfaces.remove(window_id); // replaces old surface
+                let surface = Surface::create(
+                    &renderer.instance,
+                    window_descriptor,
+                    display_handle,
+                    window_handle,
+                )?;
                 renderer.surfaces.insert(window_id, surface);
-                self.0 = WgpuRendererInner::Full(renderer);
+            } else {
+                // Delayed initialization
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let WgpuRendererInner::Early { instance } =
+                        std::mem::replace(&mut self.0, WgpuRendererInner::Tmp)
+                    else {
+                        panic!("unexpected state");
+                    };
+                    let surface = Surface::create(
+                        &instance,
+                        window_descriptor,
+                        display_handle,
+                        window_handle,
+                    )?;
+                    let mut renderer = pollster::block_on(async {
+                        let adapter = wgpu::util::initialize_adapter_from_env_or_default(
+                            &instance,
+                            Some(&surface),
+                        )
+                        .await?;
+                        WgpuRendererFull::for_adapter(instance, adapter).await
+                    })?;
+                    renderer.surfaces.insert(window_id, surface);
+                    self.0 = WgpuRendererInner::Full(renderer);
+                }
             }
+            let WgpuRendererInner::Full(renderer) = &mut self.0 else {
+                unreachable!()
+            };
+            Ok(renderer)
         }
-        let WgpuRendererInner::Full(renderer) = &mut self.0 else {
-            unreachable!()
-        };
-        Ok(renderer)
     }
 
     fn init(&mut self) -> Result<&mut WgpuRendererFull> {
@@ -274,9 +290,8 @@ impl WgpuRenderer {
                 panic!("unexpected state");
             };
             let renderer = pollster::block_on(async {
-                let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, None)
-                    .await
-                    .ok_or(Error::NoAdapter)?;
+                let adapter =
+                    wgpu::util::initialize_adapter_from_env_or_default(&instance, None).await?;
                 WgpuRendererFull::for_adapter(instance, adapter).await
             })?;
             self.0 = WgpuRendererInner::Full(renderer);

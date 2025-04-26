@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{
+        PassDescription, RenderGraph, ResourceIndex,
         access::Access,
         pass::PipelineBindPoint,
         resources::{PhysicalResourceAccessTracker, PhysicalResources},
-        PassDescription, RenderGraph, ResourceIndex,
     },
     texture::TextureFormat,
 };

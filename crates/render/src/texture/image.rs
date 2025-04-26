@@ -1,4 +1,4 @@
-use image::{buffer::ConvertBuffer, ImageFormat};
+use image::{ImageFormat, buffer::ConvertBuffer};
 use thiserror::Error;
 
 use super::{ImageDataLayout, TextureDescriptor, TextureDimensions, TextureFormat};

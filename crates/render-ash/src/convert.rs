@@ -625,7 +625,7 @@ impl VkFrom<Access> for vk::AccessFlags {
         if val.intersects(Access::UNIFORM_READ) {
             result |= Self::UNIFORM_READ;
         }
-        if val.intersects(Access::SAMPLED_READ | Access::SAMPLED_READ) {
+        if val.intersects(Access::SHADER_READ | Access::SAMPLED_READ) {
             result |= Self::SHADER_READ;
         }
         if val.intersects(Access::COLOR_ATTACHMENT_READ) {

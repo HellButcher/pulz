@@ -6,11 +6,11 @@ use std::{
 };
 
 use atomic_refcell::AtomicRefCell;
-use dynsequence::{dyn_sequence, DynSequence};
+use dynsequence::{DynSequence, dyn_sequence};
 use fnv::FnvHashMap as HashMap;
 use pulz_ecs::{prelude::*, resource::ResState, system::data::SystemData};
 
-use crate::{backend::CommandEncoder, utils::hash::TypeIdHashMap, RenderSystemPhase};
+use crate::{RenderSystemPhase, backend::CommandEncoder, utils::hash::TypeIdHashMap};
 
 pub type DrawContext<'a> = &'a mut (dyn CommandEncoder + 'a);
 

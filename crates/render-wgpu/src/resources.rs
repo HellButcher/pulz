@@ -7,7 +7,7 @@ use pulz_render::{
 };
 use slotmap::SlotMap;
 
-use crate::{convert as c, Result};
+use crate::{Result, convert as c};
 
 pub trait WgpuResource: GpuResource + 'static {
     type Wgpu: 'static;

@@ -2,7 +2,7 @@ use core::fmt;
 
 use self::{
     access::Access,
-    pass::{run::PassExec, PipelineBindPoint},
+    pass::{PipelineBindPoint, run::PassExec},
     resources::{ExtendedResourceData, Resource, ResourceDeps, ResourceSet},
 };
 use crate::{
@@ -145,11 +145,7 @@ impl RenderGraph {
 
     pub fn get_topo_group_for_pass(&self, pass_index: PassIndex) -> Option<usize> {
         let g = *self.pass_topo_group.get(pass_index as usize)?;
-        if g == !0 {
-            None
-        } else {
-            Some(g)
-        }
+        if g == !0 { None } else { Some(g) }
     }
 
     pub fn execute_sub_pass(

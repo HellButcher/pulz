@@ -2,7 +2,7 @@ use std::{collections::VecDeque, mem::ManuallyDrop};
 
 use ash::vk;
 
-use crate::{instance::AshInstance, AshDevice, Result};
+use crate::{AshDevice, Result, instance::AshInstance};
 
 pub trait Destroy {
     type Context;
@@ -28,7 +28,7 @@ impl AshDevice {
     where
         D: Destroy<Context = Self>,
     {
-        handle.destroy(self)
+        unsafe { handle.destroy(self) }
     }
 
     #[inline]
@@ -54,7 +54,7 @@ impl AshInstance {
     where
         D: Destroy<Context = Self>,
     {
-        handle.destroy(self)
+        unsafe { handle.destroy(self) }
     }
 
     #[inline]
@@ -126,7 +126,7 @@ impl<D: Destroy> Destroy for Vec<D> {
     type Context = D::Context;
     #[inline]
     unsafe fn destroy(self, device: &D::Context) {
-        self.into_iter().for_each(|d| d.destroy(device))
+        unsafe { self.into_iter().for_each(|d| d.destroy(device)) }
     }
 }
 
@@ -134,7 +134,7 @@ impl<D: Destroy> Destroy for VecDeque<D> {
     type Context = D::Context;
     #[inline]
     unsafe fn destroy(self, device: &D::Context) {
-        self.into_iter().for_each(|d| d.destroy(device))
+        unsafe { self.into_iter().for_each(|d| d.destroy(device)) }
     }
 }
 
@@ -142,7 +142,7 @@ impl<D: Destroy> Destroy for std::vec::Drain<'_, D> {
     type Context = D::Context;
     #[inline]
     unsafe fn destroy(self, device: &D::Context) {
-        self.for_each(|d| d.destroy(device))
+        unsafe { self.for_each(|d| d.destroy(device)) }
     }
 }
 
@@ -150,7 +150,7 @@ impl<D: Destroy> Destroy for std::collections::vec_deque::Drain<'_, D> {
     type Context = D::Context;
     #[inline]
     unsafe fn destroy(self, device: &D::Context) {
-        self.for_each(|d| d.destroy(device))
+        unsafe { self.for_each(|d| d.destroy(device)) }
     }
 }
 
@@ -166,18 +166,18 @@ macro_rules! impl_create_destroy {
             impl Destroy for $vktype {
                 type Context = $ctx;
                 #[inline]
-                unsafe fn destroy(self, ctx: &Self::Context) {
+                unsafe fn destroy(self, ctx: &Self::Context) { unsafe {
                     ctx.$destroy(self, None);
-                }
+                }}
             }
 
             $(
                 impl CreateWithInfo for $vktype {
                     type CreateInfo<$lt> = $createinfo;
                     #[inline]
-                    unsafe fn create(ctx: &Self::Context, create_info: &Self::CreateInfo<'_>) -> Result<Self> {
+                    unsafe fn create(ctx: &Self::Context, create_info: &Self::CreateInfo<'_>) -> Result<Self> { unsafe {
                         Ok(ctx.$create(create_info, None)?)
-                    }
+                    }}
                 }
             )?
         )*

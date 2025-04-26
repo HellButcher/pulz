@@ -14,10 +14,10 @@ use pulz_render::{
 use slotmap::SlotMap;
 
 use crate::{
+    Result,
     alloc::{AshAllocator, GpuMemoryBlock},
     device::AshDevice,
     instance::AshInstance,
-    Result,
 };
 
 mod replay;
@@ -204,53 +204,59 @@ impl AshResources {
     }
 
     pub(crate) unsafe fn clear_garbage(&mut self, frame: usize) {
-        let garbage = &mut self.frame_garbage[frame];
-        let mut textures = std::mem::take(&mut garbage.texture_handles);
-        for texture in textures.drain(..) {
-            if let Some(raw) = self.textures.remove(texture) {
-                Texture::put_to_garbage(garbage, raw)
+        unsafe {
+            let garbage = &mut self.frame_garbage[frame];
+            let mut textures = std::mem::take(&mut garbage.texture_handles);
+            for texture in textures.drain(..) {
+                if let Some(raw) = self.textures.remove(texture) {
+                    Texture::put_to_garbage(garbage, raw)
+                }
             }
-        }
-        garbage.texture_handles = textures;
-        let mut buffers = std::mem::take(&mut garbage.buffer_handles);
-        for buffer in buffers.drain(..) {
-            if let Some(raw) = self.buffers.remove(buffer) {
-                Buffer::put_to_garbage(garbage, raw)
+            garbage.texture_handles = textures;
+            let mut buffers = std::mem::take(&mut garbage.buffer_handles);
+            for buffer in buffers.drain(..) {
+                if let Some(raw) = self.buffers.remove(buffer) {
+                    Buffer::put_to_garbage(garbage, raw)
+                }
             }
+            garbage.buffer_handles = buffers;
+            garbage.clear_frame(&mut self.alloc);
         }
-        garbage.buffer_handles = buffers;
-        garbage.clear_frame(&mut self.alloc);
     }
 
     /// # SAFETY
     /// caller must ensure, that the next frame has finished
     pub(crate) unsafe fn next_frame_and_clear_garbage(&mut self) {
-        self.current_frame = (self.current_frame + 1) % self.frame_garbage.len();
-        self.clear_garbage(self.current_frame);
+        unsafe {
+            self.current_frame = (self.current_frame + 1) % self.frame_garbage.len();
+            self.clear_garbage(self.current_frame);
+        }
     }
 }
 
 impl AshFrameGarbage {
     unsafe fn clear_frame(&mut self, alloc: &mut AshAllocator) {
-        let device = alloc.device();
-        self.framebuffers
-            .drain(..)
-            .for_each(|r| device.destroy_framebuffer(r, None));
-        self.image_views
-            .drain(..)
-            .for_each(|r| device.destroy_image_view(r, None));
-        self.images
-            .drain(..)
-            .for_each(|r| device.destroy_image(r, None));
-        self.buffers
-            .drain(..)
-            .for_each(|r| device.destroy_buffer(r, None));
-        if let Ok(ext_swapchain) = device.ext_swapchain() {
-            self.swapchains
+        unsafe {
+            let device = alloc.device();
+            self.framebuffers
                 .drain(..)
-                .for_each(|r| ext_swapchain.destroy_swapchain(r, None));
+                .for_each(|r| device.destroy_framebuffer(r, None));
+            self.image_views
+                .drain(..)
+                .for_each(|r| device.destroy_image_view(r, None));
+            self.images
+                .drain(..)
+                .for_each(|r| device.destroy_image(r, None));
+            self.buffers
+                .drain(..)
+                .for_each(|r| device.destroy_buffer(r, None));
+            if let Ok(ext_swapchain) = device.ext_swapchain() {
+                self.swapchains
+                    .drain(..)
+                    .for_each(|r| ext_swapchain.destroy_swapchain(r, None));
+            }
+            self.memory.drain(..).for_each(|r| alloc.dealloc(r));
         }
-        self.memory.drain(..).for_each(|r| alloc.dealloc(r));
     }
 }
 

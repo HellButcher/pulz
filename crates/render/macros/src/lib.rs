@@ -1,7 +1,7 @@
 #![cfg_attr(feature = "unstable", feature(proc_macro_span))]
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{DeriveInput, parse_macro_input};
 use utils::resolve_render_crate;
 
 #[macro_use]

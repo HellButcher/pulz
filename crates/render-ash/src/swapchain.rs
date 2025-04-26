@@ -1,6 +1,6 @@
 use ash::vk;
 use pulz_render::{
-    math::{uvec2, USize2},
+    math::{USize2, uvec2},
     texture::{Texture, TextureFormat},
 };
 use pulz_window::{DisplayHandle, Size2, Window, WindowHandle, WindowId, Windows};
@@ -8,21 +8,23 @@ use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use tracing::{debug, info};
 
 use crate::{
+    AshRendererFull, Error, Result,
     convert::VkInto,
     device::AshDevice,
     drop_guard::{Destroy, Guard},
     instance::AshInstance,
     resources::AshResources,
-    AshRendererFull, Error, Result,
 };
 
 impl Destroy for vk::SurfaceKHR {
     type Context = AshInstance;
     #[inline]
     unsafe fn destroy(self, instance: &AshInstance) {
-        if self != Self::null() {
-            let ext_surface = instance.ext_surface().unwrap();
-            ext_surface.destroy_surface(self, None);
+        unsafe {
+            if self != Self::null() {
+                let ext_surface = instance.ext_surface().unwrap();
+                ext_surface.destroy_surface(self, None);
+            }
         }
     }
 }
@@ -31,9 +33,11 @@ impl Destroy for vk::SwapchainKHR {
     type Context = AshDevice;
     #[inline]
     unsafe fn destroy(self, device: &AshDevice) {
-        if self != Self::null() {
-            let ext_swapchain = device.ext_swapchain().unwrap();
-            ext_swapchain.destroy_swapchain(self, None);
+        unsafe {
+            if self != Self::null() {
+                let ext_swapchain = device.ext_swapchain().unwrap();
+                ext_swapchain.destroy_swapchain(self, None);
+            }
         }
     }
 }
@@ -59,14 +63,16 @@ impl AshInstance {
         dpy: *mut vk::Display,
         window: vk::Window,
     ) -> Result<vk::SurfaceKHR> {
-        let functions = check_and_get_instance_extension!(self => khr::xlib_surface);
-        let surface = functions.create_xlib_surface(
-            &vk::XlibSurfaceCreateInfoKHR::default()
-                .dpy(dpy)
-                .window(window),
-            None,
-        )?;
-        Ok(surface)
+        unsafe {
+            let functions = check_and_get_instance_extension!(self => khr::xlib_surface);
+            let surface = functions.create_xlib_surface(
+                &vk::XlibSurfaceCreateInfoKHR::default()
+                    .dpy(dpy)
+                    .window(window),
+                None,
+            )?;
+            Ok(surface)
+        }
     }
 
     #[cfg(all(
@@ -80,14 +86,16 @@ impl AshInstance {
         connection: *mut vk::xcb_connection_t,
         window: vk::xcb_window_t,
     ) -> Result<vk::SurfaceKHR> {
-        let functions = check_and_get_instance_extension!(self => khr::xcb_surface);
-        let surface = functions.create_xcb_surface(
-            &vk::XcbSurfaceCreateInfoKHR::default()
-                .connection(connection)
-                .window(window),
-            None,
-        )?;
-        Ok(surface)
+        unsafe {
+            let functions = check_and_get_instance_extension!(self => khr::xcb_surface);
+            let surface = functions.create_xcb_surface(
+                &vk::XcbSurfaceCreateInfoKHR::default()
+                    .connection(connection)
+                    .window(window),
+                None,
+            )?;
+            Ok(surface)
+        }
     }
 
     #[cfg(all(
@@ -101,14 +109,16 @@ impl AshInstance {
         display: *mut vk::wl_display,
         surface: *mut vk::wl_surface,
     ) -> Result<vk::SurfaceKHR> {
-        let functions = check_and_get_instance_extension!(self => khr::wayland_surface);
-        let surface = functions.create_wayland_surface(
-            &vk::WaylandSurfaceCreateInfoKHR::default()
-                .display(display)
-                .surface(surface),
-            None,
-        )?;
-        Ok(surface)
+        unsafe {
+            let functions = check_and_get_instance_extension!(self => khr::wayland_surface);
+            let surface = functions.create_wayland_surface(
+                &vk::WaylandSurfaceCreateInfoKHR::default()
+                    .display(display)
+                    .surface(surface),
+                None,
+            )?;
+            Ok(surface)
+        }
     }
 
     #[cfg(target_os = "android")]
@@ -164,67 +174,69 @@ impl AshInstance {
         raw_display_handle: RawDisplayHandle,
         raw_window_handle: RawWindowHandle,
     ) -> Result<vk::SurfaceKHR> {
-        // check for surface-extension
-        self.ext_surface()?;
+        unsafe {
+            // check for surface-extension
+            self.ext_surface()?;
 
-        match (raw_display_handle, raw_window_handle) {
-            #[cfg(all(
-                unix,
-                not(target_os = "android"),
-                not(target_os = "macos"),
-                not(target_os = "ios")
-            ))]
-            (RawDisplayHandle::Xlib(d), RawWindowHandle::Xlib(w)) => self.create_surface_xlib(
-                d.display.ok_or(Error::WindowNotAvailable)?.as_ptr().cast(),
-                w.window,
-            ),
-            #[cfg(all(
-                unix,
-                not(target_os = "android"),
-                not(target_os = "macos"),
-                not(target_os = "ios")
-            ))]
-            (RawDisplayHandle::Xcb(d), RawWindowHandle::Xcb(w)) => self.create_surface_xcb(
-                d.connection.ok_or(Error::WindowNotAvailable)?.as_ptr(),
-                w.window.get(),
-            ),
-            #[cfg(all(
-                unix,
-                not(target_os = "android"),
-                not(target_os = "macos"),
-                not(target_os = "ios")
-            ))]
-            (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) => {
-                self.create_surface_wayland(d.display.as_ptr(), w.surface.as_ptr())
-            }
-            #[cfg(target_os = "android")]
-            (RawDisplayHandle::Android(_), RawWindowHandle::AndroidNdk(w)) => {
-                self.create_surface_android(w.a_native_window)
-            }
-            #[cfg(target_os = "windows")]
-            (RawDisplayHandle::Windows(_), RawWindowHandle::Windows(w)) => {
-                self.create_surface_win32(w.hinstance, w.hwnd)?
-            }
-            #[cfg(target_os = "macos")]
-            (RawDisplayHandle::AppKit(_), RawWindowHandle::AppKit(h)) => {
-                use raw_window_metal::{appkit, Layer};
-                let layer = match appkit::metal_layer_from_handle(h) {
-                    Layer::Existing(layer) | Layer::Allocated(layer) => layer.cast(),
-                    Layer::None => return Err(vk::Result::ERROR_INITIALIZATION_FAILED),
-                };
-                self.create_surface_metal(layer)?
-            }
-            #[cfg(target_os = "ios")]
-            (RawDisplayHandle::UiKit(_), RawWindowHandle::UiKit(w)) => {
-                use raw_window_metal::{uikit, Layer};
-                let layer = match uikit::metal_layer_from_handle(h) {
-                    Layer::Existing(layer) | Layer::Allocated(layer) => layer.cast(),
-                    Layer::None => return Err(vk::Result::ERROR_INITIALIZATION_FAILED),
-                };
-                self.create_surface_metal(layer)?
-            }
+            match (raw_display_handle, raw_window_handle) {
+                #[cfg(all(
+                    unix,
+                    not(target_os = "android"),
+                    not(target_os = "macos"),
+                    not(target_os = "ios")
+                ))]
+                (RawDisplayHandle::Xlib(d), RawWindowHandle::Xlib(w)) => self.create_surface_xlib(
+                    d.display.ok_or(Error::WindowNotAvailable)?.as_ptr().cast(),
+                    w.window,
+                ),
+                #[cfg(all(
+                    unix,
+                    not(target_os = "android"),
+                    not(target_os = "macos"),
+                    not(target_os = "ios")
+                ))]
+                (RawDisplayHandle::Xcb(d), RawWindowHandle::Xcb(w)) => self.create_surface_xcb(
+                    d.connection.ok_or(Error::WindowNotAvailable)?.as_ptr(),
+                    w.window.get(),
+                ),
+                #[cfg(all(
+                    unix,
+                    not(target_os = "android"),
+                    not(target_os = "macos"),
+                    not(target_os = "ios")
+                ))]
+                (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) => {
+                    self.create_surface_wayland(d.display.as_ptr(), w.surface.as_ptr())
+                }
+                #[cfg(target_os = "android")]
+                (RawDisplayHandle::Android(_), RawWindowHandle::AndroidNdk(w)) => {
+                    self.create_surface_android(w.a_native_window)
+                }
+                #[cfg(target_os = "windows")]
+                (RawDisplayHandle::Windows(_), RawWindowHandle::Windows(w)) => {
+                    self.create_surface_win32(w.hinstance, w.hwnd)?
+                }
+                #[cfg(target_os = "macos")]
+                (RawDisplayHandle::AppKit(_), RawWindowHandle::AppKit(h)) => {
+                    use raw_window_metal::{Layer, appkit};
+                    let layer = match appkit::metal_layer_from_handle(h) {
+                        Layer::Existing(layer) | Layer::Allocated(layer) => layer.cast(),
+                        Layer::None => return Err(vk::Result::ERROR_INITIALIZATION_FAILED),
+                    };
+                    self.create_surface_metal(layer)?
+                }
+                #[cfg(target_os = "ios")]
+                (RawDisplayHandle::UiKit(_), RawWindowHandle::UiKit(w)) => {
+                    use raw_window_metal::{Layer, uikit};
+                    let layer = match uikit::metal_layer_from_handle(h) {
+                        Layer::Existing(layer) | Layer::Allocated(layer) => layer.cast(),
+                        Layer::None => return Err(vk::Result::ERROR_INITIALIZATION_FAILED),
+                    };
+                    self.create_surface_metal(layer)?
+                }
 
-            _ => Err(Error::UnsupportedWindowSystem),
+                _ => Err(Error::UnsupportedWindowSystem),
+            }
         }
     }
 
@@ -234,17 +246,19 @@ impl AshInstance {
         display_handle: DisplayHandle<'_>,
         window_handle: WindowHandle<'_>,
     ) -> Result<Guard<'_, vk::SurfaceKHR>> {
-        fn map_handle_error(e: raw_window_handle::HandleError) -> Error {
-            use raw_window_handle::HandleError;
-            match e {
-                HandleError::Unavailable => Error::WindowNotAvailable,
-                _ => Error::UnsupportedWindowSystem,
+        unsafe {
+            fn map_handle_error(e: raw_window_handle::HandleError) -> Error {
+                use raw_window_handle::HandleError;
+                match e {
+                    HandleError::Unavailable => Error::WindowNotAvailable,
+                    _ => Error::UnsupportedWindowSystem,
+                }
             }
+            let raw_display_handle = display_handle.as_raw();
+            let raw_window_handle = window_handle.as_raw();
+            let surface_raw = self.create_surface_raw(raw_display_handle, raw_window_handle)?;
+            Ok(Guard::new(self, surface_raw))
         }
-        let raw_display_handle = display_handle.as_raw();
-        let raw_window_handle = window_handle.as_raw();
-        let surface_raw = self.create_surface_raw(raw_display_handle, raw_window_handle)?;
-        Ok(Guard::new(self, surface_raw))
     }
 }
 
@@ -453,28 +467,30 @@ impl AshSurfaceSwapchain {
 
     /// #SAFETY: there must not be any outstanding operations
     pub unsafe fn destroy_with_surface(mut self, res: &mut AshResources) -> Result<()> {
-        let swapchain = self.swapchain_raw;
-        for texture_id in self.textures.drain(..) {
-            res.textures.remove(texture_id); // forget texture without destroy!
-        }
-        for image_view in self.image_views.drain(..) {
-            res.device().destroy_image_view(image_view, None);
-        }
-        self.images.clear(); // images owned by swapchain!
-        if swapchain != vk::SwapchainKHR::null() {
-            self.swapchain_raw = vk::SwapchainKHR::null();
-            res.device()
-                .ext_swapchain()?
-                .destroy_swapchain(swapchain, None);
-        }
-        let surface = self.surface_raw;
-        if surface != vk::SurfaceKHR::null() {
-            self.surface_raw = vk::SurfaceKHR::null();
-            if let Ok(ext_surface) = res.device().instance().ext_surface() {
-                ext_surface.destroy_surface(surface, None);
+        unsafe {
+            let swapchain = self.swapchain_raw;
+            for texture_id in self.textures.drain(..) {
+                res.textures.remove(texture_id); // forget texture without destroy!
             }
+            for image_view in self.image_views.drain(..) {
+                res.device().destroy_image_view(image_view, None);
+            }
+            self.images.clear(); // images owned by swapchain!
+            if swapchain != vk::SwapchainKHR::null() {
+                self.swapchain_raw = vk::SwapchainKHR::null();
+                res.device()
+                    .ext_swapchain()?
+                    .destroy_swapchain(swapchain, None);
+            }
+            let surface = self.surface_raw;
+            if surface != vk::SurfaceKHR::null() {
+                self.surface_raw = vk::SurfaceKHR::null();
+                if let Ok(ext_surface) = res.device().instance().ext_surface() {
+                    ext_surface.destroy_surface(surface, None);
+                }
+            }
+            Ok(())
         }
-        Ok(())
     }
 
     fn configure_with(&mut self, res: &mut AshResources, window: &Window) -> Result<()> {
@@ -687,13 +703,14 @@ impl AshRendererFull {
         window: &Window,
         surface: Guard<'_, vk::SurfaceKHR>,
     ) -> Result<&mut AshSurfaceSwapchain> {
-        assert!(self
-            .surfaces
-            .insert(
-                window_id,
-                AshSurfaceSwapchain::new_unconfigured(surface.take())
-            )
-            .is_none());
+        assert!(
+            self.surfaces
+                .insert(
+                    window_id,
+                    AshSurfaceSwapchain::new_unconfigured(surface.take())
+                )
+                .is_none()
+        );
         let swapchain = self.surfaces.get_mut(window_id).unwrap();
         swapchain.configure_with(&mut self.res, window)?;
         Ok(swapchain)

@@ -5,7 +5,7 @@ mod preprocessor;
 use serde::{Deserialize, Serialize};
 
 mod encase {
-    pub use ::encase::{private, ShaderSize, ShaderType};
+    pub use ::encase::{ShaderSize, ShaderType, private};
 }
 pub use ::pulz_render_macros::ShaderType;
 

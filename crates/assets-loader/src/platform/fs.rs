@@ -85,10 +85,7 @@ impl FileSystemAssetLoaderIo {
             // TODO: smaller max file size?
             // TODO: use this when stabelized
             // return Err(std::io::ErrorKind::FileTooLarge.into());
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "file to large",
-            ));
+            return Err(std::io::Error::other("file to large"));
         }
         blocking::unblock(move || {
             let mut file = File::open(full_path)?;

@@ -4,9 +4,9 @@ use super::{Graphics, Pass, PassGroup, PipelineType, SubPassDescription};
 use crate::{
     buffer::Buffer,
     graph::{
+        PassDescription, PassIndex, RenderGraphBuilder, SubPassIndex,
         access::{Access, ShaderStage},
         resources::{ResourceDeps, Slot, SlotAccess, WriteSlot},
-        PassDescription, PassIndex, RenderGraphBuilder, SubPassIndex,
     },
     texture::{Texture, TextureDimensions, TextureFormat},
 };

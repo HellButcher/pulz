@@ -3,7 +3,7 @@ use std::{cell::Cell, collections::VecDeque, sync::Arc};
 use ash::{prelude::VkResult, vk};
 use pulz_render::backend::CommandEncoder;
 
-use crate::{device::AshDevice, Result};
+use crate::{Result, device::AshDevice};
 
 pub struct AshCommandPool {
     device: Arc<AshDevice>,
@@ -49,14 +49,16 @@ impl AshCommandPool {
     }
 
     pub unsafe fn reset(&mut self) -> VkResult<()> {
-        self.device
-            .reset_command_pool(self.pool, vk::CommandPoolResetFlags::empty())?;
-        self.fresh_buffers.extend(self.done_buffers.drain(..));
+        unsafe {
+            self.device
+                .reset_command_pool(self.pool, vk::CommandPoolResetFlags::empty())?;
+            self.fresh_buffers.extend(self.done_buffers.drain(..));
 
-        // return all semaphores to pool
-        self.semaphores_pool.extend(self.used_semaphores.drain(..));
+            // return all semaphores to pool
+            self.semaphores_pool.extend(self.used_semaphores.drain(..));
 
-        Ok(())
+            Ok(())
+        }
     }
 
     pub fn request_semaphore(&mut self) -> Result<vk::Semaphore> {
@@ -101,8 +103,10 @@ impl AshCommandPool {
     }
 
     unsafe fn free_command_buffers(&self, buffers: &[vk::CommandBuffer]) {
-        if !buffers.is_empty() {
-            self.device.free_command_buffers(self.pool, buffers);
+        unsafe {
+            if !buffers.is_empty() {
+                self.device.free_command_buffers(self.pool, buffers);
+            }
         }
     }
 }
@@ -204,13 +208,15 @@ impl AshCommandEncoder<'_> {
         clear_value: &vk::ClearColorValue,
         ranges: &[vk::ImageSubresourceRange],
     ) {
-        self.pool.device().cmd_clear_color_image(
-            self.buffer,
-            image,
-            image_layout,
-            clear_value,
-            ranges,
-        )
+        unsafe {
+            self.pool.device().cmd_clear_color_image(
+                self.buffer,
+                image,
+                image_layout,
+                clear_value,
+                ranges,
+            )
+        }
     }
 
     pub unsafe fn clear_depth_stencil_image(
@@ -220,13 +226,15 @@ impl AshCommandEncoder<'_> {
         clear_value: &vk::ClearDepthStencilValue,
         ranges: &[vk::ImageSubresourceRange],
     ) {
-        self.pool.device().cmd_clear_depth_stencil_image(
-            self.buffer,
-            image,
-            image_layout,
-            clear_value,
-            ranges,
-        )
+        unsafe {
+            self.pool.device().cmd_clear_depth_stencil_image(
+                self.buffer,
+                image,
+                image_layout,
+                clear_value,
+                ranges,
+            )
+        }
     }
 
     pub unsafe fn pipeline_barrier(
@@ -237,15 +245,17 @@ impl AshCommandEncoder<'_> {
         buffer_memory_barriers: &[vk::BufferMemoryBarrier<'_>],
         image_memory_barriers: &[vk::ImageMemoryBarrier<'_>],
     ) {
-        self.pool.device().cmd_pipeline_barrier(
-            self.buffer,
-            src_stage_mask,
-            dst_stage_mask,
-            vk::DependencyFlags::empty(),
-            memory_barriers,
-            buffer_memory_barriers,
-            image_memory_barriers,
-        )
+        unsafe {
+            self.pool.device().cmd_pipeline_barrier(
+                self.buffer,
+                src_stage_mask,
+                dst_stage_mask,
+                vk::DependencyFlags::empty(),
+                memory_barriers,
+                buffer_memory_barriers,
+                image_memory_barriers,
+            )
+        }
     }
 
     pub unsafe fn begin_render_pass(
@@ -253,17 +263,23 @@ impl AshCommandEncoder<'_> {
         create_info: &vk::RenderPassBeginInfo<'_>,
         contents: vk::SubpassContents,
     ) {
-        self.pool
-            .device()
-            .cmd_begin_render_pass(self.buffer, create_info, contents);
+        unsafe {
+            self.pool
+                .device()
+                .cmd_begin_render_pass(self.buffer, create_info, contents);
+        }
     }
 
     pub unsafe fn next_subpass(&self, contents: vk::SubpassContents) {
-        self.pool.device().cmd_next_subpass(self.buffer, contents);
+        unsafe {
+            self.pool.device().cmd_next_subpass(self.buffer, contents);
+        }
     }
 
     pub unsafe fn end_render_pass(&self) {
-        self.pool.device().cmd_end_render_pass(self.buffer);
+        unsafe {
+            self.pool.device().cmd_end_render_pass(self.buffer);
+        }
     }
 }
 

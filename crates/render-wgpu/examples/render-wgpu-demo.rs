@@ -5,7 +5,7 @@ use pulz_render::camera::{Camera, RenderTarget};
 use pulz_render_pipeline_core::core_3d::CoreShadingModule;
 use pulz_render_wgpu::WgpuRenderer;
 use pulz_window::{WindowAttributes, WindowId, WindowModule};
-use pulz_window_winit::{winit::event_loop::EventLoop, Application};
+use pulz_window_winit::{Application, winit::event_loop::EventLoop};
 use tracing::*;
 
 async fn init() -> Resources {
@@ -40,7 +40,7 @@ fn setup_demo_scene(resources: &mut Resources, window: WindowId) {
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), Box<dyn Error>> {
     // todo: run blocking!
-    use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)

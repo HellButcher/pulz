@@ -1,7 +1,7 @@
-use pulz_ecs::{prelude::Module, Entity};
+use pulz_ecs::{Entity, prelude::Module};
 use pulz_render::{
-    draw::{PhaseItem, PhaseModule},
     RenderModule,
+    draw::{PhaseItem, PhaseModule},
 };
 
 pub struct Opaque {

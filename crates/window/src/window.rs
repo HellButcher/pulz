@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::VecDeque};
 
-use pulz_ecs::{module::ModuleWithOutput, Component};
-use slotmap::{new_key_type, SlotMap};
+use pulz_ecs::{Component, module::ModuleWithOutput};
+use slotmap::{SlotMap, new_key_type};
 
 use crate::Size2;
 

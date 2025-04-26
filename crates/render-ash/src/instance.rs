@@ -3,7 +3,7 @@ use std::{ffi::CStr, ops::Deref, os::raw::c_char, sync::Arc};
 use ash::vk;
 use tracing::{debug, warn};
 
-use crate::{debug_utils, AshRendererFlags, ErrorNoExtension, Result};
+use crate::{AshRendererFlags, ErrorNoExtension, Result, debug_utils};
 
 pub const ENGINE_NAME: &CStr =
     match CStr::from_bytes_with_nul(concat!(env!("CARGO_PKG_NAME"), "\0").as_bytes()) {
@@ -181,8 +181,8 @@ macro_rules! parse_int_iteration {
         }
         $value *= 10;
         let c = $input[$pos];
-        if c < '0' as u8 || c > '9' as u8 {
-            if c != '.' as u8 && c != '-' as u8 {
+        if c < b'0' || c > b'9' {
+            if c != b'.' && c != b'-' {
                 panic!("invalid character in version");
             }
             return ($value, $pos + 1);

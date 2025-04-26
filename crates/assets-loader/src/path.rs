@@ -277,11 +277,7 @@ impl AssetPath {
     pub fn file_name(&self) -> Option<&str> {
         let (_parent, file, _frag) = self.split_parent_fragment();
         let file = file.trim_end_matches(Self::is_seperator);
-        if file.is_empty() {
-            None
-        } else {
-            Some(file)
-        }
+        if file.is_empty() { None } else { Some(file) }
     }
 
     #[inline]

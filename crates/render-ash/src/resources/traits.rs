@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use pulz_render::backend::GpuResource;
 use slotmap::SlotMap;
 
-use super::{replay::AsResourceRecord, AshFrameGarbage, AshResources, U64HashMap};
-use crate::{alloc::AshAllocator, Result};
+use super::{AshFrameGarbage, AshResources, U64HashMap, replay::AsResourceRecord};
+use crate::{Result, alloc::AshAllocator};
 
 pub trait AshGpuResource: GpuResource + 'static {
     type Raw;
@@ -61,11 +61,13 @@ impl<R: AshGpuResource> AshGpuResourceCollection for SlotMap<R, R::Raw> {
         }
     }
     unsafe fn destroy(&mut self, key: Self::Resource, alloc: &mut AshAllocator) -> bool {
-        if let Some(raw) = self.remove(key) {
-            R::destroy_raw(alloc, raw);
-            true
-        } else {
-            false
+        unsafe {
+            if let Some(raw) = self.remove(key) {
+                R::destroy_raw(alloc, raw);
+                true
+            } else {
+                false
+            }
         }
     }
 }

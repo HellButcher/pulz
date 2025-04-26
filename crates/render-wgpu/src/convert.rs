@@ -247,7 +247,7 @@ fn convert_vertex_format(val: VertexFormat) -> Result<wgpu::VertexFormat> {
         VertexFormat::Float64x3 => wgpu::VertexFormat::Float64x3,
         VertexFormat::Float64x4 => wgpu::VertexFormat::Float64x4,
 
-        _ => panic!("unsupported vertex format: {:?}", val),
+        _ => panic!("unsupported vertex format: {val:?}"),
     })
 }
 

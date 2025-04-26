@@ -1,6 +1,6 @@
 use pulz_assets::{Assets, Handle};
 use pulz_ecs::prelude::*;
-use pulz_transform::math::{size2, Mat4, Size2};
+use pulz_transform::math::{Mat4, Size2, size2};
 use pulz_window::WindowId;
 
 use crate::{

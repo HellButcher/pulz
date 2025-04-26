@@ -11,14 +11,14 @@ use pulz_render::{
 use slotmap::SlotMap;
 
 use super::{
-    traits::{AshGpuResource, AshGpuResourceCached, AshGpuResourceCreate, AshGpuResourceRemove},
     AshResources, U64HashMap,
+    traits::{AshGpuResource, AshGpuResourceCached, AshGpuResourceCreate, AshGpuResourceRemove},
 };
 use crate::{
+    Result,
     alloc::{AshAllocator, GpuMemoryBlock},
     convert::{CreateInfoConverter2, CreateInfoConverter6, VkInto},
     shader::compie_into_spv,
-    Result,
 };
 
 impl AshGpuResource for Buffer {
@@ -34,26 +34,30 @@ impl AshGpuResource for Buffer {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let alloc = &mut res.alloc;
-        let device = alloc.device_arc();
-        let create_info: vk::BufferCreateInfo<'static> = descr.vk_into();
-        let buf = device.create(&create_info)?;
-        let mreq = device.get_buffer_memory_requirements(buf.raw());
-        let mem = alloc.alloc(gpu_alloc::Request {
-            size: mreq.size,
-            align_mask: mreq.alignment,
-            usage: gpu_alloc::UsageFlags::FAST_DEVICE_ACCESS,
-            memory_types: mreq.memory_type_bits,
-        })?;
-        device.bind_buffer_memory(buf.raw(), *mem.memory(), mem.offset())?;
-        Ok((buf.take(), Some(mem.take())))
+        unsafe {
+            let alloc = &mut res.alloc;
+            let device = alloc.device_arc();
+            let create_info: vk::BufferCreateInfo<'static> = descr.vk_into();
+            let buf = device.create(&create_info)?;
+            let mreq = device.get_buffer_memory_requirements(buf.raw());
+            let mem = alloc.alloc(gpu_alloc::Request {
+                size: mreq.size,
+                align_mask: mreq.alignment,
+                usage: gpu_alloc::UsageFlags::FAST_DEVICE_ACCESS,
+                memory_types: mreq.memory_type_bits,
+            })?;
+            device.bind_buffer_memory(buf.raw(), *mem.memory(), mem.offset())?;
+            Ok((buf.take(), Some(mem.take())))
+        }
     }
     unsafe fn destroy_raw(alloc: &mut AshAllocator, (buf, mem): Self::Raw) {
-        if buf != vk::Buffer::null() {
-            alloc.device().destroy_buffer(buf, None);
-        }
-        if let Some(mem) = mem {
-            alloc.dealloc(mem);
+        unsafe {
+            if buf != vk::Buffer::null() {
+                alloc.device().destroy_buffer(buf, None);
+            }
+            if let Some(mem) = mem {
+                alloc.dealloc(mem);
+            }
         }
     }
 }
@@ -82,33 +86,37 @@ impl AshGpuResource for Texture {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let alloc = &mut res.alloc;
-        let device = alloc.device_arc();
-        let img_create_info: vk::ImageCreateInfo<'static> = descr.vk_into();
-        let img = device.create(&img_create_info)?;
-        let mreq = device.get_image_memory_requirements(img.raw());
-        let mem = alloc.alloc(gpu_alloc::Request {
-            size: mreq.size,
-            align_mask: mreq.alignment,
-            usage: gpu_alloc::UsageFlags::FAST_DEVICE_ACCESS,
-            memory_types: mreq.memory_type_bits,
-        })?;
-        device.bind_image_memory(img.raw(), *mem.memory(), mem.offset())?;
-        let mut view_create_info: vk::ImageViewCreateInfo<'static> = descr.vk_into();
-        view_create_info.image = img.raw();
-        let view = device.create(&view_create_info)?;
-        Ok((img.take(), view.take(), Some(mem.take())))
+        unsafe {
+            let alloc = &mut res.alloc;
+            let device = alloc.device_arc();
+            let img_create_info: vk::ImageCreateInfo<'static> = descr.vk_into();
+            let img = device.create(&img_create_info)?;
+            let mreq = device.get_image_memory_requirements(img.raw());
+            let mem = alloc.alloc(gpu_alloc::Request {
+                size: mreq.size,
+                align_mask: mreq.alignment,
+                usage: gpu_alloc::UsageFlags::FAST_DEVICE_ACCESS,
+                memory_types: mreq.memory_type_bits,
+            })?;
+            device.bind_image_memory(img.raw(), *mem.memory(), mem.offset())?;
+            let mut view_create_info: vk::ImageViewCreateInfo<'static> = descr.vk_into();
+            view_create_info.image = img.raw();
+            let view = device.create(&view_create_info)?;
+            Ok((img.take(), view.take(), Some(mem.take())))
+        }
     }
 
     unsafe fn destroy_raw(alloc: &mut AshAllocator, (img, view, mem): Self::Raw) {
-        if view != vk::ImageView::null() {
-            alloc.device().destroy(view);
-        }
-        if img != vk::Image::null() {
-            alloc.device().destroy(img);
-        }
-        if let Some(mem) = mem {
-            alloc.dealloc(mem);
+        unsafe {
+            if view != vk::ImageView::null() {
+                alloc.device().destroy(view);
+            }
+            if img != vk::Image::null() {
+                alloc.device().destroy(img);
+            }
+            if let Some(mem) = mem {
+                alloc.dealloc(mem);
+            }
         }
     }
 }
@@ -139,14 +147,18 @@ impl AshGpuResource for GraphicsPass {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let mut conv = CreateInfoConverter6::new();
-        let create_info = conv.graphics_pass(descr);
-        let raw = res.device().create(create_info)?;
-        Ok(raw.take())
+        unsafe {
+            let mut conv = CreateInfoConverter6::new();
+            let create_info = conv.graphics_pass(descr);
+            let raw = res.device().create(create_info)?;
+            Ok(raw.take())
+        }
     }
     unsafe fn destroy_raw(alloc: &mut AshAllocator, raw: Self::Raw) {
-        if raw != vk::RenderPass::null() {
-            alloc.device().destroy(raw);
+        unsafe {
+            if raw != vk::RenderPass::null() {
+                alloc.device().destroy(raw);
+            }
         }
     }
 }
@@ -168,17 +180,21 @@ impl AshGpuResource for ShaderModule {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let code = compie_into_spv(&descr.source)?;
-        let create_info = vk::ShaderModuleCreateInfo::default().code(&code);
-        let raw = res.device().create(&create_info)?;
-        if let Some(label) = descr.label {
-            res.device().object_name(raw.raw(), label);
+        unsafe {
+            let code = compie_into_spv(&descr.source)?;
+            let create_info = vk::ShaderModuleCreateInfo::default().code(&code);
+            let raw = res.device().create(&create_info)?;
+            if let Some(label) = descr.label {
+                res.device().object_name(raw.raw(), label);
+            }
+            Ok(raw.take())
         }
-        Ok(raw.take())
     }
     unsafe fn destroy_raw(alloc: &mut AshAllocator, raw: Self::Raw) {
-        if raw != vk::ShaderModule::null() {
-            alloc.device().destroy(raw);
+        unsafe {
+            if raw != vk::ShaderModule::null() {
+                alloc.device().destroy(raw);
+            }
         }
     }
 }
@@ -201,17 +217,21 @@ impl AshGpuResource for BindGroupLayout {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let mut conv = CreateInfoConverter2::new();
-        let create_info = conv.bind_group_layout(descr);
-        let raw = res.device().create(create_info)?;
-        if let Some(label) = descr.label {
-            res.device().object_name(raw.raw(), label);
+        unsafe {
+            let mut conv = CreateInfoConverter2::new();
+            let create_info = conv.bind_group_layout(descr);
+            let raw = res.device().create(create_info)?;
+            if let Some(label) = descr.label {
+                res.device().object_name(raw.raw(), label);
+            }
+            Ok(raw.take())
         }
-        Ok(raw.take())
     }
     unsafe fn destroy_raw(alloc: &mut AshAllocator, raw: Self::Raw) {
-        if raw != vk::DescriptorSetLayout::null() {
-            alloc.device().destroy(raw);
+        unsafe {
+            if raw != vk::DescriptorSetLayout::null() {
+                alloc.device().destroy(raw);
+            }
         }
     }
 }
@@ -234,17 +254,21 @@ impl AshGpuResource for PipelineLayout {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let mut conv = CreateInfoConverter2::new();
-        let create_info = conv.pipeline_layout(res, descr);
-        let raw = res.device().create(create_info)?;
-        if let Some(label) = descr.label {
-            res.device().object_name(raw.raw(), label);
+        unsafe {
+            let mut conv = CreateInfoConverter2::new();
+            let create_info = conv.pipeline_layout(res, descr);
+            let raw = res.device().create(create_info)?;
+            if let Some(label) = descr.label {
+                res.device().object_name(raw.raw(), label);
+            }
+            Ok(raw.take())
         }
-        Ok(raw.take())
     }
     unsafe fn destroy_raw(alloc: &mut AshAllocator, raw: Self::Raw) {
-        if raw != vk::PipelineLayout::null() {
-            alloc.device().destroy(raw);
+        unsafe {
+            if raw != vk::PipelineLayout::null() {
+                alloc.device().destroy(raw);
+            }
         }
     }
 }
@@ -267,29 +291,33 @@ impl AshGpuResource for GraphicsPipeline {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let mut conv = CreateInfoConverter2::new();
-        let create_infos = conv.graphics_pipeline_descriptor(res, std::slice::from_ref(descr));
-        match res
-            .device()
-            .create_graphics_pipelines(res.pipeline_cache, create_infos, None)
-        {
-            Ok(raw) => {
-                let raw = res.device().hold(raw[0]);
-                if let Some(label) = descr.label {
-                    res.device().object_name(raw.raw(), label);
+        unsafe {
+            let mut conv = CreateInfoConverter2::new();
+            let create_infos = conv.graphics_pipeline_descriptor(res, std::slice::from_ref(descr));
+            match res
+                .device()
+                .create_graphics_pipelines(res.pipeline_cache, create_infos, None)
+            {
+                Ok(raw) => {
+                    let raw = res.device().hold(raw[0]);
+                    if let Some(label) = descr.label {
+                        res.device().object_name(raw.raw(), label);
+                    }
+                    Ok(raw.take())
                 }
-                Ok(raw.take())
-            }
-            Err((pipelines, e)) => {
-                res.device().destroy(pipelines);
-                Err(e.into())
+                Err((pipelines, e)) => {
+                    res.device().destroy(pipelines);
+                    Err(e.into())
+                }
             }
         }
     }
 
     unsafe fn destroy_raw(alloc: &mut AshAllocator, raw: Self::Raw) {
-        if raw != vk::Pipeline::null() {
-            alloc.device().destroy_pipeline(raw, None);
+        unsafe {
+            if raw != vk::Pipeline::null() {
+                alloc.device().destroy_pipeline(raw, None);
+            }
         }
     }
 }
@@ -312,29 +340,33 @@ impl AshGpuResource for ComputePipeline {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let mut conv = CreateInfoConverter2::new();
-        let create_infos = conv.compute_pipeline_descriptor(res, std::slice::from_ref(descr));
-        match res
-            .device()
-            .create_compute_pipelines(res.pipeline_cache, create_infos, None)
-        {
-            Ok(raw) => {
-                let raw = res.device().hold(raw[0]);
-                if let Some(label) = descr.label {
-                    res.device().object_name(raw.raw(), label);
+        unsafe {
+            let mut conv = CreateInfoConverter2::new();
+            let create_infos = conv.compute_pipeline_descriptor(res, std::slice::from_ref(descr));
+            match res
+                .device()
+                .create_compute_pipelines(res.pipeline_cache, create_infos, None)
+            {
+                Ok(raw) => {
+                    let raw = res.device().hold(raw[0]);
+                    if let Some(label) = descr.label {
+                        res.device().object_name(raw.raw(), label);
+                    }
+                    Ok(raw.take())
                 }
-                Ok(raw.take())
-            }
-            Err((pipelines, e)) => {
-                res.device().destroy(pipelines);
-                Err(e.into())
+                Err((pipelines, e)) => {
+                    res.device().destroy(pipelines);
+                    Err(e.into())
+                }
             }
         }
     }
 
     unsafe fn destroy_raw(alloc: &mut AshAllocator, raw: Self::Raw) {
-        if raw != vk::Pipeline::null() {
-            alloc.device().destroy_pipeline(raw, None);
+        unsafe {
+            if raw != vk::Pipeline::null() {
+                alloc.device().destroy_pipeline(raw, None);
+            }
         }
     }
 }
@@ -358,27 +390,32 @@ impl AshGpuResource for RayTracingPipeline {
         res: &mut AshResources,
         descr: &Self::Descriptor<'_>,
     ) -> Result<Self::Raw> {
-        let ext = res.device().ext_raytracing_pipeline()?;
-        let mut conv = CreateInfoConverter2::new();
-        let create_infos = conv.ray_tracing_pipeline_descriptor(res, std::slice::from_ref(descr));
-        let raw = ext
-            .create_ray_tracing_pipelines(
-                vk::DeferredOperationKHR::null(),
-                res.pipeline_cache,
-                create_infos,
-                None,
-            )
-            .map_err(|(_, e)| e)?;
-        let raw = res.device().hold(raw[0]);
-        if let Some(label) = descr.label {
-            res.device().object_name(raw.raw(), label);
+        unsafe {
+            let ext = res.device().ext_raytracing_pipeline()?;
+            let mut conv = CreateInfoConverter2::new();
+            let create_infos =
+                conv.ray_tracing_pipeline_descriptor(res, std::slice::from_ref(descr));
+            let raw = ext
+                .create_ray_tracing_pipelines(
+                    vk::DeferredOperationKHR::null(),
+                    res.pipeline_cache,
+                    create_infos,
+                    None,
+                )
+                .map_err(|(_, e)| e)?;
+            let raw = res.device().hold(raw[0]);
+            if let Some(label) = descr.label {
+                res.device().object_name(raw.raw(), label);
+            }
+            Ok(raw.take())
         }
-        Ok(raw.take())
     }
 
     unsafe fn destroy_raw(res: &mut AshAllocator, raw: Self::Raw) {
-        if raw != vk::Pipeline::null() {
-            res.device().destroy_pipeline(raw, None);
+        unsafe {
+            if raw != vk::Pipeline::null() {
+                res.device().destroy_pipeline(raw, None);
+            }
         }
     }
 }

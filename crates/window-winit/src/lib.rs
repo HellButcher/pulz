@@ -30,7 +30,7 @@ use std::collections::HashMap;
 
 use pulz_ecs::{prelude::*, resource::RemovedResource};
 use pulz_window::{
-    listener::WindowSystemListener, Window, WindowAttributes, WindowId, Windows, WindowsMirror,
+    Window, WindowAttributes, WindowId, Windows, WindowsMirror, listener::WindowSystemListener,
 };
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use tracing::{debug, info, warn};
@@ -241,7 +241,7 @@ impl Application {
             .borrow_res_mut_id(self.windows_resource_id)
             .expect("Windows");
         while let Some((id, window, window_attributes)) = windows.pop_next_window_to_create() {
-            if window.is_pending && !window.is_close_requested & &!self.window_map.contains_id(id) {
+            if window.is_pending && !window.is_close_requested && !self.window_map.contains_id(id) {
                 let winit_window_attributes =
                     Self::winit_window_attributes_from_attributes(window_attributes);
                 let winit_window = self

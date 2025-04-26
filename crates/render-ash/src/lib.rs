@@ -35,7 +35,7 @@ use encoder::{AshCommandPool, SubmissionGroup};
 use graph::AshRenderGraph;
 use instance::AshInstance;
 use pulz_ecs::prelude::*;
-use pulz_render::{draw::DrawPhases, graph::RenderGraph, RenderModule, RenderSystemPhase};
+use pulz_render::{RenderModule, RenderSystemPhase, draw::DrawPhases, graph::RenderGraph};
 use resources::AshResources;
 use thiserror::Error;
 
@@ -52,8 +52,8 @@ mod shader;
 mod swapchain;
 
 use pulz_window::{
-    listener::WindowSystemListener, DisplayHandle, Window, WindowHandle, WindowId, Windows,
-    WindowsMirror,
+    DisplayHandle, Window, WindowHandle, WindowId, Windows, WindowsMirror,
+    listener::WindowSystemListener,
 };
 
 // wrapper object for printing backtrace, until provide() is stable
@@ -200,20 +200,24 @@ impl Frame {
 
 impl Frame {
     unsafe fn create(device: &Arc<AshDevice>) -> Result<Self> {
-        let command_pool = device.new_command_pool(device.queues().graphics_family)?;
-        let finished_fence =
-            device.create(&vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED))?;
-        let finished_semaphore = device.create(&vk::SemaphoreCreateInfo::default())?;
-        Ok(Self {
-            command_pool,
-            finished_fence: finished_fence.take(),
-            finished_semaphore: finished_semaphore.take(),
-        })
+        unsafe {
+            let command_pool = device.new_command_pool(device.queues().graphics_family)?;
+            let finished_fence = device
+                .create(&vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED))?;
+            let finished_semaphore = device.create(&vk::SemaphoreCreateInfo::default())?;
+            Ok(Self {
+                command_pool,
+                finished_fence: finished_fence.take(),
+                finished_semaphore: finished_semaphore.take(),
+            })
+        }
     }
 
     unsafe fn reset(&mut self, _device: &AshDevice) -> Result<(), vk::Result> {
-        self.command_pool.reset()?;
-        Ok(())
+        unsafe {
+            self.command_pool.reset()?;
+            Ok(())
+        }
     }
 }
 

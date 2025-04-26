@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, VecDeque},
+    collections::{VecDeque, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
 };
 
@@ -7,10 +7,10 @@ use pulz_bitset::BitSet;
 use tracing::{debug, trace};
 
 use super::{
+    RenderGraph, RenderGraphBuilder,
     access::ResourceAccess,
     deps::DependencyMatrix,
     resources::{ExtendedResourceData, Slot},
-    RenderGraph, RenderGraphBuilder,
 };
 use crate::{buffer::Buffer, texture::Texture};
 

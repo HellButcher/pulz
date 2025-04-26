@@ -1,5 +1,5 @@
 use std::{
-    ffi::{c_void, CStr},
+    ffi::{CStr, c_void},
     os::raw::c_char,
 };
 
@@ -9,10 +9,12 @@ use tracing::{debug, error, info, warn};
 pub const EXT_NAME: &CStr = ash::ext::debug_utils::NAME;
 
 unsafe fn c_str_from_ptr<'a>(str_ptr: *const c_char) -> &'a CStr {
-    if str_ptr.is_null() {
-        c""
-    } else {
-        CStr::from_ptr(str_ptr)
+    unsafe {
+        if str_ptr.is_null() {
+            c""
+        } else {
+            CStr::from_ptr(str_ptr)
+        }
     }
 }
 
@@ -22,67 +24,69 @@ unsafe extern "system" fn debug_callback(
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
     _p_user_data: *mut c_void,
 ) -> vk::Bool32 {
-    use vk::DebugUtilsMessageSeverityFlagsEXT;
+    unsafe {
+        use vk::DebugUtilsMessageSeverityFlagsEXT;
 
-    if std::thread::panicking() {
-        return vk::FALSE;
+        if std::thread::panicking() {
+            return vk::FALSE;
+        }
+
+        let message = c_str_from_ptr((*p_callback_data).p_message);
+        let message_id_name = c_str_from_ptr((*p_callback_data).p_message_id_name);
+        let message_id_number = (*p_callback_data).message_id_number;
+
+        // TODO: queues, labels, objects, ...
+
+        match message_severity {
+            DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
+                debug!(
+                    "Vk[{:?},#{},{:?}]: {}",
+                    message_type,
+                    message_id_number,
+                    message_id_name,
+                    message.to_string_lossy()
+                )
+            }
+            DebugUtilsMessageSeverityFlagsEXT::INFO => {
+                info!(
+                    "Vk[{:?},#{},{:?}]: {}",
+                    message_type,
+                    message_id_number,
+                    message_id_name,
+                    message.to_string_lossy()
+                )
+            }
+            DebugUtilsMessageSeverityFlagsEXT::WARNING => {
+                warn!(
+                    "Vk[{:?},#{},{:?}]: {}",
+                    message_type,
+                    message_id_number,
+                    message_id_name,
+                    message.to_string_lossy()
+                )
+            }
+            DebugUtilsMessageSeverityFlagsEXT::ERROR => {
+                error!(
+                    "Vk[{:?},#{},{:?}]: {}",
+                    message_type,
+                    message_id_number,
+                    message_id_name,
+                    message.to_string_lossy()
+                )
+            }
+            _ => {
+                warn!(
+                    "Vk[{:?},#{},{:?}]: {}",
+                    message_type,
+                    message_id_number,
+                    message_id_name,
+                    message.to_string_lossy()
+                )
+            }
+        };
+
+        vk::FALSE
     }
-
-    let message = c_str_from_ptr((*p_callback_data).p_message);
-    let message_id_name = c_str_from_ptr((*p_callback_data).p_message_id_name);
-    let message_id_number = (*p_callback_data).message_id_number;
-
-    // TODO: queues, labels, objects, ...
-
-    match message_severity {
-        DebugUtilsMessageSeverityFlagsEXT::VERBOSE => {
-            debug!(
-                "Vk[{:?},#{},{:?}]: {}",
-                message_type,
-                message_id_number,
-                message_id_name,
-                message.to_string_lossy()
-            )
-        }
-        DebugUtilsMessageSeverityFlagsEXT::INFO => {
-            info!(
-                "Vk[{:?},#{},{:?}]: {}",
-                message_type,
-                message_id_number,
-                message_id_name,
-                message.to_string_lossy()
-            )
-        }
-        DebugUtilsMessageSeverityFlagsEXT::WARNING => {
-            warn!(
-                "Vk[{:?},#{},{:?}]: {}",
-                message_type,
-                message_id_number,
-                message_id_name,
-                message.to_string_lossy()
-            )
-        }
-        DebugUtilsMessageSeverityFlagsEXT::ERROR => {
-            error!(
-                "Vk[{:?},#{},{:?}]: {}",
-                message_type,
-                message_id_number,
-                message_id_name,
-                message.to_string_lossy()
-            )
-        }
-        _ => {
-            warn!(
-                "Vk[{:?},#{},{:?}]: {}",
-                message_type,
-                message_id_number,
-                message_id_name,
-                message.to_string_lossy()
-            )
-        }
-    };
-
-    vk::FALSE
 }
 
 // stack-allocated buffer for keeping a copy of the object_name (for appending \0-byte)
@@ -185,11 +189,11 @@ impl DeviceDebugUtils {
 
     #[inline(always)]
     pub unsafe fn object_name<H: Handle>(&self, handle: H, object_name: &str) {
-        self._object_name(H::TYPE, handle.as_raw(), object_name)
+        unsafe { self._object_name(H::TYPE, handle.as_raw(), object_name) }
     }
     #[inline(always)]
     pub unsafe fn object_name_cstr<H: Handle>(&self, handle: H, object_name: &CStr) {
-        self._object_name_cstr(H::TYPE, handle.as_raw(), object_name)
+        unsafe { self._object_name_cstr(H::TYPE, handle.as_raw(), object_name) }
     }
 
     #[inline]
@@ -199,12 +203,14 @@ impl DeviceDebugUtils {
         object_handle: u64,
         object_name: &str,
     ) {
-        if object_handle == 0 {
-            return;
-        }
+        unsafe {
+            if object_handle == 0 {
+                return;
+            }
 
-        let mut cstr_buf = CStrBuf::new();
-        self._object_name_cstr(object_type, object_handle, cstr_buf.get_cstr(object_name))
+            let mut cstr_buf = CStrBuf::new();
+            self._object_name_cstr(object_type, object_handle, cstr_buf.get_cstr(object_name))
+        }
     }
 
     unsafe fn _object_name_cstr(
@@ -213,85 +219,107 @@ impl DeviceDebugUtils {
         object_handle: u64,
         object_name: &CStr,
     ) {
-        if object_handle == 0 {
-            return;
+        unsafe {
+            if object_handle == 0 {
+                return;
+            }
+            let _result = self
+                .0
+                .set_debug_utils_object_name(&vk::DebugUtilsObjectNameInfoEXT {
+                    object_handle,
+                    object_type,
+                    p_object_name: object_name.as_ptr(),
+                    ..Default::default()
+                });
         }
-        let _result = self
-            .0
-            .set_debug_utils_object_name(&vk::DebugUtilsObjectNameInfoEXT {
-                object_handle,
-                object_type,
-                p_object_name: object_name.as_ptr(),
-                ..Default::default()
-            });
     }
 
     #[inline]
     pub unsafe fn cmd_insert_debug_label(&self, command_buffer: vk::CommandBuffer, label: &str) {
-        let mut cstr_buf = CStrBuf::new();
-        self.cmd_insert_debug_label_cstr(command_buffer, cstr_buf.get_cstr(label))
+        unsafe {
+            let mut cstr_buf = CStrBuf::new();
+            self.cmd_insert_debug_label_cstr(command_buffer, cstr_buf.get_cstr(label))
+        }
     }
     pub unsafe fn cmd_insert_debug_label_cstr(
         &self,
         command_buffer: vk::CommandBuffer,
         label: &CStr,
     ) {
-        self.0.cmd_insert_debug_utils_label(
-            command_buffer,
-            &vk::DebugUtilsLabelEXT::default().label_name(label),
-        );
+        unsafe {
+            self.0.cmd_insert_debug_utils_label(
+                command_buffer,
+                &vk::DebugUtilsLabelEXT::default().label_name(label),
+            );
+        }
     }
 
     #[inline]
     pub unsafe fn cmd_begin_debug_label(&self, command_buffer: vk::CommandBuffer, label: &str) {
-        let mut cstr_buf = CStrBuf::new();
-        self.cmd_begin_debug_label_cstr(command_buffer, cstr_buf.get_cstr(label))
+        unsafe {
+            let mut cstr_buf = CStrBuf::new();
+            self.cmd_begin_debug_label_cstr(command_buffer, cstr_buf.get_cstr(label))
+        }
     }
     pub unsafe fn cmd_begin_debug_label_cstr(
         &self,
         command_buffer: vk::CommandBuffer,
         label: &CStr,
     ) {
-        self.0.cmd_begin_debug_utils_label(
-            command_buffer,
-            &vk::DebugUtilsLabelEXT::default().label_name(label),
-        );
+        unsafe {
+            self.0.cmd_begin_debug_utils_label(
+                command_buffer,
+                &vk::DebugUtilsLabelEXT::default().label_name(label),
+            );
+        }
     }
 
     #[inline]
     pub unsafe fn cmd_end_debug_label(&self, command_buffer: vk::CommandBuffer) {
-        self.0.cmd_end_debug_utils_label(command_buffer);
+        unsafe {
+            self.0.cmd_end_debug_utils_label(command_buffer);
+        }
     }
 
     #[inline]
     pub unsafe fn queue_insert_debug_label(&self, queue: vk::Queue, label: &str) {
-        let mut cstr_buf = CStrBuf::new();
-        self.queue_insert_debug_label_cstr(queue, cstr_buf.get_cstr(label))
+        unsafe {
+            let mut cstr_buf = CStrBuf::new();
+            self.queue_insert_debug_label_cstr(queue, cstr_buf.get_cstr(label))
+        }
     }
 
     pub unsafe fn queue_insert_debug_label_cstr(&self, queue: vk::Queue, label: &CStr) {
-        self.0.queue_insert_debug_utils_label(
-            queue,
-            &vk::DebugUtilsLabelEXT::default().label_name(label),
-        );
+        unsafe {
+            self.0.queue_insert_debug_utils_label(
+                queue,
+                &vk::DebugUtilsLabelEXT::default().label_name(label),
+            );
+        }
     }
 
     #[inline]
     pub unsafe fn queue_begin_debug_label(&self, queue: vk::Queue, label: &str) {
-        let mut cstr_buf = CStrBuf::new();
-        self.queue_begin_debug_label_cstr(queue, cstr_buf.get_cstr(label))
+        unsafe {
+            let mut cstr_buf = CStrBuf::new();
+            self.queue_begin_debug_label_cstr(queue, cstr_buf.get_cstr(label))
+        }
     }
 
     pub unsafe fn queue_begin_debug_label_cstr(&self, queue: vk::Queue, label: &CStr) {
-        self.0.queue_begin_debug_utils_label(
-            queue,
-            &vk::DebugUtilsLabelEXT::default().label_name(label),
-        );
+        unsafe {
+            self.0.queue_begin_debug_utils_label(
+                queue,
+                &vk::DebugUtilsLabelEXT::default().label_name(label),
+            );
+        }
     }
 
     #[inline]
     pub unsafe fn queue_end_debug_label(&self, queue: vk::Queue) {
-        self.0.queue_end_debug_utils_label(queue);
+        unsafe {
+            self.0.queue_end_debug_utils_label(queue);
+        }
     }
 }
 

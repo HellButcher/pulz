@@ -9,7 +9,7 @@ repository.workspace = true
 
 [lib]
 name="pulzdemo_android"
-crate_type=["cdylib"]
+crate-type=["cdylib"]
 
 [dependencies]
 pulz-ecs = { path = "../../crates/ecs" }
@@ -20,5 +20,5 @@ pulz-window = { path = "../../crates/window" }
 pulz-window-winit = { path = "../../crates/window-winit", features = ["android-game-activity"]}
 
 log = "0.4"
-android_logger = "0.14"
+android_logger = "0.15"
 tracing = { workspace = true, features = ["log"] }

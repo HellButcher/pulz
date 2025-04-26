@@ -4,7 +4,7 @@ use ash::vk;
 use pulz_render::graph::pass::PipelineBindPoint;
 use tracing::{debug, info, warn};
 
-use crate::{debug_utils, instance::AshInstance, Error, ErrorNoExtension, Result};
+use crate::{Error, ErrorNoExtension, Result, debug_utils, instance::AshInstance};
 
 pub struct AshDevice {
     device_raw: ash::Device,
@@ -139,8 +139,10 @@ impl AshDevice {
 
     #[inline]
     pub unsafe fn object_name<H: vk::Handle>(&self, handle: H, name: &str) {
-        if let Some(debug_utils) = &self.debug_utils {
-            debug_utils.object_name(handle, name)
+        unsafe {
+            if let Some(debug_utils) = &self.debug_utils {
+                debug_utils.object_name(handle, name)
+            }
         }
     }
 }

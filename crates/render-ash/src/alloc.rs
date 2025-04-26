@@ -3,9 +3,9 @@ use std::{mem::ManuallyDrop, sync::Arc};
 use ash::vk;
 
 use crate::{
+    Result,
     device::AshDevice,
     instance::{AshInstance, VK_API_VERSION},
-    Result,
 };
 
 type GpuAllocator = gpu_alloc::GpuAllocator<vk::DeviceMemory>;
@@ -61,13 +61,15 @@ impl AshAllocator {
         &mut self,
         request: gpu_alloc::Request,
     ) -> Result<AshMemoryBlockGuard<'_>, AllocationError> {
-        let block = self
-            .gpu_allocator
-            .alloc(gpu_alloc_ash::AshMemoryDevice::wrap(&self.device), request)?;
-        Ok(AshMemoryBlockGuard {
-            allocator: self,
-            block: ManuallyDrop::new(block),
-        })
+        unsafe {
+            let block = self
+                .gpu_allocator
+                .alloc(gpu_alloc_ash::AshMemoryDevice::wrap(&self.device), request)?;
+            Ok(AshMemoryBlockGuard {
+                allocator: self,
+                block: ManuallyDrop::new(block),
+            })
+        }
     }
 
     #[inline]
@@ -76,21 +78,25 @@ impl AshAllocator {
         request: gpu_alloc::Request,
         dedicated: gpu_alloc::Dedicated,
     ) -> Result<AshMemoryBlockGuard<'_>, AllocationError> {
-        let block = self.gpu_allocator.alloc_with_dedicated(
-            gpu_alloc_ash::AshMemoryDevice::wrap(&self.device),
-            request,
-            dedicated,
-        )?;
-        Ok(AshMemoryBlockGuard {
-            allocator: self,
-            block: ManuallyDrop::new(block),
-        })
+        unsafe {
+            let block = self.gpu_allocator.alloc_with_dedicated(
+                gpu_alloc_ash::AshMemoryDevice::wrap(&self.device),
+                request,
+                dedicated,
+            )?;
+            Ok(AshMemoryBlockGuard {
+                allocator: self,
+                block: ManuallyDrop::new(block),
+            })
+        }
     }
 
     #[inline]
     pub unsafe fn dealloc(&mut self, block: GpuMemoryBlock) {
-        self.gpu_allocator
-            .dealloc(gpu_alloc_ash::AshMemoryDevice::wrap(&self.device), block)
+        unsafe {
+            self.gpu_allocator
+                .dealloc(gpu_alloc_ash::AshMemoryDevice::wrap(&self.device), block)
+        }
     }
 }
 
