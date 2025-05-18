@@ -2,6 +2,7 @@ use crate::tuple::Tuple;
 
 #[cfg(feature = "func-bind")]
 pub mod bind;
+pub mod future;
 
 #[diagnostic::on_unimplemented(
     message = "expected a `FuncOnce<{Args}>` closure, found `{Self}`",

@@ -18,9 +18,11 @@ tuple-map = ["tuple"]
 tuple-convert = ["tuple"]
 func = ["tuple"]
 func-bind = ["func"]
+func-future = ["func"]
 
 [dependencies]
 pulz-functional-utils-macros = { version = "0.1.0-alpha", path = "macros" }
 
 [dev-dependencies]
-pulz-functional-utils = { path = ".", features = ["tuple", "tuple-ops", "tuple-map", "tuple-convert", "func", "func-bind"] }
+pulz-functional-utils = { path = ".", features = ["tuple", "tuple-ops", "tuple-map", "tuple-convert", "func", "func-bind", "func-future"] }
+pollster = { version = "0.4", features = ["macro"] }
