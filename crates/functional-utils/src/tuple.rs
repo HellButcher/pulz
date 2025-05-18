@@ -1,0 +1,22 @@
+pub trait Tuple {
+    const LEN: usize;
+}
+
+macro_rules! impl_tuple {
+    ([$(($big:ident,$small:ident,$index:tt)),*]) => {
+        impl<$($big),*> Tuple for ($($big,)*) {
+            const LEN: usize = 0 $( + 1 + ($index - $index))*;
+        }
+    };
+}
+
+crate::generate_variadic_array! {[21 T,t,#] impl_tuple!{}}
+
+#[cfg(feature = "tuple-ops")]
+pub mod ops;
+
+#[cfg(feature = "tuple-map")]
+pub mod map;
+
+#[cfg(feature = "tuple-convert")]
+pub mod convert;

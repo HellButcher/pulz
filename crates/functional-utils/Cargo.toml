@@ -10,5 +10,17 @@ keywords = ["traits", "functional", "generic programming"]
 categories = ["rust-patterns"]
 readme = "README.md"
 
+[features]
+default = []
+tuple = []
+tuple-ops = ["tuple"]
+tuple-map = ["tuple"]
+tuple-convert = ["tuple"]
+func = []
+func-bind = ["func"]
+
 [dependencies]
 pulz-functional-utils-macros = { version = "0.1.0-alpha", path = "macros" }
+
+[dev-dependencies]
+pulz-functional-utils = { path = ".", features = ["tuple", "tuple-ops", "tuple-map", "tuple-convert", "func", "func-bind"] }
