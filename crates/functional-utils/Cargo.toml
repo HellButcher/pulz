@@ -16,7 +16,7 @@ tuple = []
 tuple-ops = ["tuple"]
 tuple-map = ["tuple"]
 tuple-convert = ["tuple"]
-func = []
+func = ["tuple"]
 func-bind = ["func"]
 
 [dependencies]

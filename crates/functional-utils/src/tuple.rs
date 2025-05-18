@@ -1,3 +1,4 @@
+#[diagnostic::on_unimplemented(message = "`{Self}` is not a tuple")]
 pub trait Tuple {
     const LEN: usize;
 }

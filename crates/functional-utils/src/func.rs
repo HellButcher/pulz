@@ -1,7 +1,14 @@
+use crate::tuple::Tuple;
+
 #[cfg(feature = "func-bind")]
 pub mod bind;
 
-pub trait FuncOnce<Args> {
+#[diagnostic::on_unimplemented(
+    message = "expected a `FuncOnce<{Args}>` closure, found `{Self}`",
+    label = "expected an `FuncOnce<{Args}>` closure, found `{Self}`"
+)]
+#[must_use = "closures are lazy and do nothing unless called"]
+pub trait FuncOnce<Args: Tuple> {
     type Output;
 
     fn call_once(self, args: Args) -> Self::Output;
@@ -15,7 +22,12 @@ pub trait FuncOnce<Args> {
         bind::BindFn(arg, self)
     }
 }
-pub trait FuncMut<Args>: FuncOnce<Args> {
+#[diagnostic::on_unimplemented(
+    message = "expected a `FuncMut<{Args}>` closure, found `{Self}`",
+    label = "expected an `FuncMut<{Args}>` closure, found `{Self}`"
+)]
+#[must_use = "closures are lazy and do nothing unless called"]
+pub trait FuncMut<Args: Tuple>: FuncOnce<Args> {
     fn call_mut(&mut self, args: Args) -> Self::Output;
 
     #[cfg(feature = "func-bind")]
@@ -27,7 +39,12 @@ pub trait FuncMut<Args>: FuncOnce<Args> {
         bind::BindFnMut(arg, self)
     }
 }
-pub trait Func<Args>: FuncMut<Args> {
+#[diagnostic::on_unimplemented(
+    message = "expected a `Func<{Args}>` closure, found `{Self}`",
+    label = "expected an `Func<{Args}>` closure, found `{Self}`"
+)]
+#[must_use = "closures are lazy and do nothing unless called"]
+pub trait Func<Args: Tuple>: FuncMut<Args> {
     fn call(&self, args: Args) -> Self::Output;
 
     #[cfg(feature = "func-bind")]
@@ -40,7 +57,7 @@ pub trait Func<Args>: FuncMut<Args> {
     }
 }
 
-macro_rules! impl_call_fn {
+macro_rules! impl_func {
     ([$(($big:ident,$index:tt)),*]) => {
         impl<F, O $(, $big)*> FuncOnce<($($big,)*)> for F
         where
@@ -75,7 +92,7 @@ macro_rules! impl_call_fn {
     };
 }
 
-crate::generate_variadic_array! {[T,#] impl_call_fn!{}}
+crate::generate_variadic_array! {[T,#] impl_func!{}}
 
 #[cfg(test)]
 mod tests {
@@ -83,17 +100,19 @@ mod tests {
 
     use super::*;
 
-    pub fn assert_fn_type<Args, O>(f: impl Func<Args, Output = O>) -> impl Func<Args, Output = O> {
+    pub fn assert_fn_type<Args: Tuple, O>(
+        f: impl Func<Args, Output = O>,
+    ) -> impl Func<Args, Output = O> {
         f
     }
 
-    pub fn assert_fnmut_type<Args, O>(
+    pub fn assert_fnmut_type<Args: Tuple, O>(
         f: impl FuncMut<Args, Output = O>,
     ) -> impl FuncMut<Args, Output = O> {
         f
     }
 
-    pub fn assert_fnonce_type<Args, O>(
+    pub fn assert_fnonce_type<Args: Tuple, O>(
         f: impl FuncOnce<Args, Output = O>,
     ) -> impl FuncOnce<Args, Output = O> {
         f
