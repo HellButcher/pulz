@@ -51,10 +51,9 @@ impl GeneratorArgs {
 }
 
 impl VariadicTupleGenerator {
-    fn gen_invocation(&self, to: usize, items: &[TokenStream]) -> TokenStream {
+    fn gen_invocation(&self, items_slice: &[TokenStream]) -> TokenStream {
         let macro_name = &self.macro_name;
         let provided_macro_args = self.macro_args.stream();
-        let items_slice = &items[0..to];
         let tail = &self.tail;
         let macro_args_delim = self.macro_args.delimiter();
         let all_macro_args_group = Group::new(
@@ -161,11 +160,9 @@ impl ToTokens for VariadicTupleGenerator {
         if self.args.to < self.args.from {
             return;
         }
-        let items: Vec<_> = (self.args.from..self.args.to)
-            .map(|i| self.args.gen_tuple(i))
-            .collect();
-        for i in 0..=items.len() {
-            tokens.extend(self.gen_invocation(i, &items));
+        let items: Vec<_> = (0..self.args.to).map(|i| self.args.gen_tuple(i)).collect();
+        for i in self.args.from..=items.len() {
+            tokens.extend(self.gen_invocation(&items[0..i]));
         }
     }
 }
