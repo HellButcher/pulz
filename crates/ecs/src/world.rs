@@ -10,7 +10,7 @@ use crate::{
     entity::{Entities, Entity},
     get_or_init_component,
     query::{Query, QueryParam},
-    resource::{Taken, Res, Resources},
+    resource::{Res, Resources, Taken},
 };
 
 pub struct World<'a> {

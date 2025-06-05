@@ -17,29 +17,39 @@ pub use self::{
 #[doc(hidden)]
 pub enum Void {}
 
-pub struct Taken<T> {
-    id: ResourceId,
+pub struct Taken<T: ?Sized> {
     value: Box<T>,
+    id: ResourceId,
 }
-impl<T> Taken<T> {
+
+impl<T: ?Sized> Taken<T> {
     #[inline]
     pub fn id(&self) -> ResourceId<T> {
         self.id.cast()
     }
 
     #[inline]
+    pub fn into_box(self) -> Box<T> {
+        self.value
+    }
+}
+
+impl<T> Taken<T> {
+    #[inline]
     pub fn into_inner(self) -> T {
         *self.value
     }
 }
-impl<T> Deref for Taken<T> {
+
+impl<T: ?Sized> Deref for Taken<T> {
     type Target = T;
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
-impl<T> DerefMut for Taken<T> {
+
+impl<T: ?Sized> DerefMut for Taken<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
@@ -49,6 +59,7 @@ impl<T> DerefMut for Taken<T> {
 pub trait FromResources {
     fn from_resources(resources: &Resources) -> Self;
 }
+
 pub trait FromResourcesMut {
     fn from_resources_mut(resources: &mut Resources) -> Self;
 }
