@@ -1,5 +1,5 @@
+use bit_set::BitSet;
 use fnv::FnvHashMap as HashMap;
-use pulz_bitset::BitSet;
 
 use crate::label::SystemPhaseId;
 
@@ -17,7 +17,7 @@ pub struct DependencyNode {
 
 impl DependencyNode {
     #[inline]
-    const fn new(index: usize) -> Self {
+    fn new(index: usize) -> Self {
         Self {
             index,
             parent: !0,
@@ -63,8 +63,8 @@ impl DependencyGraph {
         // dependency for this system in group `b-1`).
         // The order inside the group is the insertion order.
         let mut groups: Vec<Vec<usize>> = Vec::new();
-        let mut completed = BitSet::with_capacity_for(self.nodes.len());
-        let mut ready = BitSet::with_capacity_for(self.nodes.len());
+        let mut completed = BitSet::with_capacity(self.nodes.len());
+        let mut ready = BitSet::with_capacity(self.nodes.len());
         let mut todo = self.nodes.len();
         assert!(todo > 2);
         // always add first group as a seperate group first
@@ -85,7 +85,7 @@ impl DependencyGraph {
                     // a node becomes READY, if its parent is also READY, and if all its dependencies are COMPLETED.
                     if !ready.contains(node.index)
                         && (node.parent == !0 || ready.contains(node.parent))
-                        && completed.contains_all(&node.dependencies)
+                        && node.dependencies.is_subset(&completed)
                     {
                         ready.insert(node.index);
                         changed = true;
@@ -102,7 +102,7 @@ impl DependencyGraph {
                     // a node becomes COMPLETED, when it is READY and all its children are COMPLETED
                     if !completed.contains(node.index)
                         && ready.contains(node.index)
-                        && completed.contains_all(&node.sub_nodes)
+                        && node.sub_nodes.is_subset(&completed)
                     {
                         completed.insert(node.index);
                         new_group.push(node.index);

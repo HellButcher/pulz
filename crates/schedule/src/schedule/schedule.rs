@@ -584,11 +584,11 @@ unsafe impl System for ConcurrentSystemSchedule {
         let mut scratch = ResourceAccess::new();
         for system in &self.0.systems {
             if let SystemVariant::Concurrent(_, ref access) = system.system_variant {
-                scratch.extend(access);
+                scratch.union_with(access);
             }
         }
-        scratch.shared.remove_bitset(&scratch.exclusive);
-        access.extend(&scratch);
+        scratch.shared.difference_with(&scratch.exclusive);
+        access.union_with(&scratch);
     }
 }
 #[doc(hidden)]

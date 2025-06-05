@@ -1,4 +1,4 @@
-use pulz_bitset::BitSet;
+use bit_set::BitSet;
 
 use super::ResourceId;
 
@@ -57,15 +57,19 @@ impl ResourceAccess {
         self.exclusive.clear();
     }
     #[inline]
-    pub fn extend(&mut self, other: &Self) {
-        self.shared.extend_bitset(&other.shared);
-        self.exclusive.extend_bitset(&other.exclusive);
+    pub fn union_with(&mut self, other: &Self) {
+        self.shared.union_with(&other.shared);
+        self.exclusive.union_with(&other.exclusive);
     }
     #[inline]
     pub fn is_compatible(&self, other: &Self) -> bool {
         self.shared.is_disjoint(&other.exclusive)
             && self.exclusive.is_disjoint(&other.shared)
             && self.exclusive.is_disjoint(&other.exclusive)
+    }
+    #[inline]
+    pub fn is_valid(&self) -> bool {
+        self.shared.is_disjoint(&self.exclusive)
     }
 }
 

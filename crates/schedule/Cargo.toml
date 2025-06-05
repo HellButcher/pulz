@@ -11,9 +11,9 @@ repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
 
 [dependencies]
-pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
 pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
 
+bit-set = { workspace = true }
 fnv = { workspace = true }
 atomic_refcell = { workspace = true }
 crossbeam-utils = { workspace = true }
