@@ -17,11 +17,11 @@ pub use self::{
 #[doc(hidden)]
 pub enum Void {}
 
-pub struct RemovedResource<T> {
+pub struct Taken<T> {
     id: ResourceId,
     value: Box<T>,
 }
-impl<T> RemovedResource<T> {
+impl<T> Taken<T> {
     #[inline]
     pub fn id(&self) -> ResourceId<T> {
         self.id.cast()
@@ -32,14 +32,14 @@ impl<T> RemovedResource<T> {
         *self.value
     }
 }
-impl<T> Deref for RemovedResource<T> {
+impl<T> Deref for Taken<T> {
     type Target = T;
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
-impl<T> DerefMut for RemovedResource<T> {
+impl<T> DerefMut for Taken<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value

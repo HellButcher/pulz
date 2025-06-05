@@ -18,11 +18,11 @@ pub trait ModuleWithOutput: Sized + 'static {
             self.install_once(resources);
 
             let resources_mut: *mut Resources = resources;
-            let mut schedule = resources.remove::<Schedule>().unwrap();
+            let mut schedule = resources.take::<Schedule>().unwrap();
             let output = self.install_resources(resources);
             Self::install_systems(&mut schedule);
             // SAFETY: will not access schedule, because it was removed
-            unsafe { &mut *resources_mut }.insert_again(schedule);
+            unsafe { &mut *resources_mut }.put_back(schedule);
             output
         } else {
             self.install_resources(resources)

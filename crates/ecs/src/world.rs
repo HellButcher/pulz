@@ -10,7 +10,7 @@ use crate::{
     entity::{Entities, Entity},
     get_or_init_component,
     query::{Query, QueryParam},
-    resource::{RemovedResource, Res, Resources},
+    resource::{Taken, Res, Resources},
 };
 
 pub struct World<'a> {
@@ -55,7 +55,7 @@ impl Deref for World<'_> {
 
 pub struct WorldMut<'a> {
     pub(crate) res: &'a mut Resources,
-    pub(crate) world: ManuallyDrop<RemovedResource<WorldInner>>,
+    pub(crate) world: ManuallyDrop<Taken<WorldInner>>,
 }
 
 impl WorldMut<'_> {
@@ -96,7 +96,7 @@ impl Drop for WorldMut<'_> {
     fn drop(&mut self) {
         // SAFETY: only deconstructed here
         let world = unsafe { ManuallyDrop::take(&mut self.world) };
-        self.res.insert_again(world);
+        self.res.put_back(world);
     }
 }
 
@@ -134,7 +134,7 @@ impl WorldExt for Resources {
     #[inline]
     fn world_mut(&mut self) -> WorldMut<'_> {
         let id = self.init::<WorldInner>();
-        let world = self.remove_id(id).unwrap();
+        let world = self.take_id(id).unwrap();
         WorldMut {
             res: self,
             world: ManuallyDrop::new(world),

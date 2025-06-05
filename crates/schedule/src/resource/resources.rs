@@ -9,7 +9,7 @@ use std::{
 
 use atomic_refcell::AtomicRefCell;
 
-use super::{FromResourcesMut, RemovedResource, Res, ResMut, ResourceId};
+use super::{FromResourcesMut, Res, ResMut, ResourceId, Taken};
 
 struct Resource {
     id: ResourceId,
@@ -85,7 +85,7 @@ impl Resource {
     }
 
     #[inline]
-    fn remove<T>(&mut self) -> Option<RemovedResource<T>>
+    fn take<T>(&mut self) -> Option<Taken<T>>
     where
         T: 'static,
     {
@@ -97,11 +97,11 @@ impl Resource {
                 return None;
             }
         };
-        Some(RemovedResource { id: self.id, value })
+        Some(Taken { id: self.id, value })
     }
 
     #[inline]
-    fn insert_again<T>(&mut self, taken: RemovedResource<T>)
+    fn put_back<T>(&mut self, taken: Taken<T>)
     where
         T: 'static,
     {
@@ -354,31 +354,31 @@ impl Resources {
     }
 
     #[inline]
-    pub fn remove<T>(&mut self) -> Option<RemovedResource<T>>
+    pub fn take<T>(&mut self) -> Option<Taken<T>>
     where
         T: 'static,
     {
-        self.remove_id(self.id::<T>()?)
+        self.take_id(self.id::<T>()?)
     }
 
     #[inline]
-    pub fn remove_id<T>(&mut self, resource_id: ResourceId<T>) -> Option<RemovedResource<T>>
+    pub fn take_id<T>(&mut self, resource_id: ResourceId<T>) -> Option<Taken<T>>
     where
         T: 'static,
     {
         self.resources
             .get_mut(resource_id.0)
-            .and_then(Resource::remove)
+            .and_then(Resource::take)
     }
 
-    pub fn insert_again<T>(&mut self, removed: RemovedResource<T>)
+    pub fn put_back<T>(&mut self, removed: Taken<T>)
     where
         T: 'static,
     {
         self.resources
             .get_mut(removed.id.0)
             .unwrap()
-            .insert_again(removed)
+            .put_back(removed)
     }
 
     pub fn clear(&mut self) {
