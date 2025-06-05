@@ -10,7 +10,7 @@ use syn::{
 const DEFAULT_TO: usize = 20;
 
 enum ItemTemplate {
-    Itent(Ident),
+    Ident(Ident),
     Index, // Token![#]
 }
 
@@ -32,7 +32,11 @@ impl ItemTemplate {
     fn gen_item(&self, index: usize) -> TokenTree {
         match self {
             Self::Index => TokenTree::Literal(Literal::usize_unsuffixed(index)),
-            Self::Itent(ident) => TokenTree::Ident(format_ident!("{}{}", ident, index)),
+            Self::Ident(ident) => TokenTree::Ident(if index == 0 {
+                ident.clone()
+            } else {
+                format_ident!("{}{}", ident, index)
+            }),
         }
     }
 }
@@ -72,7 +76,7 @@ impl VariadicTupleGenerator {
 impl Default for GeneratorArgs {
     fn default() -> Self {
         let mut items = Punctuated::new();
-        items.push(ItemTemplate::Itent(Ident::new("T", Span::call_site())));
+        items.push(ItemTemplate::Ident(Ident::new("T", Span::call_site())));
         Self {
             _bracket_token: token::Bracket::default(),
             from: 0,
@@ -87,7 +91,7 @@ impl Parse for ItemTemplate {
         if let Ok(_hash_token) = input.parse::<Token![#]>() {
             Ok(Self::Index)
         } else {
-            Ok(Self::Itent(input.parse::<Ident>()?))
+            Ok(Self::Ident(input.parse::<Ident>()?))
         }
     }
 }
