@@ -60,36 +60,52 @@ pub trait Func<Args: Tuple>: FuncMut<Args> {
 
 macro_rules! impl_func {
     ([$(($big:ident,$index:tt)),*]) => {
-        impl<F, O $(, $big)*> FuncOnce<($($big,)*)> for F
-        where
-            F: FnOnce($($big),*) -> O,
-        {
-            type Output = O;
-            #[inline]
-            fn call_once(self, _args: ($($big,)*)) -> O {
-                self($(_args.$index),*)
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<F, O $(, $big)*> FuncOnce<($($big,)*)> for F
+            where
+                F: FnOnce($($big),*) -> O,
+            {
+                type Output = O;
+                #[inline]
+                fn call_once(self, _args: ($($big,)*)) -> O {
+                    self($(_args.$index),*)
+                }
             }
         }
 
-        impl<F, O $(, $big)*> FuncMut<($($big,)*)> for F
-        where
-            F: FnMut($($big),*) -> O,
-        {
-            #[inline]
-            fn call_mut(&mut self, _args: ($($big,)*)) -> O {
-                self($(_args.$index),*)
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<F, O $(, $big)*> FuncMut<($($big,)*)> for F
+            where
+                F: FnMut($($big),*) -> O,
+            {
+                #[inline]
+                fn call_mut(&mut self, _args: ($($big,)*)) -> O {
+                    self($(_args.$index),*)
+                }
             }
         }
 
-        impl<F, O $(, $big)*> Func<($($big,)*)> for F
-        where
-            F: Fn($($big),*) -> O,
-        {
-            #[inline]
-            fn call(&self, _args: ($($big,)*)) -> O {
-                self($(_args.$index),*)
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<F, O $(, $big)*> Func<($($big,)*)> for F
+            where
+                F: Fn($($big),*) -> O,
+            {
+                #[inline]
+                fn call(&self, _args: ($($big,)*)) -> O {
+                    self($(_args.$index),*)
+                }
             }
         }
+
     };
 }
 

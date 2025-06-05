@@ -47,16 +47,21 @@ pub trait TupleMap<M>: Tuple {
 macro_rules! impl_tuple_mapper {
     ([$($(($big:ident,$index:tt)),+)?]) => {
 
-        impl<M $($(,$big)*)? > TupleMap<M> for ( $($($big,)*)? )
-        $(
-            where
-                $(M: Mapper<$big>,)*
-        )?
-        {
-            type Target = ( $($( <M as Mapper<$big>>::Target,)*)? );
-            #[inline]
-            fn map(self) -> Self::Target {
-                $(( $(<M as Mapper<$big>>::map(self.$index), )*))?
+        maybe_tuple_doc! {
+            $($($big)+)? @
+
+            /// This trait is implemented for tuples up to 21 items long
+            impl<M $($(,$big)*)? > TupleMap<M> for ( $($($big,)*)? )
+            $(
+                where
+                    $(M: Mapper<$big>,)*
+            )?
+            {
+                type Target = ( $($( <M as Mapper<$big>>::Target,)*)? );
+                #[inline]
+                fn map(self) -> Self::Target {
+                    $(( $(<M as Mapper<$big>>::map(self.$index), )*))?
+                }
             }
         }
     };

@@ -7,98 +7,144 @@ pub struct BindFnRef<Bound, F: ?Sized>(pub(super) Bound, pub(super) F);
 macro_rules! impl_bind_fn {
     ([$(($big:ident,$index:tt)),*]) => {
 
-        impl<'a, B: 'a, F, O $(,$big)*> FuncOnce<($($big,)*)> for BindFn<B, F>
-        where
-            F: FuncOnce<(B, $($big,)*), Output=O>,
-        {
-            type Output = O;
-            #[inline]
-            fn call_once(self, _args: ($($big,)*)) -> O {
-                self.1.call_once((self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<'a, B: 'a, F, O $(,$big)*> FuncOnce<($($big,)*)> for BindFn<B, F>
+            where
+                F: FuncOnce<(B, $($big,)*), Output=O>,
+            {
+                type Output = O;
+                #[inline]
+                fn call_once(self, _args: ($($big,)*)) -> O {
+                    self.1.call_once((self.0, $(_args.$index,)*))
+                }
             }
         }
 
-        impl<'a, B: ?Sized + 'a, F, O $(,$big)*> FuncMut<($($big,)*)> for BindFn<&'a mut B, F>
-        where
-            F: for<'b> FuncMut<(&'b mut B, $($big,)*), Output=O>,
-        {
-            #[inline]
-            fn call_mut(&mut self, _args: ($($big,)*)) -> O {
-                self.1.call_mut((self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<'a, B: ?Sized + 'a, F, O $(,$big)*> FuncMut<($($big,)*)> for BindFn<&'a mut B, F>
+            where
+                F: for<'b> FuncMut<(&'b mut B, $($big,)*), Output=O>,
+            {
+                #[inline]
+                fn call_mut(&mut self, _args: ($($big,)*)) -> O {
+                    self.1.call_mut((self.0, $(_args.$index,)*))
+                }
             }
         }
 
-        impl<'a, B: ?Sized + 'a, F, O $(,$big)*> FuncMut<($($big,)*)> for BindFn<&'a B, F>
-        where
-            F: FuncMut<(&'a B, $($big,)*), Output=O>,
-        {
-            #[inline]
-            fn call_mut(&mut self, _args: ($($big,)*)) -> O {
-                self.1.call_mut((self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<'a, B: ?Sized + 'a, F, O $(,$big)*> FuncMut<($($big,)*)> for BindFn<&'a B, F>
+            where
+                F: FuncMut<(&'a B, $($big,)*), Output=O>,
+            {
+                #[inline]
+                fn call_mut(&mut self, _args: ($($big,)*)) -> O {
+                    self.1.call_mut((self.0, $(_args.$index,)*))
+                }
             }
         }
 
-        impl<'a, B: ?Sized + 'a, F, O $(,$big)*> Func<($($big,)*)> for BindFn<&'a B, F>
-        where
-            F: Func<(&'a B, $($big,)*), Output=O>,
-        {
-            #[inline]
-            fn call(&self, _args: ($($big,)*)) -> O {
-                self.1.call((self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<'a, B: ?Sized + 'a, F, O $(,$big)*> Func<($($big,)*)> for BindFn<&'a B, F>
+            where
+                F: Func<(&'a B, $($big,)*), Output=O>,
+            {
+                #[inline]
+                fn call(&self, _args: ($($big,)*)) -> O {
+                    self.1.call((self.0, $(_args.$index,)*))
+                }
             }
         }
 
-        impl<B, F, O $(,$big)*> FuncOnce<($($big,)*)> for BindFnMut<B, F>
-        where
-            for<'b> F: FuncOnce<(&'b mut B, $($big,)*), Output=O>,
-        {
-            type Output = O;
-            #[inline]
-            fn call_once(mut self, _args: ($($big,)*)) -> O {
-                self.1.call_once((&mut self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<B, F, O $(,$big)*> FuncOnce<($($big,)*)> for BindFnMut<B, F>
+            where
+                for<'b> F: FuncOnce<(&'b mut B, $($big,)*), Output=O>,
+            {
+                type Output = O;
+                #[inline]
+                fn call_once(mut self, _args: ($($big,)*)) -> O {
+                    self.1.call_once((&mut self.0, $(_args.$index,)*))
+                }
             }
         }
 
-        impl<B, F, O $(,$big)*> FuncMut<($($big,)*)> for BindFnMut<B, F>
-        where
-            for<'b> F: FuncMut<(&'b mut B, $($big,)*), Output=O>,
-        {
-            #[inline]
-            fn call_mut(&mut self, _args: ($($big,)*)) -> O {
-                self.1.call_mut((&mut self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<B, F, O $(,$big)*> FuncMut<($($big,)*)> for BindFnMut<B, F>
+            where
+                for<'b> F: FuncMut<(&'b mut B, $($big,)*), Output=O>,
+            {
+                #[inline]
+                fn call_mut(&mut self, _args: ($($big,)*)) -> O {
+                    self.1.call_mut((&mut self.0, $(_args.$index,)*))
+                }
             }
         }
 
-        impl<B, F, O $(,$big)*> FuncOnce<($($big,)*)> for BindFnRef<B, F>
-        where
-            for<'b> F: FuncOnce<(&'b B, $($big,)*), Output=O>,
-        {
-            type Output = O;
-            #[inline]
-            fn call_once(self, _args: ($($big,)*)) -> O {
-                self.1.call_once((&self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<B, F, O $(,$big)*> FuncOnce<($($big,)*)> for BindFnRef<B, F>
+            where
+                for<'b> F: FuncOnce<(&'b B, $($big,)*), Output=O>,
+            {
+                type Output = O;
+                #[inline]
+                fn call_once(self, _args: ($($big,)*)) -> O {
+                    self.1.call_once((&self.0, $(_args.$index,)*))
+                }
             }
         }
 
-        impl<B, F, O $(,$big)*> FuncMut<($($big,)*)> for BindFnRef<B, F>
-        where
-            for<'b> F: FuncMut<(&'b B, $($big,)*), Output=O>,
-        {
-            #[inline]
-            fn call_mut(&mut self, _args: ($($big,)*)) -> O {
-                self.1.call_mut((&self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<B, F, O $(,$big)*> FuncMut<($($big,)*)> for BindFnRef<B, F>
+            where
+                for<'b> F: FuncMut<(&'b B, $($big,)*), Output=O>,
+            {
+                #[inline]
+                fn call_mut(&mut self, _args: ($($big,)*)) -> O {
+                    self.1.call_mut((&self.0, $(_args.$index,)*))
+                }
             }
         }
 
-        impl<B, F, O $(,$big)*> Func<($($big,)*)> for BindFnRef<B, F>
-        where
-            for<'b> F: Func<(&'b B, $($big,)*), Output=O>,
-        {
-            #[inline]
-            fn call(&self, _args: ($($big,)*)) -> O {
-                self.1.call((&self.0, $(_args.$index,)*))
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for argument lists up to 20 items long
+            impl<B, F, O $(,$big)*> Func<($($big,)*)> for BindFnRef<B, F>
+            where
+                for<'b> F: Func<(&'b B, $($big,)*), Output=O>,
+            {
+                #[inline]
+                fn call(&self, _args: ($($big,)*)) -> O {
+                    self.1.call((&self.0, $(_args.$index,)*))
+                }
             }
         }
+
     };
 }
 

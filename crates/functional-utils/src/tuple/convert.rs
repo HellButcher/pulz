@@ -79,39 +79,54 @@ pub trait TupleConvert<C, Into: Tuple> {
 macro_rules! impl_tuple_convert {
     ([$($(($big1:ident,$big2:ident,$index:tt)),+)?]) => {
 
-        impl<C $($(,$big1,$big2)*)? > TupleConvert<C, ( $($($big2,)*)? )> for ( $($($big1,)*)? )
-        $(
-            where
-                $(C: Converter<$big1,$big2>,)*
-        )?
-        {
-            #[inline]
-            fn convert(self) -> ( $($($big2,)*)? ) {
-                $(( $(<C as Converter<$big1,$big2>>::convert(self.$index), )*))?
+        maybe_tuple_doc! {
+            $($($big1)+)? @
+
+            /// This trait is implemented for pairs of tuples up to 21 items long
+            impl<C $($(,$big1,$big2)*)? > TupleConvert<C, ( $($($big2,)*)? )> for ( $($($big1,)*)? )
+            $(
+                where
+                    $(C: Converter<$big1,$big2>,)*
+            )?
+            {
+                #[inline]
+                fn convert(self) -> ( $($($big2,)*)? ) {
+                    $(( $(<C as Converter<$big1,$big2>>::convert(self.$index), )*))?
+                }
+            }
+
+        }
+        maybe_tuple_doc_alternative! {
+            $($($big1)+)? @
+
+            /// This trait is implemented for pairs of tuples up to 21 items long
+            impl<'l, C $($(,$big1,$big2)*)? > TupleConvert<C, ( $($($big2,)*)? )> for &'l ( $($($big1,)*)? )
+            $(
+                where
+                    $(C: Converter<&'l $big1,$big2>,)*
+            )?
+            {
+                #[inline]
+                fn convert(self) -> ( $($($big2,)*)? ) {
+                    $(( $(<C as Converter<&'l $big1,$big2>>::convert(&self.$index), )*))?
+                }
             }
         }
 
-        impl<'l, C $($(,$big1,$big2)*)? > TupleConvert<C, ( $($($big2,)*)? )> for &'l ( $($($big1,)*)? )
-        $(
-            where
-                $(C: Converter<&'l $big1,$big2>,)*
-        )?
-        {
-            #[inline]
-            fn convert(self) -> ( $($($big2,)*)? ) {
-                $(( $(<C as Converter<&'l $big1,$big2>>::convert(&self.$index), )*))?
-            }
-        }
+        maybe_tuple_doc_alternative! {
+            $($($big1)+)? @
 
-        impl<'l, C $($(,$big1,$big2)*)? > TupleConvert<C, ( $($($big2,)*)? )> for &'l mut ( $($($big1,)*)? )
-        $(
-            where
-                $(C: Converter<&'l mut $big1,$big2>,)*
-        )?
-        {
-            #[inline]
-            fn convert(self) -> ( $($($big2,)*)? ) {
-                $(( $(<C as Converter<&'l mut $big1,$big2>>::convert(&mut self.$index), )*))?
+            /// This trait is implemented for pairs of tuples up to 21 items long
+            impl<'l, C $($(,$big1,$big2)*)? > TupleConvert<C, ( $($($big2,)*)? )> for &'l mut ( $($($big1,)*)? )
+            $(
+                where
+                    $(C: Converter<&'l mut $big1,$big2>,)*
+            )?
+            {
+                #[inline]
+                fn convert(self) -> ( $($($big2,)*)? ) {
+                    $(( $(<C as Converter<&'l mut $big1,$big2>>::convert(&mut self.$index), )*))?
+                }
             }
         }
     };

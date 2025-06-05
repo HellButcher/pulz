@@ -5,8 +5,13 @@ pub trait Tuple {
 
 macro_rules! impl_tuple {
     ([$(($big:ident,$small:ident,$index:tt)),*]) => {
-        impl<$($big),*> Tuple for ($($big,)*) {
-            const LEN: usize = 0 $( + 1 + ($index - $index))*;
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for tuples up to 21 items long
+            impl<$($big),*> Tuple for ($($big,)*) {
+                const LEN: usize = 0 $( + 1 + ($index - $index))*;
+            }
         }
     };
 }

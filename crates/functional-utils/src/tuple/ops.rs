@@ -24,39 +24,60 @@ pub trait TuplePopBack: Tuple {
 macro_rules! impl_push_pop {
     ([$(($big:ident,$small:ident,$index:tt)),*]) => {
 
-        impl<T $(,$big)* > TuplePushFront<T> for ( $($big,)* ) {
-            type Pushed = (T, $($big,)* );
-            #[inline(always)]
-            fn push_front(self, value: T) -> Self::Pushed {
-                (value, $(self.$index, )*)
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for tuples up to 20 items long
+            impl<$($big,)* P> TuplePushFront<P> for ( $($big,)* ) {
+                type Pushed = (P, $($big,)* );
+                #[inline(always)]
+                fn push_front(self, value: P) -> Self::Pushed {
+                    (value, $(self.$index, )*)
+                }
             }
         }
 
-        impl<T $(,$big)* > TuplePushBack<T> for ( $($big,)* ) {
-            type Pushed = ($($big,)* T,);
-            #[inline(always)]
-            fn push_back(self, value: T) -> Self::Pushed {
-                ($(self.$index, )* value, )
+
+        maybe_tuple_doc! {
+            $($big)* @
+
+            /// This trait is implemented for tuples up to 20 items long
+            impl<$($big,)* P> TuplePushBack<P> for ( $($big,)* ) {
+                type Pushed = ($($big,)* P,);
+                #[inline(always)]
+                fn push_back(self, value: P) -> Self::Pushed {
+                    ($(self.$index, )* value, )
+                }
             }
         }
 
-        impl<T $(,$big)* > TuplePopFront for (T, $($big,)* ) {
-            type Front = T;
-            type Rest = ($($big,)* );
-            #[inline(always)]
-            fn pop_front(self) -> (T, Self::Rest) {
-                let (f, $($small, )*) = self;
-                (f, ($($small,)*))
+        maybe_tuple_doc! {
+            P $($big)* @
+
+            /// This trait is implemented for tuples up to 21 items long
+            impl<P $(,$big)* > TuplePopFront for (P, $($big,)* ) {
+                type Front = P;
+                type Rest = ($($big,)* );
+                #[inline(always)]
+                fn pop_front(self) -> (P, Self::Rest) {
+                    let (f, $($small, )*) = self;
+                    (f, ($($small,)*))
+                }
             }
         }
 
-        impl<$($big,)* T> TuplePopBack for ($($big,)* T, ) {
-            type Back = T;
-            type Rest = ($($big,)* );
-            #[inline(always)]
-            fn pop_back(self) -> (Self::Rest, T) {
-                let ($($small, )* l,) = self;
-                (($($small,)*), l)
+        maybe_tuple_doc! {
+            $($big)* P @
+
+            /// This trait is implemented for tuples up to 21 items long
+            impl<$($big,)* P> TuplePopBack for ($($big,)* P, ) {
+                type Back = P;
+                type Rest = ($($big,)* );
+                #[inline(always)]
+                fn pop_back(self) -> (Self::Rest, P) {
+                    let ($($small, )* l,) = self;
+                    (($($small,)*), l)
+                }
             }
         }
     };

@@ -24,8 +24,33 @@
 #![doc(html_logo_url = "https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo.png")]
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
+#![cfg_attr(all(doc, feature = "unstable"), feature(doc_cfg, rustdoc_internals))]
+#![cfg_attr(all(doc, feature = "unstable"), allow(internal_features))]
 
 pub use pulz_functional_utils_macros::generate_variadic_array;
+
+#[cfg(feature = "tuple")]
+macro_rules! maybe_tuple_doc {
+    ($a:ident @ $item:item) => {
+        #[cfg_attr(all(doc, feature = "unstable"), doc(fake_variadic))]
+        $item
+    };
+    ($($rest_a:ident)* @ $item:item) => {
+        #[doc(hidden)]
+        $item
+    };
+}
+
+#[cfg(feature = "tuple")]
+macro_rules! maybe_tuple_doc_alternative {
+    ($a:ident @ $item:item) => {
+        $item
+    };
+    ($($rest_a:ident)* @ $item:item) => {
+        #[doc(hidden)]
+        $item
+    };
+}
 
 #[cfg(feature = "tuple")]
 pub mod tuple;

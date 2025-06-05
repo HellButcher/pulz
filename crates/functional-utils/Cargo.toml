@@ -10,6 +10,10 @@ keywords = ["traits", "functional", "generic programming"]
 categories = ["rust-patterns"]
 readme = "README.md"
 
+[package.metadata.docs.rs]
+features = ["full",  "unstable"]
+targets = ["x86_64-unknown-linux-gnu"]
+
 [features]
 default = []
 tuple = []
@@ -19,6 +23,17 @@ tuple-convert = ["tuple"]
 func = ["tuple"]
 func-bind = ["func"]
 func-future = ["func"]
+
+full = [
+    "tuple",
+    "tuple-ops",
+    "tuple-map",
+    "tuple-convert",
+    "func",
+    "func-bind",
+    "func-future"
+]
+unstable = []
 
 [dependencies]
 pulz-functional-utils-macros = { version = "0.1.0-alpha", path = "macros" }
