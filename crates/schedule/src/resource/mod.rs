@@ -20,6 +20,8 @@ pub enum Void {}
 pub struct Taken<T: ?Sized> {
     value: Box<T>,
     id: ResourceId,
+    #[cfg(debug_assertions)]
+    atom: crate::atom::Atom,
 }
 
 impl<T: ?Sized> Taken<T> {

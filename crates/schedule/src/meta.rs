@@ -1,5 +1,6 @@
 use std::{
     any::{Any, TypeId, type_name},
+    collections::BTreeMap,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
@@ -11,6 +12,8 @@ use crate::{
     resource::ResourceAccess,
     system::data::{SystemData, SystemDataFetch, SystemDataState},
 };
+
+pub(crate) type MetaMap = BTreeMap<TypeId, Box<dyn Any + Send + Sync>>;
 
 pub trait AnyCast<T> {
     fn any_cast(from: &T) -> &Self;
@@ -156,13 +159,17 @@ impl Resources {
         self.init_meta_readonly_id::<M, R>(self.expect_id::<R>())
     }
 
-    pub(crate) fn get_meta<T: ?Sized + 'static>(&self) -> Option<&Meta<T>> {
-        self.meta_by_type_id
+    pub(crate) fn get_meta_from_map<T: ?Sized + 'static>(
+        meta_by_type_id: &MetaMap,
+    ) -> Option<&Meta<T>> {
+        meta_by_type_id
             .get(&TypeId::of::<T>())
             .and_then(|v| v.downcast_ref::<Meta<T>>())
     }
-    fn get_meta_mut<T: ?Sized + 'static>(&mut self) -> &mut Meta<T> {
-        self.meta_by_type_id
+    pub(crate) fn get_meta_mut_from_map<T: ?Sized + 'static>(
+        meta_by_type_id: &mut MetaMap,
+    ) -> &mut Meta<T> {
+        meta_by_type_id
             .entry(TypeId::of::<T>())
             .or_insert_with(|| Box::<Meta<T>>::default())
             .downcast_mut::<Meta<T>>()

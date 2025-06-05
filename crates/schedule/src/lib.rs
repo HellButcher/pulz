@@ -28,6 +28,7 @@
 #[doc(hidden)]
 pub enum Void {}
 
+mod atom;
 pub mod event;
 pub mod label;
 pub mod local;

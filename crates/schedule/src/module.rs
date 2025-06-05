@@ -12,7 +12,7 @@ pub trait ModuleWithOutput: Sized + 'static {
 
     #[inline]
     fn install(self, resources: &mut Resources) -> Self::Output<'_> {
-        let is_first = resources.modules.insert(TypeId::of::<Self>());
+        let is_first = resources.insert_module(TypeId::of::<Self>());
         if is_first {
             self.install_modules(resources);
             self.install_once(resources);
