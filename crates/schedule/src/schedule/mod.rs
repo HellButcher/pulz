@@ -67,16 +67,6 @@ struct Layer(usize);
 
 impl Layer {
     pub const UNDEFINED: Self = Self(!0);
-
-    #[inline]
-    pub const fn is_undefined(&self) -> bool {
-        self.0 == !0
-    }
-
-    #[inline]
-    pub const fn is_defined(&self) -> bool {
-        self.0 != !0
-    }
 }
 
 impl Resources {
