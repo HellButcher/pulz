@@ -1,7 +1,9 @@
 use std::{hash::Hash, marker::PhantomData};
 
+use crate::Void;
+
 #[repr(transparent)]
-pub struct ResourceId<T: ?Sized = crate::Void>(pub(super) usize, PhantomData<fn(&T)>);
+pub struct ResourceId<T: ?Sized = Void>(pub(super) usize, PhantomData<fn(&T)>);
 
 impl<T: ?Sized> std::fmt::Debug for ResourceId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

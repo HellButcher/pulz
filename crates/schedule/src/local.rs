@@ -1,8 +1,8 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::{
-    resource::{FromResources, ResourceAccess, Resources},
-    system::data::{SystemData, SystemDataFetch, SystemDataState},
+    resource::{FromResources, ResourceAccess, Resources, ResourcesSend},
+    system::data::{SystemData, SystemDataFetch, SystemDataFetchSend},
 };
 
 pub struct Local<'l, T>(&'l mut T);
@@ -23,36 +23,35 @@ impl<T> DerefMut for Local<'_, T> {
     }
 }
 
-#[doc(hidden)]
-pub struct LocalState<T>(T);
-#[doc(hidden)]
-pub struct LocalFetch<'r, T>(&'r mut T);
-
 impl<T: FromResources + Sized + Send + Sync + 'static> SystemData for Local<'_, T> {
-    type State = LocalState<T>;
-    type Fetch<'r> = LocalFetch<'r, T>;
-    type Item<'a> = Local<'a, T>;
+    type Data = T;
+    type Fetch<'a> = Local<'a, T>;
+    type Arg<'a> = Local<'a, T>;
 
     #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
         Local(fetch.0)
     }
 }
 
-// SAFETY: only local state is accessed
-unsafe impl<T: FromResources + Sized + Send + Sync + 'static> SystemDataState for LocalState<T> {
+impl<'a, T: FromResources + 'static> SystemDataFetch<'a> for Local<'a, T> {
+    type Data = T;
+
     #[inline]
-    fn init(resources: &mut Resources) -> Self {
-        Self(T::from_resources(resources))
+    fn init(res: &mut Resources) -> Self::Data {
+        T::from_resources(res)
+    }
+    #[inline]
+    fn fetch(_res: &'a Resources, data: &'a mut Self::Data) -> Self {
+        Self(data)
     }
 
-    fn update_access(&self, _resources: &Resources, _access: &mut ResourceAccess) {}
+    fn update_access(_res: &Resources, _access: &mut ResourceAccess, _data: &Self::Data) {}
 }
 
-impl<'r, T: FromResources + Send + Sync + 'static> SystemDataFetch<'r> for LocalFetch<'r, T> {
-    type State = LocalState<T>;
+impl<'a, T: FromResources + Send + Sync + 'static> SystemDataFetchSend<'a> for Local<'a, T> {
     #[inline]
-    fn fetch(_res: &'r Resources, state: &'r mut Self::State) -> Self {
-        Self(&mut state.0)
+    fn fetch_send(_res: &'a ResourcesSend, data: &'a mut Self::Data) -> Self {
+        Self(data)
     }
 }

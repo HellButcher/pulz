@@ -41,7 +41,7 @@ macro_rules! maybe_tuple_doc {
     };
 }
 
-#[cfg(feature = "tuple")]
+#[cfg(feature = "tuple-convert")]
 macro_rules! maybe_tuple_doc_alternative {
     ($a:ident @ $item:item) => {
         $item

@@ -251,9 +251,14 @@ macro_rules! impl_getters {
         where
             T: $($b1 $(+ $b2)* +)? 'static,
         {
+            use std::panic;
             let mut taken = self.take_id(resource_id)?;
-            let r = f(&mut taken.value, self);
-            Some(r)
+            let r = panic::catch_unwind(panic::AssertUnwindSafe(|| f(&mut taken.value, self)));
+            self.put_back(taken);
+            match r {
+                Err(e) => panic::resume_unwind(e),
+                Ok(r) => Some(r)
+            }
         }
     };
 }

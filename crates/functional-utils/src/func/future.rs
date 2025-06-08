@@ -7,6 +7,7 @@ use crate::tuple::Tuple;
 )]
 #[must_use = "async closures are lazy and do nothing unless called"]
 pub trait AsyncFuncOnce<Args: Tuple> {
+    //type CallOnceFuture: Future<Output = Self::Output>;
     type Future: Future<Output = Self::Output>;
     type Output;
 
@@ -19,6 +20,12 @@ pub trait AsyncFuncOnce<Args: Tuple> {
 )]
 #[must_use = "async closures are lazy and do nothing unless called"]
 pub trait AsyncFuncMut<Args: Tuple>: AsyncFuncOnce<Args> {
+    /*
+    type CallRefFuture<'a>: Future<Output = Self::Output>
+    where
+        Self: 'a;
+     */
+
     fn async_call_mut(&mut self, args: Args) -> Self::Future;
 }
 

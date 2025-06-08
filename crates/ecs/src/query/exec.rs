@@ -1,6 +1,9 @@
 use std::pin::Pin;
 
-use pulz_schedule::system::data::SystemDataFetch;
+use pulz_schedule::{
+    resource::ResourcesSend,
+    system::data::{SystemDataFetch, SystemDataFetchSend},
+};
 
 use super::QueryParamState;
 use crate::{
@@ -9,7 +12,7 @@ use crate::{
     entity::Entity,
     query::{QueryItem, QueryParam, QueryParamFetch, QueryState},
     resource::{Res, ResourceAccess, ResourceId, Resources},
-    system::data::{SystemData, SystemDataState},
+    system::data::SystemData,
 };
 
 pub struct Query<'w, Q>
@@ -57,11 +60,11 @@ where
         Self::new_id(res, state_resource_id)
     }
 
-    fn new_id(res: &'w Resources, resource_id: ResourceId<QueryState<Q::State>>) -> Self {
+    fn new_id(res: &'w ResourcesSend, resource_id: ResourceId<QueryState<Q::State>>) -> Self {
         let state = res.borrow_res_id(resource_id).expect("query-state");
         let world = res.borrow_res_id(state.world_resource_id).unwrap();
         state.update_archetypes(&world);
-        let fetch = Q::Fetch::fetch(res.as_send(), &state.param_state);
+        let fetch = Q::Fetch::fetch(res, &state.param_state);
         Self {
             state,
             world,
@@ -219,42 +222,51 @@ where
 }
 
 #[doc(hidden)]
-pub struct QuerySystemParamState<S: QueryParamState>(ResourceId<QueryState<S>>);
+pub struct QuerySystemParamData<S: QueryParamState>(ResourceId<QueryState<S>>);
 
 #[doc(hidden)]
-pub struct QuerySystemParamFetch<'r, S: QueryParamState>(&'r Resources, ResourceId<QueryState<S>>);
+pub struct QuerySystemParamFetch<'r, S: QueryParamState>(
+    &'r ResourcesSend,
+    ResourceId<QueryState<S>>,
+);
 
 impl<Q> SystemData for Query<'_, Q>
 where
     Q: QueryParam + 'static,
 {
-    type State = QuerySystemParamState<Q::State>;
+    type Data = QuerySystemParamData<Q::State>;
     type Fetch<'r> = QuerySystemParamFetch<'r, Q::State>;
-    type Item<'a> = Query<'a, Q>;
+    type Arg<'a> = Query<'a, Q>;
 
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
         Query::new_id(fetch.0, fetch.1)
     }
 }
 
-unsafe impl<S: QueryParamState> SystemDataState for QuerySystemParamState<S> {
+impl<'r, S: QueryParamState> SystemDataFetch<'r> for QuerySystemParamFetch<'r, S> {
+    type Data = QuerySystemParamData<S>;
+
     #[inline]
-    fn init(resources: &mut Resources) -> Self {
-        Self(resources.init::<QueryState<S>>())
+    fn init(res: &mut Resources) -> Self::Data {
+        QuerySystemParamData(res.init::<QueryState<S>>())
     }
 
     #[inline]
-    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
-        let state = resources.borrow_res_id(self.0).unwrap();
-        access.add_shared(self.0);
+    fn update_access(res: &Resources, access: &mut ResourceAccess, data: &Self::Data) {
+        let state = res.borrow_res_id(data.0).unwrap();
+        access.add_shared(data.0);
         access.add_shared(state.world_resource_id);
         state.param_state.update_access(access)
     }
+
+    fn fetch(res: &'r Resources, data: &'r mut Self::Data) -> Self {
+        Self(res, data.0)
+    }
 }
 
-impl<'r, S: QueryParamState> SystemDataFetch<'r> for QuerySystemParamFetch<'r, S> {
-    type State = QuerySystemParamState<S>;
-    fn fetch(res: &'r Resources, state: &'r mut Self::State) -> Self {
-        Self(res, state.0)
+impl<'r, S: QueryParamState> SystemDataFetchSend<'r> for QuerySystemParamFetch<'r, S> {
+    #[inline]
+    fn fetch_send(res: &'r ResourcesSend, data: &'r mut Self::Data) -> Self {
+        Self(res, data.0)
     }
 }

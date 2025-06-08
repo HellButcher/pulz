@@ -11,11 +11,7 @@ pub use self::{
     id::ResourceId,
     resource_access::ResourceAccess,
     resources::{Resources, ResourcesSend},
-    system_state::{ResMutState, ResState},
 };
-
-#[doc(hidden)]
-pub enum Void {}
 
 pub struct Taken<T: ?Sized> {
     value: Box<T>,

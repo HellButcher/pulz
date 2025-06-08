@@ -1,37 +1,46 @@
-use crate::resource::ResourceAccess;
+use crate::{
+    resource::ResourceAccess,
+    schedule::{Layer, SystemId},
+};
 
 #[derive(Clone)]
 struct ResourceMutTrackerEntry {
-    last_exclusive: usize, // index if the group, where exclusive access was requested last
-    last_shared: usize,    // index if the group, where shared access was requested last
-    systems: Vec<usize>,   // index of the system, that had the last access.
+    last_exclusive: Layer, // index if the layer, where exclusive access was requested last
+    last_shared: Layer,    // index if the layer, where shared access was requested last
+    systems: Vec<SystemId>, // index of the system, that had the last access.
 }
 
 impl Default for ResourceMutTrackerEntry {
     #[inline]
     fn default() -> Self {
         Self {
-            last_exclusive: !0,
-            last_shared: !0,
+            last_exclusive: Layer::UNDEFINED,
+            last_shared: Layer::UNDEFINED,
             systems: Vec::new(),
         }
     }
 }
 pub struct ResourceMutTracker(Vec<ResourceMutTrackerEntry>);
 
-#[derive(Clone, Debug)]
+#[derive(thiserror::Error, Clone, Debug)]
 pub enum ResourceConflict {
-    #[allow(unused)] // used for Debug
+    #[error(
+        "Exclusive access to resource {resource} requested by system {system_a:?} and {system_b:?} at the same time in layer {layer:?}"
+    )]
     ExclusiveExclusive {
         resource: usize,
-        system_a: usize,
-        system_b: usize,
+        system_a: SystemId,
+        system_b: SystemId,
+        layer: usize,
     },
-    #[allow(unused)] // used for Debug
+    #[error(
+        "Shared access to resource {resource} requested by system {system_shared:?} and exclusive access by system {system_exclusive:?} at the same time in layer {layer:?}"
+    )]
     SharedExclusive {
         resource: usize,
-        system_shared: Vec<usize>,
-        system_exclusive: usize,
+        system_shared: Vec<SystemId>,
+        system_exclusive: SystemId,
+        layer: usize,
     },
 }
 
@@ -51,79 +60,92 @@ impl ResourceMutTracker {
 
     fn mark_exclusive(
         &mut self,
-        resource: usize,
-        current_group: usize,
-        system: usize,
-        result: &mut [usize],
+        current_resource: usize,
+        current_system: SystemId,
+        current_layer: Layer,
+        system_dependent_layers: &mut [Layer],
     ) -> Result<(), ResourceConflict> {
-        let entry = self.get_entry_mut(resource);
-        if entry.last_exclusive == current_group {
+        let entry = self.get_entry_mut(current_resource);
+        if entry.last_exclusive == current_layer {
             Err(ResourceConflict::ExclusiveExclusive {
-                resource,
+                resource: current_resource,
                 system_a: *entry.systems.first().unwrap(),
-                system_b: system,
+                system_b: current_system,
+                layer: current_layer.0,
             })
-        } else if entry.last_shared == current_group {
+        } else if entry.last_shared == current_layer {
             Err(ResourceConflict::SharedExclusive {
-                resource,
+                resource: current_resource,
                 system_shared: std::mem::take(&mut entry.systems),
-                system_exclusive: system,
+                system_exclusive: current_system,
+                layer: current_layer.0,
             })
         } else {
             for s in entry.systems.iter().copied() {
-                if result[s] > current_group {
-                    result[s] = current_group;
+                if system_dependent_layers[s.0] > current_layer {
+                    system_dependent_layers[s.0] = current_layer;
                 }
             }
-            entry.last_exclusive = current_group;
+            entry.last_exclusive = current_layer;
             entry.systems.clear();
-            entry.systems.push(system);
+            entry.systems.push(current_system);
             Ok(())
         }
     }
 
     fn mark_shared(
         &mut self,
-        resource: usize,
-        current_group: usize,
-        system: usize,
-        result: &mut [usize],
+        current_resource: usize,
+        current_system: SystemId,
+        current_layer: Layer,
+        system_dependent_layers: &mut [Layer],
     ) -> Result<(), ResourceConflict> {
-        let entry = self.get_entry_mut(resource);
-        if entry.last_exclusive == current_group {
+        let entry = self.get_entry_mut(current_resource);
+        if entry.last_exclusive == current_layer {
             Err(ResourceConflict::SharedExclusive {
-                resource,
+                resource: current_resource,
                 system_exclusive: *entry.systems.first().unwrap(),
-                system_shared: vec![system],
+                system_shared: vec![current_system],
+                layer: current_layer.0,
             })
         } else if entry.last_exclusive > entry.last_shared {
-            entry.last_shared = current_group;
+            entry.last_shared = current_layer;
             entry.systems.clear();
-            entry.systems.push(system);
+            entry.systems.push(current_system);
             Ok(())
         } else {
             for s in entry.systems.iter().copied() {
-                if result[s] > current_group {
-                    result[s] = current_group;
+                if system_dependent_layers[s.0] > current_layer {
+                    system_dependent_layers[s.0] = current_layer;
                 }
             }
-            entry.last_shared = current_group;
-            entry.systems.push(system);
+            entry.last_shared = current_layer;
+            entry.systems.push(current_system);
             Ok(())
         }
     }
     pub fn mark_access(
         &mut self,
         access: &ResourceAccess,
-        current_group: usize,
-        system: usize,
-        result: &mut [usize],
+        current_layer: Layer,
+        current_system: SystemId,
+        system_dependent_layers: &mut [Layer],
     ) -> Result<(), ResourceConflict> {
         for resource in access.exclusive.iter() {
-            self.mark_exclusive(resource, current_group, system, result)?;
+            self.mark_exclusive(
+                resource,
+                current_system,
+                current_layer,
+                system_dependent_layers,
+            )?;
         }
         for resource in access.shared.iter() {
-            self.mark_shared(resource, current_group, system, result)?;
+            self.mark_shared(
+                resource,
+                current_system,
+                current_layer,
+                system_dependent_layers,
+            )?;
         }
         Ok(())
     }

@@ -37,12 +37,14 @@ pub mod module;
 pub mod resource;
 pub mod schedule;
 pub mod system;
+#[cfg(not(target_os = "unknown"))]
+pub mod threadpool;
+mod util;
 
 pub mod prelude {
     pub use crate::{
         module::{Module, ModuleWithOutput},
         resource::{FromResources, FromResourcesMut, Res, ResMut, ResourceId, Resources},
         schedule::Schedule,
-        system::{IntoExclusiveSystem, IntoSystem},
     };
 }

@@ -10,7 +10,7 @@ use fnv::{FnvHashMap, FnvHashSet};
 use crate::{
     prelude::*,
     resource::ResourceAccess,
-    system::data::{SystemData, SystemDataFetch, SystemDataState},
+    system::data::{SystemData, SystemDataFetch},
 };
 
 pub(crate) type MetaMap = BTreeMap<TypeId, Box<dyn Any + Send + Sync>>;
@@ -251,12 +251,12 @@ impl<T> SystemData for Metas<'_, T>
 where
     T: ?Sized + 'static,
 {
-    type State = MetasState<T>;
+    type Data = ();
     type Fetch<'r> = Box<[Res<'r, T>]>;
-    type Item<'a> = Metas<'a, T>;
+    type Arg<'a> = Metas<'a, T>;
 
     #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
         Metas(fetch)
     }
 }
@@ -265,59 +265,23 @@ impl<T> SystemData for MetasMut<'_, T>
 where
     T: ?Sized + 'static,
 {
-    type State = MetasMutState<T>;
+    type Data = ();
     type Fetch<'r> = Box<[ResMut<'r, T>]>;
-    type Item<'a> = MetasMut<'a, T>;
+    type Arg<'a> = MetasMut<'a, T>;
 
     #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
         MetasMut(fetch)
     }
 }
 
-unsafe impl<T> SystemDataState for MetasState<T>
-where
-    T: ?Sized + 'static,
-{
-    #[inline]
-    fn init(_resources: &mut Resources) -> Self {
-        Self(PhantomData)
-    }
+impl<'a, T: ?Sized + 'static> SystemDataFetch<'a> for Box<[Res<'a, T>]> {
+    type Data = ();
 
     #[inline]
-    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
-        if let Some(meta) = resources.get_meta::<T>() {
-            for r in meta.resources.iter().copied() {
-                access.add_shared_checked(r);
-            }
-        }
-    }
-}
-
-unsafe impl<T> SystemDataState for MetasMutState<T>
-where
-    T: ?Sized + 'static,
-{
+    fn init(_resources: &mut Resources) -> Self::Data {}
     #[inline]
-    fn init(_resources: &mut Resources) -> Self {
-        Self(PhantomData)
-    }
-
-    #[inline]
-    fn update_access(&self, resources: &Resources, access: &mut ResourceAccess) {
-        if let Some(meta) = resources.get_meta::<T>() {
-            for r in meta.resources.iter().copied() {
-                access.add_exclusive_checked(r);
-            }
-        }
-    }
-}
-
-impl<'r, T: ?Sized + 'static> SystemDataFetch<'r> for Box<[Res<'r, T>]> {
-    type State = MetasState<T>;
-
-    #[inline]
-    fn fetch(res: &'r Resources, _state: &'r mut Self::State) -> Self {
+    fn fetch(res: &'a Resources, _data: &'a mut Self::Data) -> Self {
         if let Some(meta) = res.get_meta::<T>() {
             meta.resources
                 .iter()
@@ -332,13 +296,25 @@ impl<'r, T: ?Sized + 'static> SystemDataFetch<'r> for Box<[Res<'r, T>]> {
             Box::new([])
         }
     }
-}
-
-impl<'r, T: ?Sized + 'static> SystemDataFetch<'r> for Box<[ResMut<'r, T>]> {
-    type State = MetasMutState<T>;
 
     #[inline]
-    fn fetch(res: &'r Resources, _state: &'r mut Self::State) -> Self {
+    fn update_access(res: &Resources, access: &mut ResourceAccess, _data: &Self::Data) {
+        if let Some(meta) = res.get_meta::<T>() {
+            for r in meta.resources.iter().copied() {
+                access.add_shared_checked(r);
+            }
+        }
+    }
+}
+
+impl<'a, T: ?Sized + 'static> SystemDataFetch<'a> for Box<[ResMut<'a, T>]> {
+    type Data = ();
+
+    #[inline]
+    fn init(_resources: &mut Resources) -> Self::Data {}
+
+    #[inline]
+    fn fetch(res: &'a Resources, _data: &'a mut Self::Data) -> Self {
         if let Some(meta) = res.get_meta::<T>() {
             meta.resources
                 .iter()
@@ -351,6 +327,15 @@ impl<'r, T: ?Sized + 'static> SystemDataFetch<'r> for Box<[ResMut<'r, T>]> {
                 .collect()
         } else {
             Box::new([])
+        }
+    }
+
+    #[inline]
+    fn update_access(res: &Resources, access: &mut ResourceAccess, _data: &Self::Data) {
+        if let Some(meta) = res.get_meta::<T>() {
+            for r in meta.resources.iter().copied() {
+                access.add_exclusive_checked(r);
+            }
         }
     }
 }

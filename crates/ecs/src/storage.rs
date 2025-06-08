@@ -1,8 +1,6 @@
 use std::any::{Any, TypeId};
 
-use pulz_schedule::{
-    impl_any_cast, label::CoreSystemPhase, resource::Resources, schedule::Schedule,
-};
+use pulz_schedule::{impl_any_cast, label::CoreSystemSet, resource::Resources, schedule::Schedule};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
 use crate::{
@@ -319,7 +317,7 @@ impl<S: Storage> Storage for Tracked<S> {
     fn install_systems(schedule: &mut Schedule) {
         schedule
             .add_system(Self::reset)
-            .into_phase(CoreSystemPhase::First);
+            .parent(CoreSystemSet::First);
     }
 
     #[inline]

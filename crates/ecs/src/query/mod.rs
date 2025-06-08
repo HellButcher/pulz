@@ -170,7 +170,7 @@ mod test {
 
     use std::sync::{Arc, Mutex};
 
-    use pulz_schedule::resource::Resources;
+    use pulz_schedule::{prelude::Schedule, resource::Resources};
 
     use crate::{WorldExt, component::Component, prelude::Query};
 
@@ -284,7 +284,10 @@ mod test {
             }
             *data1.lock().unwrap() = (counter1, sum1, 0);
         };
-        resources.run(f1);
+        let schedule = resources.get_mut::<Schedule>().unwrap();
+        schedule.add_system(f1);
+        resources.run_schedule::<Schedule>();
+
         let (counter1, sum1, _) = *data.lock().unwrap();
         assert_eq!(750, counter1);
         assert_eq!(374500, sum1);
@@ -301,7 +304,12 @@ mod test {
             }
             *data2.lock().unwrap() = (counter2, sum2a, sum2b);
         };
-        resources.run(f2);
+
+        let schedule = resources.get_mut::<Schedule>().unwrap();
+        *schedule = Schedule::new();
+        schedule.add_system(f2);
+        resources.run_schedule::<Schedule>();
+
         let (counter2, sum2a, sum2b) = *data.lock().unwrap();
         assert_eq!(500, counter2);
         assert_eq!(249750, sum2a);
@@ -317,7 +325,12 @@ mod test {
             }
             *data3.lock().unwrap() = (counter3, sum3, 0);
         };
-        resources.run(f3);
+
+        let schedule = resources.get_mut::<Schedule>().unwrap();
+        *schedule = Schedule::new();
+        schedule.add_system(f3);
+        resources.run_schedule::<Schedule>();
+
         let (counter3, sum3, _) = *data.lock().unwrap();
         assert_eq!(750, counter3);
         assert_eq!(374750, sum3);

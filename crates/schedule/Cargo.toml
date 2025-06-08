@@ -11,13 +11,13 @@ repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
 
 [dependencies]
-pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
+pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils", features = ["func"]}
 
 bit-set = { workspace = true }
 fnv = { workspace = true }
 atomic_refcell = { workspace = true }
 crossbeam-utils = { workspace = true }
-backtrace = { workspace = true }
+thiserror = "2"
 
 [target.'cfg(not(target_os = "unknown"))'.dependencies]
 threadpool = { workspace = true }

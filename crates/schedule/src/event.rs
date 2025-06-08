@@ -1,10 +1,11 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
 use crate::{
-    label::CoreSystemPhase,
-    resource::{Res, ResMut, ResMutState, ResState, Resources},
+    label::CoreSystemSet,
+    prelude::ResourceId,
+    resource::{Res, ResMut, Resources},
     schedule::Schedule,
-    system::data::SystemData,
+    system::{IntoSystem, data::SystemData},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -62,8 +63,8 @@ impl<T> Events<T> {
         if resources.try_init::<Self>().is_ok() {
             let mut schedule = resources.borrow_res_mut::<Schedule>().unwrap();
             schedule
-                .add_system(Self::update)
-                .into_phase(CoreSystemPhase::First);
+                .add_system_unsend(IntoSystem::into_system(Self::update))
+                .parent(CoreSystemSet::First);
         }
     }
 }
@@ -171,14 +172,14 @@ impl<T> Extend<T> for EventWriter<'_, T> {
 
 impl<T> SystemData for EventSubscriber<'_, T>
 where
-    T: Send + Sync + 'static,
+    T: 'static,
 {
-    type State = ResState<Events<T>>;
+    type Data = ResourceId<Events<T>>;
     type Fetch<'r> = Res<'r, Events<T>>;
-    type Item<'a> = EventSubscriber<'a, T>;
+    type Arg<'a> = EventSubscriber<'a, T>;
 
     #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
         EventSubscriber {
             next_id: 0, // TODO: keep state
             events: fetch,
@@ -188,14 +189,14 @@ where
 
 impl<T> SystemData for EventWriter<'_, T>
 where
-    T: Send + Sync + 'static,
+    T: 'static,
 {
-    type State = ResMutState<Events<T>>;
+    type Data = ResourceId<Events<T>>;
     type Fetch<'r> = ResMut<'r, Events<T>>;
-    type Item<'a> = EventWriter<'a, T>;
+    type Arg<'a> = EventWriter<'a, T>;
 
     #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Item<'a> {
+    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
         EventWriter(fetch)
     }
 }

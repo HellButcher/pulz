@@ -92,10 +92,10 @@ macro_rules! define_label_enum {
     };
 }
 
-define_label_type!(SystemPhase, SystemPhaseId);
+define_label_type!(SystemSet, SystemSetId);
 
 define_label_enum! {
-    pub enum CoreSystemPhase: SystemPhase {
+    pub enum CoreSystemSet: SystemSet {
         First,
         Update,
         Last,
@@ -103,7 +103,19 @@ define_label_enum! {
 }
 
 define_label_enum! {
-    pub(crate) enum UndefinedSystemPhase: SystemPhase {
+    pub(crate) enum UndefinedSystemSet: SystemSet {
         Undefined
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+pub struct SystemLabel(pub(crate) ::core::any::TypeId, pub(crate) &'static str);
+
+impl SystemSet for SystemLabel {
+    fn type_id(&self) -> ::core::any::TypeId {
+        self.0
+    }
+    fn as_str(&self) -> &'static str {
+        self.1
     }
 }
