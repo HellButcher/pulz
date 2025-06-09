@@ -1,17 +1,15 @@
-use std::borrow::Cow;
-
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, TokenStreamExt, quote};
 use syn::{
     ItemImpl, LitBool, Path, Result, Visibility,
     meta::ParseNestedMeta,
     parse::{Parse, Parser},
-    parse_quote, parse_quote_spanned,
+    parse_quote,
     spanned::Spanned,
 };
 
 use crate::{
-    attrib_system::{SystemGenerator, SystemInstallGenerator, SystemParams},
+    attrib_system::{InstallSystemGenerator, IntoSystemGenerator, SystemGenerator, SystemParams},
     utils::{self, Diagnostics, ParseAttributes},
 };
 
@@ -98,14 +96,14 @@ pub struct SystemModuleGenerator<'a> {
     pub item_impl: &'a ItemImpl,
     pub params: SystemModuleParams,
     pub systems: Vec<SystemGenerator<'a>>,
-    pub private_ty: Option<&'a syn::Type>,
+    pub crate_path: &'a Path,
 }
 
 impl<'a> SystemModuleGenerator<'a> {
     pub fn new(
         item_impl: &'a mut ItemImpl,
         params: SystemModuleParams,
-        private_ty: Option<&'a syn::Type>,
+        crate_path: &'a Path,
     ) -> Result<Self> {
         let mut diagnostics = Diagnostics::new();
         if let Some(defaultness) = item_impl.defaultness.as_ref() {
@@ -166,11 +164,9 @@ impl<'a> SystemModuleGenerator<'a> {
             .into_iter()
             .filter_map(|(i, params)| {
                 if let syn::ImplItem::Fn(fn_item) = &item_impl.items[i] {
-                    match SystemGenerator::new(fn_item, params) {
+                    match SystemGenerator::new(fn_item, params, crate_path) {
                         Ok(mut system) => {
-                            system.self_ty = Some(Cow::Borrowed(&item_impl.self_ty));
-                            system.private_ty = private_ty;
-                            system.in_system_module = true;
+                            system.set_self_ty(&item_impl.self_ty, &item_impl.generics);
                             Some(system)
                         }
                         Err(e) => {
@@ -188,7 +184,7 @@ impl<'a> SystemModuleGenerator<'a> {
             item_impl,
             params,
             systems,
-            private_ty,
+            crate_path,
         })
     }
 }
@@ -196,7 +192,7 @@ impl<'a> SystemModuleGenerator<'a> {
 impl ToTokens for SystemModuleGenerator<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let item_impl = &self.item_impl;
-        let (impl_generics, generic_type_args, where_clause) = item_impl.generics.split_for_impl();
+        let (impl_generics, _generic_type_args, where_clause) = item_impl.generics.split_for_impl();
         let self_ty = &item_impl.self_ty;
         let install_fn_disabled = self.params.install_fn.is_disabled();
         let IdentWithVisibility(install_fn_vis, install_fn) =
@@ -207,44 +203,10 @@ impl ToTokens for SystemModuleGenerator<'_> {
                 )
             });
 
-        let private_ty = if let Some(private_ty) = self.private_ty {
-            private_ty
-        } else {
-            self_ty
-        };
+        let systems = self.systems.iter().map(IntoSystemGenerator);
 
-        let systems = &self.systems;
-        tokens.append_all(quote! {
-            impl #impl_generics __PrivateModule #generic_type_args
-                #where_clause
-            {
-                #(#systems)*
-            }
-        });
-
-        if install_fn_disabled {
-            let mut pub_wrapper_impl = TokenStream::new();
-            for system in systems {
-                let vis = &system.fn_item.vis;
-                let system_ident = system.system_ident();
-                let system_trait = system.system_trait_ident();
-                pub_wrapper_impl.extend(quote! {
-                    #[doc(hidden)]
-                    #[inline]
-                    #vis const fn #system_ident () -> impl __pulz_schedule::system::#system_trait
-                    {
-                        <#private_ty>::#system_ident()
-                    }
-                });
-            }
-
-            tokens.append_all(quote! {
-                impl #impl_generics #self_ty
-                    #where_clause
-                {
-                    #pub_wrapper_impl
-                }
-            });
+        let install_fn = if install_fn_disabled {
+            TokenStream::new()
         } else {
             let schedule_ty = self
                 .params
@@ -252,18 +214,24 @@ impl ToTokens for SystemModuleGenerator<'_> {
                 .clone()
                 .unwrap_or_else(|| parse_quote!(__pulz_schedule::schedule::Schedule));
 
-            let install_impl = systems.iter().map(SystemInstallGenerator);
-
-            tokens.append_all(quote! {
-                impl #impl_generics #self_ty
-                    #where_clause
-                {
-                    #install_fn_vis fn #install_fn (__systems: &mut #schedule_ty) {
-                        #(#install_impl)*
-                    }
+            let install_impl = self.systems.iter().map(InstallSystemGenerator);
+            quote! {
+                #install_fn_vis fn #install_fn (__systems: &mut #schedule_ty) {
+                    #(#install_impl)*
                 }
-            });
-        }
+            }
+        };
+
+        tokens.append_all(quote! {
+            impl #impl_generics #self_ty
+                #where_clause
+            {
+                // TODO: allow to hide systems?
+                #(#systems)*
+
+                #install_fn
+            }
+        });
     }
 }
 
@@ -275,33 +243,9 @@ pub fn attrib_system_module(attributes: TokenStream, mut input: syn::ItemImpl) -
         diagnostics.add(e);
     }
 
-    let (private_ty, private_ty_impl) = if input.generics.params.is_empty() {
-        (
-            parse_quote_spanned!(input.self_ty.span() => __PrivateModule),
-            quote! {
-                struct __PrivateModule;
-            },
-        )
-    } else {
-        let (impl_generics, type_params, where_clause) = &input.generics.split_for_impl();
-        let self_ty = &input.self_ty;
-        (
-            parse_quote_spanned!(input.self_ty.span() => __PrivateModule #type_params),
-            quote! {
-                struct __PrivateModule #impl_generics
-                    #where_clause
-                {
-                    phantom: ::std::marker::PhantomData<fn(#self_ty)>,
-                }
-            },
-        )
-    };
-
-    let Some(module_impl) = diagnostics.add_if_err(SystemModuleGenerator::new(
-        &mut input,
-        params,
-        Some(&private_ty),
-    )) else {
+    let Some(module_impl) =
+        diagnostics.add_if_err(SystemModuleGenerator::new(&mut input, params, &crate_path))
+    else {
         let mut output = input.to_token_stream();
         output.extend(diagnostics.take_compile_errors());
         return output;
@@ -318,8 +262,6 @@ pub fn attrib_system_module(attributes: TokenStream, mut input: syn::ItemImpl) -
         #[allow(non_snake_case,unused_qualifications)]
         const _: () = {
             use #crate_path as __pulz_schedule;
-
-            #private_ty_impl
 
             #module_impl
         };

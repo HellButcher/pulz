@@ -179,9 +179,7 @@ macro_rules! dump_schedule_dot {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        sync::{Arc, atomic::AtomicUsize},
-    };
+    use std::sync::{Arc, atomic::AtomicUsize};
 
     use super::*;
     use crate::{

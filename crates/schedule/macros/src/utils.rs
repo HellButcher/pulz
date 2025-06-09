@@ -1,7 +1,10 @@
 use proc_macro_crate::FoundCrate;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::{Error, Result, spanned::Spanned, visit_mut::VisitMut};
+use syn::{
+    Error, Ident, Lifetime, Result, punctuated::Punctuated, spanned::Spanned, visit::Visit,
+    visit_mut::VisitMut,
+};
 
 pub struct CratePath(pub Option<syn::Path>);
 
@@ -207,6 +210,122 @@ impl ReplaceSelf<'_> {
     pub fn in_type(mut self, mut ty: syn::Type) -> syn::Type {
         self.visit_type_mut(&mut ty);
         ty
+    }
+}
+
+pub struct ReduceBoundGenerics<'a> {
+    pub source: &'a syn::Generics,
+    pub included: Vec<bool>,
+}
+
+impl<'a> ReduceBoundGenerics<'a> {
+    pub fn new(source: &'a syn::Generics) -> Self {
+        let mut included = Vec::new();
+        included.resize(source.params.len(), false);
+        Self { source, included }
+    }
+
+    pub fn mark_type_ident(&mut self, ident: &Ident) -> bool {
+        for (i, param) in self.source.params.iter().enumerate() {
+            if let syn::GenericParam::Type(p) = param {
+                if p.ident == *ident {
+                    self.included[i] = true;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    pub fn mark_const_ident(&mut self, ident: &Ident) -> bool {
+        for (i, param) in self.source.params.iter().enumerate() {
+            if let syn::GenericParam::Const(p) = param {
+                if p.ident == *ident {
+                    self.included[i] = true;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    pub fn mark_lifetime(&mut self, lt: &Lifetime) -> bool {
+        for (i, param) in self.source.params.iter().enumerate() {
+            if let syn::GenericParam::Lifetime(p) = param {
+                if p.lifetime == *lt {
+                    self.included[i] = true;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn get(&self) -> syn::Generics {
+        let mut params = Punctuated::new();
+        for (i, param) in self.source.params.iter().enumerate() {
+            if self.included[i] {
+                params.push(param.clone());
+            }
+        }
+        let where_clause = self
+            .source
+            .where_clause
+            .as_ref()
+            .map(|wc| syn::WhereClause {
+                where_token: wc.where_token,
+                predicates: wc
+                    .predicates
+                    .iter()
+                    .filter_map(|pred| {
+                        if let syn::WherePredicate::Type(t) = pred {
+                            if let syn::Type::Path(p) = &t.bounded_ty {
+                                if let Some(i) = p.path.get_ident() {
+                                    if params.iter().any(|param| {
+                                        if let syn::GenericParam::Type(tp) = param {
+                                            tp.ident == *i
+                                        } else {
+                                            false
+                                        }
+                                    }) {
+                                        return Some(pred.clone());
+                                    }
+                                }
+                            }
+                        }
+                        None
+                    })
+                    .collect(),
+            });
+        syn::Generics {
+            lt_token: self.source.lt_token,
+            params,
+            gt_token: self.source.gt_token,
+            where_clause,
+        }
+    }
+}
+
+impl Visit<'_> for ReduceBoundGenerics<'_> {
+    fn visit_generic_param(&mut self, _param: &syn::GenericParam) {
+        // don't walk down the generic parameters
+    }
+    fn visit_lifetime(&mut self, lt: &syn::Lifetime) {
+        self.mark_lifetime(lt);
+    }
+    fn visit_type_path(&mut self, t: &syn::TypePath) {
+        if let Some(ident) = t.path.get_ident() {
+            if t.qself.is_none() && self.mark_type_ident(ident) {
+                return;
+            }
+        }
+        syn::visit::visit_type_path(self, t);
+    }
+    fn visit_expr_path(&mut self, e: &syn::ExprPath) {
+        if let Some(ident) = e.path.get_ident() {
+            if e.qself.is_none() && self.mark_const_ident(ident) {
+                return;
+            }
+        }
+        syn::visit::visit_expr_path(self, e);
     }
 }
 
