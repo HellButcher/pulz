@@ -1,16 +1,14 @@
 use std::{
     any::{Any, TypeId, type_name},
     collections::BTreeMap,
-    marker::PhantomData,
     ops::{Deref, DerefMut},
 };
 
 use fnv::{FnvHashMap, FnvHashSet};
 
 use crate::{
-    prelude::*,
-    resource::ResourceAccess,
-    system::data::{SystemData, SystemDataFetch},
+    resource::{Res, ResMut, ResourceAccess, ResourceId, Resources},
+    system::SystemData,
 };
 
 pub(crate) type MetaMap = BTreeMap<TypeId, Box<dyn Any + Send + Sync>>;
@@ -220,15 +218,15 @@ impl Resources {
     }
 }
 
-pub struct Metas<'a, T: ?Sized>(&'a [Res<'a, T>]);
-pub struct MetasMut<'a, T: ?Sized>(&'a [ResMut<'a, T>]);
+pub struct Metas<'a, T: ?Sized>(Box<[Res<'a, T>]>);
+pub struct MetasMut<'a, T: ?Sized>(Box<[ResMut<'a, T>]>);
 
 impl<'a, T: ?Sized> Deref for Metas<'a, T> {
     type Target = [Res<'a, T>];
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.0
+        &self.0
     }
 }
 
@@ -237,52 +235,32 @@ impl<'a, T: ?Sized> Deref for MetasMut<'a, T> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.0
+        &self.0
     }
 }
-
-#[doc(hidden)]
-pub struct MetasState<T: ?Sized>(PhantomData<fn(&T)>);
-
-#[doc(hidden)]
-pub struct MetasMutState<T: ?Sized>(PhantomData<fn(&T)>);
 
 impl<T> SystemData for Metas<'_, T>
 where
     T: ?Sized + 'static,
 {
     type Data = ();
-    type Fetch<'r> = Box<[Res<'r, T>]>;
     type Arg<'a> = Metas<'a, T>;
 
     #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
-        Metas(fetch)
-    }
-}
-
-impl<T> SystemData for MetasMut<'_, T>
-where
-    T: ?Sized + 'static,
-{
-    type Data = ();
-    type Fetch<'r> = Box<[ResMut<'r, T>]>;
-    type Arg<'a> = MetasMut<'a, T>;
-
-    #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
-        MetasMut(fetch)
-    }
-}
-
-impl<'a, T: ?Sized + 'static> SystemDataFetch<'a> for Box<[Res<'a, T>]> {
-    type Data = ();
-
-    #[inline]
     fn init(_resources: &mut Resources) -> Self::Data {}
+
     #[inline]
-    fn fetch(res: &'a Resources, _data: &'a mut Self::Data) -> Self {
+    fn update_access(res: &Resources, access: &mut ResourceAccess, _data: &Self::Data) {
         if let Some(meta) = res.get_meta::<T>() {
+            for r in meta.resources.iter().copied() {
+                access.add_shared_checked(r);
+            }
+        }
+    }
+
+    #[inline]
+    fn get<'a>(res: &'a Resources, _data: &'a mut Self::Data) -> Self::Arg<'a> {
+        Metas(if let Some(meta) = res.get_meta::<T>() {
             meta.resources
                 .iter()
                 .copied()
@@ -294,28 +272,32 @@ impl<'a, T: ?Sized + 'static> SystemDataFetch<'a> for Box<[Res<'a, T>]> {
                 .collect()
         } else {
             Box::new([])
-        }
-    }
-
-    #[inline]
-    fn update_access(res: &Resources, access: &mut ResourceAccess, _data: &Self::Data) {
-        if let Some(meta) = res.get_meta::<T>() {
-            for r in meta.resources.iter().copied() {
-                access.add_shared_checked(r);
-            }
-        }
+        })
     }
 }
 
-impl<'a, T: ?Sized + 'static> SystemDataFetch<'a> for Box<[ResMut<'a, T>]> {
+impl<T> SystemData for MetasMut<'_, T>
+where
+    T: ?Sized + 'static,
+{
     type Data = ();
+    type Arg<'a> = MetasMut<'a, T>;
 
     #[inline]
     fn init(_resources: &mut Resources) -> Self::Data {}
 
     #[inline]
-    fn fetch(res: &'a Resources, _data: &'a mut Self::Data) -> Self {
+    fn update_access(res: &Resources, access: &mut ResourceAccess, _data: &Self::Data) {
         if let Some(meta) = res.get_meta::<T>() {
+            for r in meta.resources.iter().copied() {
+                access.add_exclusive_checked(r);
+            }
+        }
+    }
+
+    #[inline]
+    fn get<'a>(res: &'a Resources, _data: &'a mut Self::Data) -> Self::Arg<'a> {
+        MetasMut(if let Some(meta) = res.get_meta::<T>() {
             meta.resources
                 .iter()
                 .copied()
@@ -327,15 +309,6 @@ impl<'a, T: ?Sized + 'static> SystemDataFetch<'a> for Box<[ResMut<'a, T>]> {
                 .collect()
         } else {
             Box::new([])
-        }
-    }
-
-    #[inline]
-    fn update_access(res: &Resources, access: &mut ResourceAccess, _data: &Self::Data) {
-        if let Some(meta) = res.get_meta::<T>() {
-            for r in meta.resources.iter().copied() {
-                access.add_exclusive_checked(r);
-            }
-        }
+        })
     }
 }

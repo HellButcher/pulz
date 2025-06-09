@@ -1,5 +1,7 @@
 use std::any::TypeId;
 
+pub use pulz_schedule_macros::system_module;
+
 use crate::{resource::Resources, schedule::Schedule};
 
 pub trait ModuleWithOutput: Sized + 'static {

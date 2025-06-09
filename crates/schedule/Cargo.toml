@@ -12,6 +12,7 @@ readme = "README.md"
 
 [dependencies]
 pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils", features = ["func"]}
+pulz-schedule-macros = { version = "0.1.0-alpha", path = "macros" }
 
 bit-set = { workspace = true }
 fnv = { workspace = true }

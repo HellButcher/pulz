@@ -1,6 +1,8 @@
 use std::any::{Any, TypeId};
 
-use pulz_schedule::{impl_any_cast, label::CoreSystemSet, resource::Resources, schedule::Schedule};
+use pulz_schedule::{
+    impl_any_cast, module::system_module, resource::Resources, schedule::Schedule,
+};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
 use crate::{
@@ -294,7 +296,9 @@ pub struct Tracked<S> {
     pub(crate) removed: Vec<Entity>,
 }
 
-impl<S> Tracked<S> {
+#[system_module(install_fn = install_systems_impl)]
+impl<S: Storage> Tracked<S> {
+    #[system]
     fn reset(&mut self) {
         self.removed.clear();
     }
@@ -315,9 +319,7 @@ impl<S: Storage> Storage for Tracked<S> {
     type Component = S::Component;
 
     fn install_systems(schedule: &mut Schedule) {
-        schedule
-            .add_system(Self::reset)
-            .parent(CoreSystemSet::First);
+        Self::install_systems_impl(schedule);
     }
 
     #[inline]

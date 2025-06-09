@@ -1,103 +1,63 @@
+pub use pulz_schedule_macros::SystemData;
+
 use crate::resource::{ResourceAccess, Resources, ResourcesSend};
-
-pub trait SystemDataFetch<'a> {
-    type Data: 'static;
-    fn init(res: &mut Resources) -> Self::Data;
-    fn fetch(res: &'a Resources, data: &'a mut Self::Data) -> Self;
-    fn update_access(res: &Resources, access: &mut ResourceAccess, data: &Self::Data);
-}
-
-pub trait SystemDataFetchSend<'a>: SystemDataFetch<'a, Data: Sync + Send> + Send {
-    fn fetch_send(res: &'a ResourcesSend, data: &'a mut Self::Data) -> Self;
-}
 
 pub trait SystemData {
     type Data: 'static;
-    type Fetch<'a>: SystemDataFetch<'a, Data = Self::Data>;
-    type Arg<'a>: SystemData<Arg<'a> = Self::Arg<'a>>;
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a>;
+    type Arg<'a>: SystemData<Data = Self::Data, Arg<'a> = Self::Arg<'a>>;
+
+    fn init(res: &mut Resources) -> Self::Data;
+    fn update_access(res: &Resources, access: &mut ResourceAccess, data: &Self::Data);
+    fn get<'a>(res: &'a Resources, data: &'a mut Self::Data) -> Self::Arg<'a>;
 }
 
-#[diagnostic::do_not_recommend]
-impl SystemDataFetch<'_> for () {
-    type Data = ();
-
-    #[inline]
-    fn init(_res: &mut Resources) -> Self::Data {}
-
-    #[inline]
-    fn fetch(_res: &Resources, _data: &mut Self::Data) -> Self {}
-
-    #[inline]
-    fn update_access(_res: &Resources, _access: &mut ResourceAccess, _data: &Self::Data) {}
-}
-
-#[diagnostic::do_not_recommend]
-impl SystemDataFetchSend<'_> for () {
-    #[inline]
-    fn fetch_send(_res: &ResourcesSend, _data: &mut Self::Data) -> Self {}
+pub trait SystemDataSend: SystemData<Data: Sync + Send> + Send {
+    fn get_send<'a>(res: &'a ResourcesSend, data: &'a mut Self::Data) -> Self::Arg<'a>;
 }
 
 #[diagnostic::do_not_recommend]
 impl SystemData for () {
     type Data = ();
-    type Fetch<'a> = ();
     type Arg<'a> = ();
 
     #[inline]
-    fn get<'a>(_fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {}
+    fn init(_res: &mut Resources) -> Self::Data {}
+    #[inline]
+    fn update_access(_res: &Resources, _access: &mut ResourceAccess, _data: &Self::Data) {}
+    #[inline]
+    fn get<'a>(_res: &'a Resources, _data: &'a mut Self::Data) -> Self::Arg<'a> {}
+}
+
+#[diagnostic::do_not_recommend]
+impl SystemDataSend for () {
+    #[inline]
+    fn get_send<'a>(_res: &'a ResourcesSend, _data: &'a mut Self::Data) -> Self::Arg<'a> {}
 }
 
 macro_rules! impl_system_data {
-    ([$($(($name:ident,$index:tt)),+)?]) => (
-
-        impl$(<'a$(,$name)+>)? SystemDataFetch<'a> for ($($($name,)+)?)
-        $(
-            where
-                $($name : SystemDataFetch<'a>),+
-        )?
-        {
-            type Data = ($($($name::Data,)+)?) ;
-
+    ([$(($args_name:ident,$args_index:tt)),*]) => (
+        #[diagnostic::do_not_recommend]
+        impl<$($args_name: SystemData),*> SystemData for ($($args_name,)*) {
+            type Data = ($($args_name::Data,)*);
+            type Arg<'a> = ($($args_name::Arg<'a>,)*);
             #[inline]
             fn init(res: &mut Resources) -> Self::Data {
-                $(($($name::init(res),)+))?
+                ($($args_name::init(res),)*)
             }
-
-            #[inline]
-            fn fetch(res: &'a Resources, data: &'a mut Self::Data) -> Self {
-                $(($($name::fetch(res, &mut data.$index),)+))?
-            }
-
             #[inline]
             fn update_access(res: &Resources, access: &mut ResourceAccess, data: &Self::Data) {
-                $($($name::update_access(res, access, &data.$index);)+)?
+                $($args_name::update_access(res, access, &data.$args_index);)*
+            }
+            fn get<'a>(res: &'a Resources, data: &'a mut Self::Data) -> Self::Arg<'a> {
+                ($($args_name::get(res, &mut data.$args_index),)*)
             }
         }
-        impl$(<'a$(,$name)+>)? SystemDataFetchSend<'a> for ($($($name,)+)?)
-        $(
-            where
-                $($name : SystemDataFetchSend<'a>),+
-        )?
-        {
-            #[inline]
-            fn fetch_send(res: &'a ResourcesSend, data: &'a mut Self::Data) -> Self {
-                $(($($name::fetch_send(res, &mut data.$index),)+))?
-            }
-        }
-        impl$(<$($name),+>)? SystemData for ($($($name,)+)?)
-        $(
-            where
-                $($name : SystemData),+
-        )?
-        {
-            type Data = ($($($name::Data,)+)?) ;
-            type Fetch<'a> = ($($($name::Fetch<'a>,)+)?) ;
-            type Arg<'a> =  ($($($name::Arg<'a>,)+)?);
 
+        #[diagnostic::do_not_recommend]
+        impl<$($args_name: SystemDataSend),*> SystemDataSend for ($($args_name,)*) {
             #[inline]
-            fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
-                $(($($name::get(&mut fetch.$index),)+))?
+            fn get_send<'a>(res: &'a ResourcesSend, data: &'a mut Self::Data) -> Self::Arg<'a> {
+                ($($args_name::get_send(res, &mut data.$args_index),)*)
             }
         }
     )

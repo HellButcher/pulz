@@ -1,11 +1,13 @@
 use std::{collections::VecDeque, marker::PhantomData};
 
+use pulz_schedule_macros::system_module;
+
 use crate::{
     label::CoreSystemSet,
-    prelude::ResourceId,
+    local::Local,
     resource::{Res, ResMut, Resources},
     schedule::Schedule,
-    system::{IntoSystem, data::SystemData},
+    system::SystemData,
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -47,6 +49,21 @@ impl<T> Events<T> {
         self.events.is_empty()
     }
 
+    pub fn install_into(resources: &mut Resources)
+    where
+        T: Send + Sync + 'static,
+    {
+        if resources.try_init::<Self>().is_ok() {
+            let mut schedule = resources.borrow_res_mut::<Schedule>().unwrap();
+            Self::install_systems(&mut schedule);
+        }
+    }
+}
+
+#[system_module]
+#[__crate_path(crate)]
+impl<T: Send + Sync + 'static> Events<T> {
+    #[system(into = CoreSystemSet::First)]
     pub fn update(&mut self) {
         while self.first_id != self.frame_start_id {
             self.first_id += 1;
@@ -54,18 +71,6 @@ impl<T> Events<T> {
         }
 
         self.frame_start_id = self.first_id + self.events.len();
-    }
-
-    pub fn install_into(resources: &mut Resources)
-    where
-        T: Send + Sync + 'static,
-    {
-        if resources.try_init::<Self>().is_ok() {
-            let mut schedule = resources.borrow_res_mut::<Schedule>().unwrap();
-            schedule
-                .add_system_unsend(IntoSystem::into_system(Self::update))
-                .parent(CoreSystemSet::First);
-        }
     }
 }
 
@@ -123,9 +128,11 @@ impl<T> ExactSizeIterator for IdIter<'_, T> {}
 
 impl<T> std::iter::FusedIterator for IdIter<'_, T> {}
 
-pub struct EventSubscriber<'w, T> {
-    next_id: usize,
-    events: &'w Events<T>,
+#[derive(SystemData)]
+#[__crate_path(crate)]
+pub struct EventSubscriber<'r, T: 'static> {
+    next_id: Local<'r, usize>,
+    events: Res<'r, Events<T>>,
 }
 
 impl<T> EventSubscriber<'_, T> {
@@ -136,12 +143,12 @@ impl<T> EventSubscriber<'_, T> {
 
     pub fn iter(&mut self) -> Iter<'_, T> {
         let offset = self.offset();
-        self.next_id += self.events.events.len();
+        *self.next_id += self.events.events.len();
         self.events.events.range(offset..)
     }
 
     pub fn iter_with_id(&mut self) -> IdIter<'_, T> {
-        let next_id = self.next_id;
+        let next_id = *self.next_id;
         IdIter {
             base: self.iter(),
             next_id,
@@ -149,15 +156,19 @@ impl<T> EventSubscriber<'_, T> {
     }
 }
 
-pub struct EventWriter<'w, T>(&'w mut Events<T>);
+#[derive(SystemData)]
+#[__crate_path(crate)]
+pub struct EventWriter<'r, T: 'static> {
+    events: ResMut<'r, Events<T>>,
+}
 
 impl<T> EventWriter<'_, T> {
     pub fn send(&mut self, event: T) {
-        self.0.send(event);
+        self.events.send(event);
     }
 
     pub fn send_batch(&mut self, events: impl Iterator<Item = T>) {
-        self.0.send_batch(events);
+        self.events.send_batch(events);
     }
 }
 
@@ -166,37 +177,6 @@ impl<T> Extend<T> for EventWriter<'_, T> {
     where
         I: IntoIterator<Item = T>,
     {
-        self.0.send_batch(events.into_iter())
-    }
-}
-
-impl<T> SystemData for EventSubscriber<'_, T>
-where
-    T: 'static,
-{
-    type Data = ResourceId<Events<T>>;
-    type Fetch<'r> = Res<'r, Events<T>>;
-    type Arg<'a> = EventSubscriber<'a, T>;
-
-    #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
-        EventSubscriber {
-            next_id: 0, // TODO: keep state
-            events: fetch,
-        }
-    }
-}
-
-impl<T> SystemData for EventWriter<'_, T>
-where
-    T: 'static,
-{
-    type Data = ResourceId<Events<T>>;
-    type Fetch<'r> = ResMut<'r, Events<T>>;
-    type Arg<'a> = EventWriter<'a, T>;
-
-    #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
-        EventWriter(fetch)
+        self.events.send_batch(events.into_iter())
     }
 }

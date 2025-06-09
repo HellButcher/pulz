@@ -1,18 +1,13 @@
 use std::pin::Pin;
 
-use pulz_schedule::{
-    resource::ResourcesSend,
-    system::data::{SystemDataFetch, SystemDataFetchSend},
-};
-
 use super::QueryParamState;
 use crate::{
     WorldInner,
     archetype::{Archetype, ArchetypeId, ArchetypeSet, ArchetypeSetIter},
     entity::Entity,
     query::{QueryItem, QueryParam, QueryParamFetch, QueryState},
-    resource::{Res, ResourceAccess, ResourceId, Resources},
-    system::data::SystemData,
+    resource::{Res, ResourceAccess, ResourceId, Resources, ResourcesSend},
+    system::{SystemData, SystemDataSend},
 };
 
 pub struct Query<'w, Q>
@@ -224,31 +219,16 @@ where
 #[doc(hidden)]
 pub struct QuerySystemParamData<S: QueryParamState>(ResourceId<QueryState<S>>);
 
-#[doc(hidden)]
-pub struct QuerySystemParamFetch<'r, S: QueryParamState>(
-    &'r ResourcesSend,
-    ResourceId<QueryState<S>>,
-);
-
 impl<Q> SystemData for Query<'_, Q>
 where
     Q: QueryParam + 'static,
 {
     type Data = QuerySystemParamData<Q::State>;
-    type Fetch<'r> = QuerySystemParamFetch<'r, Q::State>;
     type Arg<'a> = Query<'a, Q>;
-
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
-        Query::new_id(fetch.0, fetch.1)
-    }
-}
-
-impl<'r, S: QueryParamState> SystemDataFetch<'r> for QuerySystemParamFetch<'r, S> {
-    type Data = QuerySystemParamData<S>;
 
     #[inline]
     fn init(res: &mut Resources) -> Self::Data {
-        QuerySystemParamData(res.init::<QueryState<S>>())
+        QuerySystemParamData(res.init::<QueryState<Q::State>>())
     }
 
     #[inline]
@@ -259,14 +239,17 @@ impl<'r, S: QueryParamState> SystemDataFetch<'r> for QuerySystemParamFetch<'r, S
         state.param_state.update_access(access)
     }
 
-    fn fetch(res: &'r Resources, data: &'r mut Self::Data) -> Self {
-        Self(res, data.0)
+    fn get<'a>(res: &'a Resources, data: &'a mut Self::Data) -> Self::Arg<'a> {
+        Query::new_id(res, data.0)
     }
 }
 
-impl<'r, S: QueryParamState> SystemDataFetchSend<'r> for QuerySystemParamFetch<'r, S> {
+impl<Q> SystemDataSend for Query<'_, Q>
+where
+    Q: QueryParam + 'static,
+{
     #[inline]
-    fn fetch_send(res: &'r ResourcesSend, data: &'r mut Self::Data) -> Self {
-        Self(res, data.0)
+    fn get_send<'a>(res: &'a ResourcesSend, data: &'a mut Self::Data) -> Self::Arg<'a> {
+        Query::new_id(res, data.0)
     }
 }

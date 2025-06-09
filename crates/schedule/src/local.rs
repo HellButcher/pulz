@@ -2,7 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::{
     resource::{FromResources, ResourceAccess, Resources, ResourcesSend},
-    system::data::{SystemData, SystemDataFetch, SystemDataFetchSend},
+    system::{SystemData, SystemDataSend},
 };
 
 pub struct Local<'l, T>(&'l mut T);
@@ -23,35 +23,26 @@ impl<T> DerefMut for Local<'_, T> {
     }
 }
 
-impl<T: FromResources + Sized + Send + Sync + 'static> SystemData for Local<'_, T> {
+impl<T: FromResources + Sized + 'static> SystemData for Local<'_, T> {
     type Data = T;
-    type Fetch<'a> = Local<'a, T>;
     type Arg<'a> = Local<'a, T>;
-
-    #[inline]
-    fn get<'a>(fetch: &'a mut Self::Fetch<'_>) -> Self::Arg<'a> {
-        Local(fetch.0)
-    }
-}
-
-impl<'a, T: FromResources + 'static> SystemDataFetch<'a> for Local<'a, T> {
-    type Data = T;
 
     #[inline]
     fn init(res: &mut Resources) -> Self::Data {
         T::from_resources(res)
     }
-    #[inline]
-    fn fetch(_res: &'a Resources, data: &'a mut Self::Data) -> Self {
-        Self(data)
-    }
 
     fn update_access(_res: &Resources, _access: &mut ResourceAccess, _data: &Self::Data) {}
+
+    #[inline]
+    fn get<'a>(_res: &'a Resources, data: &'a mut Self::Data) -> Self::Arg<'a> {
+        Local(data)
+    }
 }
 
-impl<'a, T: FromResources + Send + Sync + 'static> SystemDataFetchSend<'a> for Local<'a, T> {
+impl<T: FromResources + Send + Sync + 'static> SystemDataSend for Local<'_, T> {
     #[inline]
-    fn fetch_send(_res: &'a ResourcesSend, data: &'a mut Self::Data) -> Self {
-        Self(data)
+    fn get_send<'a>(_res: &'a ResourcesSend, data: &'a mut Self::Data) -> Self::Arg<'a> {
+        Local(data)
     }
 }

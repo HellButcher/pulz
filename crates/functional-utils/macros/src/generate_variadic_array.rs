@@ -98,19 +98,21 @@ impl Parse for ItemTemplate {
 
 fn parse_range(input: ParseStream) -> Result<(usize, usize)> {
     let value1 = input.parse::<LitInt>()?.base10_parse()?;
-    Ok(if input.parse::<Token![..=]>().is_ok() {
+    if input.peek(Token![..=]) {
+        input.parse::<Token![..=]>()?;
         let value2 = input.parse::<LitInt>()?.base10_parse()?;
-        (value2, value2 + 1)
-    } else if input.parse::<Token![..]>().is_ok() {
-        if let Ok(value2) = input.parse::<LitInt>() {
-            let value2 = value2.base10_parse()?;
-            (value1, value2)
+        Ok((value2, value2 + 1))
+    } else if input.peek(Token![..]) {
+        input.parse::<Token![..]>()?;
+        if input.peek(LitInt) {
+            let value2 = input.parse::<LitInt>()?.base10_parse()?;
+            Ok((value1, value2))
         } else {
-            (value1, DEFAULT_TO)
+            Ok((value1, DEFAULT_TO))
         }
     } else {
-        (0, value1)
-    })
+        Ok((0, value1))
+    }
 }
 
 impl Parse for GeneratorArgs {

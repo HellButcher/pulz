@@ -7,7 +7,7 @@ use pulz_functional_utils::{
 
 use super::{
     SendSystem, System, SystemInit,
-    data::{SystemData, SystemDataFetch, SystemDataFetchSend},
+    data::{SystemData, SystemDataSend},
 };
 use crate::{
     resource::{Resources, ResourcesSend},
@@ -42,7 +42,7 @@ where
 {
     #[inline]
     fn init(&mut self, resources: &mut Resources) {
-        self.args_data = Some(D::Fetch::init(resources));
+        self.args_data = Some(D::init(resources));
     }
 
     #[inline]
@@ -66,14 +66,13 @@ where
 {
     fn run<'a>(&'a mut self, resources: &'a Resources) {
         let data = self.args_data.as_mut().expect("not initialized");
-        let mut fetched = D::Fetch::fetch(resources, data);
-        let args = D::get(&mut fetched);
+        let args = D::get(resources, data);
         <&mut F>::call_once(&mut self.func, args);
     }
 
     #[inline]
     fn update_access(&self, res: &Resources, access: &mut crate::resource::ResourceAccess) {
-        D::Fetch::update_access(
+        D::update_access(
             res,
             access,
             self.args_data.as_ref().expect("not initialized"),
@@ -86,14 +85,12 @@ impl<F, D> SendSystem for FuncSystem<F, D>
 where
     F: FuncMut<D, Output = ()> + Send + Sync + 'static,
     for<'a> &'a mut F: FuncOnce<D::Arg<'a>, Output = ()> + 'a,
-    D: SystemData + Tuple + 'static,
-    for<'a> D::Fetch<'a>: SystemDataFetchSend<'a> + Tuple,
+    D: SystemDataSend + Tuple + 'static,
     for<'a> D::Arg<'a>: Tuple,
 {
     fn run_send<'a>(&'a mut self, resources: &'a ResourcesSend) {
         let data = self.args_data.as_mut().expect("not initialized");
-        let mut fetched = D::Fetch::fetch_send(resources, data);
-        let args = D::get(&mut fetched);
+        let args = D::get_send(resources, data);
         <&mut F>::call_once(&mut self.func, args);
     }
 }

@@ -179,12 +179,14 @@ macro_rules! dump_schedule_dot {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, atomic::AtomicUsize};
+    use std::{
+        sync::{Arc, atomic::AtomicUsize},
+    };
 
     use super::*;
     use crate::{
         resource::{ResMut, ResourceAccess, ResourcesSend},
-        system::{ExclusiveSystem, SendSystem, System, SystemInit},
+        system::{ExclusiveSystem, SendSystem, System, SystemInit, system},
     };
 
     #[test]
@@ -219,10 +221,14 @@ mod tests {
 
         struct Data(usize);
 
+        #[system]
+        #[__crate_path(crate)]
         fn update1(borrowed: &mut Data) {
             borrowed.0 += 7;
         }
 
+        #[system]
+        #[__crate_path(crate)]
         fn update2(mut owned: ResMut<'_, Data>) {
             assert_eq!(owned.0, 10);
             owned.0 += 11;
@@ -233,8 +239,8 @@ mod tests {
         let mut schedule = Schedule::new();
         schedule.add_system(Sys(counter.clone()));
         schedule.add_system_exclusive(ExSys);
-        let l1 = schedule.add_system(update1).as_label();
-        schedule.add_system(update2).after(l1);
+        let l1 = schedule.add_system(System![update1]).as_label();
+        schedule.add_system(System![update2]).after(l1);
         schedule.init(&mut resources);
 
         //dump_schedule_dot!(&schedule);
