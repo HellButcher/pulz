@@ -31,16 +31,23 @@ pub struct ThreadPool(::threadpool::ThreadPool);
 impl Default for ThreadPool {
     #[inline]
     fn default() -> Self {
-        Self(
-            ::threadpool::Builder::new()
-                .thread_name(Self::DEFAULT_NAME.to_string())
-                .build(),
-        )
+        Self::from_env()
     }
 }
 
 impl ThreadPool {
     const DEFAULT_NAME: &'static str = module_path!();
+
+    pub fn from_env() -> Self {
+        let mut builder = ::threadpool::Builder::new().thread_name(Self::DEFAULT_NAME.to_string());
+        if let Some(num_threads) = std::env::var("PULZ_NUM_THREADS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+        {
+            builder = builder.num_threads(num_threads);
+        }
+        Self(builder.build())
+    }
 
     #[inline]
     pub fn new(num_threads: usize) -> Self {
