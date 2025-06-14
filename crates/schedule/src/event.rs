@@ -28,6 +28,10 @@ impl<T> Events<T> {
         }
     }
 
+    pub fn last(&self) -> Option<&T> {
+        self.events.back()
+    }
+
     pub fn send(&mut self, event: T) {
         self.events.push_back(event);
     }
