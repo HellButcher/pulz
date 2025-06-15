@@ -1,0 +1,27 @@
+[package]
+name = "pulz-winit"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[features]
+default = ["x11", "wayland"]
+x11 = [ "winit/x11" ]
+wayland = [ "winit/wayland", "winit/wayland-dlopen" ]
+
+[dependencies]
+pulz-schedule.path = "../schedule"
+pulz-app.path = "../app"
+winit = { version = "0.30", default-features = false, features = ["x11", "rwh_06"] }
+tracing.workspace = true
+raw-window-handle = "0.6"
+
+[dev-dependencies]
+pulz-app = { path = "../app", features = ["tracing-subscriber-init"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
