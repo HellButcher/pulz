@@ -15,6 +15,7 @@ use crate::{
     },
     system::{BoxedSystem, ExclusiveSystem, IntoSystem, SendSystem, System, SystemInit},
     threadpool::ThreadPool,
+    util::DirtyVersion,
 };
 
 impl Schedule {
@@ -28,7 +29,8 @@ impl Schedule {
             system_dependent_layers: Vec::new(),
             #[cfg(not(target_os = "unknown"))]
             threadpool_id: None,
-            atom: Atom::DIRTY,
+            atom: Atom::ZERO,
+            version: DirtyVersion::new(),
         }
     }
 
@@ -59,7 +61,7 @@ impl Schedule {
     }
 
     fn _add_system(&mut self, system: BoxedSystem) -> ScheduleNodeBuilder<'_> {
-        self.atom.set_dirty();
+        self.version.dirty();
         let index = self.systems.len();
         let label = system.system_label().as_label();
         self.systems.push(system);
@@ -107,7 +109,7 @@ impl Schedule {
         let Some(phase_label) = phases.next() else {
             return;
         };
-        self.atom.set_dirty();
+        self.version.dirty();
         let mut prev_node_id = self._get_or_set_label(phase_label, SystemId::UNDEFINED);
         // handle rest of chain
         for phase_label in phases {
@@ -123,7 +125,7 @@ impl Schedule {
     }
 
     fn _add_dependency(&mut self, dependency: SystemSetId, dependent: SystemSetId) {
-        self.atom.set_dirty();
+        self.version.dirty();
         let dependency_node_id = self._get_or_set_label(dependency, SystemId::UNDEFINED);
         let dependent_node_id = self._get_or_set_label(dependent, SystemId::UNDEFINED);
         self.graph
@@ -282,8 +284,16 @@ impl Schedule {
         Ok(())
     }
 
-    pub fn init(&mut self, resources: &mut Resources) {
-        if self.atom.inherit_reset(resources.atom_mut()) {
+    pub fn init(&mut self, resources: &mut Resources) -> bool {
+        let r_atom = resources.atom();
+        if self.atom != r_atom {
+            if self.atom == Atom::ZERO {
+                self.atom = resources.atom();
+            } else {
+                panic!("Schedule was already initialized with a different resource object");
+            }
+        }
+        if self.version.check_and_reset(resources.version_mut()) {
             for (sys, access) in self.systems.iter_mut().zip(self.access.iter_mut()) {
                 sys.init(resources);
                 access.clear();
@@ -302,6 +312,9 @@ impl Schedule {
                     "Failed to rebuild schedule: {e}\nuse PULZ_DUMP_SCHEDULE=[path] to dump the schedule to a file for debugging."
                 );
             }
+            true
+        } else {
+            false
         }
     }
 }

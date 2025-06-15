@@ -11,6 +11,7 @@ use crate::{
     },
     system::BoxedSystem,
     threadpool::ThreadPool,
+    util::DirtyVersion,
 };
 
 mod debug;
@@ -32,6 +33,7 @@ pub struct Schedule {
     #[cfg(not(target_os = "unknown"))]
     threadpool_id: Option<ResourceId<ThreadPool>>,
     atom: Atom,
+    version: DirtyVersion,
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -13,6 +13,7 @@ use super::{FromResourcesMut, Res, ResMut, ResourceId, Taken};
 use crate::{
     atom::Atom,
     meta::{Meta, MetaMap},
+    util::DirtyVersion,
 };
 
 struct ResourceData {
@@ -103,6 +104,7 @@ pub struct ResourcesSend {
     meta_by_type_id: MetaMap,
     modules: BTreeSet<TypeId>,
     atom: Atom,
+    version: DirtyVersion,
 }
 
 #[repr(transparent)]
@@ -272,7 +274,8 @@ impl Resources {
                 by_type_id: BTreeMap::new(),
                 meta_by_type_id: BTreeMap::new(),
                 modules: BTreeSet::new(),
-                atom: Atom::DIRTY,
+                atom: Atom::new(),
+                version: DirtyVersion::new(),
             },
             PhantomData,
         );
@@ -291,13 +294,18 @@ impl Resources {
     }
 
     #[inline]
-    pub(crate) fn atom_mut(&mut self) -> &mut Atom {
-        &mut self.0.atom
+    pub(crate) fn atom(&self) -> Atom {
+        self.0.atom
+    }
+
+    #[inline]
+    pub(crate) fn version_mut(&mut self) -> &mut DirtyVersion {
+        &mut self.0.version
     }
 
     pub(crate) fn insert_module(&mut self, type_id: TypeId) -> bool {
         if self.0.modules.insert(type_id) {
-            self.0.atom.set_dirty();
+            self.0.version.dirty();
             true
         } else {
             false
@@ -550,7 +558,7 @@ impl ResourcesSend {
                 id
             }
             Entry::Vacant(entry) => {
-                self.atom.set_dirty();
+                self.version.dirty();
                 let id = ResourceId::new(resources.len()); // keep positive => dense
                 resources.push(ResourceData {
                     name,
@@ -559,7 +567,7 @@ impl ResourcesSend {
                     value: AtomicRefCell::new(value),
                 });
                 entry.insert(id);
-                self.atom.set_dirty();
+                self.version.dirty();
                 id
             }
         }
