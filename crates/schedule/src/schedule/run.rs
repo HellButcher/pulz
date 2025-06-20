@@ -3,8 +3,9 @@ use std::ops::Range;
 
 use crate::{
     prelude::{Resources, Schedule},
-    schedule::SystemId,
-    system::{BoxedSystem, ExclusiveSystem},
+    resource::ResourceAccess,
+    schedule::{RunSharedSheduleSystem, SharedSchedule, SystemId},
+    system::{BoxedSystem, ExclusiveSystem, System, SystemInit},
 };
 #[cfg(not(target_os = "unknown"))]
 use crate::{schedule::Layer, threadpool::ThreadPool};
@@ -34,7 +35,7 @@ impl Schedule {
                     let threadpool = resources
                         .borrow_res_id(self.threadpool_id.unwrap())
                         .expect("ThreadPool resource not found");
-                    Self::run_shared(
+                    Self::run_layers_shared(
                         &threadpool,
                         resources,
                         &self.ordered_layers,
@@ -53,7 +54,7 @@ impl Schedule {
             let threadpool = resources
                 .borrow_res_id(self.threadpool_id.unwrap())
                 .expect("ThreadPool resource not found");
-            Self::run_shared(
+            Self::run_layers_shared(
                 &threadpool,
                 resources,
                 &self.ordered_layers,
@@ -93,7 +94,7 @@ impl Schedule {
     }
 
     #[cfg(not(target_os = "unknown"))]
-    fn run_shared(
+    fn run_layers_shared(
         threadpool: &ThreadPool,
         resources: &Resources,
         layers: &[Vec<SystemId>],
@@ -141,5 +142,115 @@ impl Schedule {
                 }
             }
         });
+    }
+}
+
+impl SystemInit for Schedule {
+    #[inline]
+    fn init(&mut self, resources: &mut Resources) {
+        self.init(resources);
+    }
+}
+
+impl ExclusiveSystem for Schedule {
+    #[inline]
+    fn run_exclusive(&mut self, resources: &mut Resources) {
+        self.run(resources);
+    }
+}
+
+impl SharedSchedule {
+    fn run_shared(&mut self, resources: &Resources) {
+        for layer in &self.0.ordered_layers {
+            if self.is_exclusive_layer(layer) {
+                panic!("SharedSchedule cannot run exclusive layers");
+            }
+        }
+        #[cfg(not(target_os = "unknown"))]
+        {
+            let threadpool = resources
+                .borrow_res_id(self.threadpool_id.unwrap())
+                .expect("ThreadPool resource not found");
+            Schedule::run_layers_shared(
+                &threadpool,
+                resources,
+                &self.0.ordered_layers,
+                &self.0.system_dependent_layers,
+                0..self.0.ordered_layers.len(),
+                &mut self.0.systems,
+            );
+        }
+        #[cfg(target_os = "unknown")]
+        {
+            for layer in &self.0.ordered_layers {
+                for &system_id in layer {
+                    let system = &mut self.0.systems[system_id.0];
+                    system.run(resources);
+                }
+            }
+        }
+    }
+}
+
+impl SystemInit for SharedSchedule {
+    #[inline]
+    fn init(&mut self, resources: &mut Resources) {
+        self.init(resources);
+    }
+}
+
+impl System for SharedSchedule {
+    #[inline]
+    fn run(&mut self, resources: &Resources) {
+        self.run_shared(resources);
+    }
+
+    fn update_access(&self, res: &Resources, access: &mut ResourceAccess) {
+        let mut access_result = ResourceAccess::new();
+        let mut sub_access = ResourceAccess::new();
+        for layer in &self.0.ordered_layers {
+            sub_access.clear();
+            for &system_id in layer {
+                let system = &self.0.systems[system_id.0];
+                system.update_access(res, &mut sub_access);
+            }
+            access_result.union_with(&sub_access);
+        }
+        access.union_with_checked(&sub_access);
+    }
+}
+
+impl<S> SystemInit for RunSharedSheduleSystem<S>
+where
+    S: AsMut<SharedSchedule>,
+{
+    #[inline]
+    fn init(&mut self, res: &mut Resources) {
+        let schedule_id = *self.0.get_or_insert_with(|| res.expect_id());
+        res.take_id_and(schedule_id, |schedule, res| {
+            schedule.as_mut().init(res);
+        });
+    }
+}
+
+impl<S> System for RunSharedSheduleSystem<S>
+where
+    S: AsMut<SharedSchedule>,
+{
+    fn run(&mut self, res: &Resources) {
+        let schedule_id = self.0.expect("not initialized");
+        res.borrow_res_mut_id(schedule_id)
+            .unwrap()
+            .as_mut()
+            .run_shared(res);
+    }
+
+    fn update_access(&self, res: &Resources, access: &mut ResourceAccess) {
+        let schedule_id = self.0.expect("not initialized");
+        access.add_shared_checked(schedule_id);
+        res.borrow_res_mut_id(schedule_id)
+            .unwrap()
+            .as_mut()
+            .update_access(res, access);
     }
 }

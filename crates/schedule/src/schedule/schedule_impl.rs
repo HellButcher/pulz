@@ -9,11 +9,11 @@ use crate::{
     prelude::{Resources, Schedule},
     resource::ResourceAccess,
     schedule::{
-        Layer, ScheduleError, SystemId,
+        Layer, ScheduleError, SharedSchedule, SystemId,
         graph::{Graph, NodeId},
         resource_tracker::{ResourceConflict, ResourceMutTracker},
     },
-    system::{BoxedSystem, ExclusiveSystem, IntoSystem, SendSystem, System, SystemInit},
+    system::{BoxedSystem, IntoSystem, SendSystem, System, SystemInit},
     threadpool::ThreadPool,
     util::DirtyVersion,
 };
@@ -326,20 +326,6 @@ impl Default for Schedule {
     }
 }
 
-impl SystemInit for Schedule {
-    #[inline]
-    fn init(&mut self, resources: &mut Resources) {
-        self.init(resources);
-    }
-}
-
-impl ExclusiveSystem for Schedule {
-    #[inline]
-    fn run_exclusive(&mut self, resources: &mut Resources) {
-        self.run(resources);
-    }
-}
-
 impl AsRef<Self> for Schedule {
     #[inline]
     fn as_ref(&self) -> &Self {
@@ -351,6 +337,68 @@ impl AsMut<Self> for Schedule {
     #[inline]
     fn as_mut(&mut self) -> &mut Self {
         self
+    }
+}
+
+impl SharedSchedule {
+    #[inline]
+    pub fn new() -> Self {
+        Self(Schedule::new())
+    }
+
+    pub fn init(&mut self, resources: &mut Resources) -> bool {
+        self.0.init(resources)
+    }
+}
+
+impl Default for SharedSchedule {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AsRef<Self> for SharedSchedule {
+    #[inline]
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
+impl AsMut<Self> for SharedSchedule {
+    #[inline]
+    fn as_mut(&mut self) -> &mut Self {
+        self
+    }
+}
+
+impl AsRef<Schedule> for SharedSchedule {
+    #[inline]
+    fn as_ref(&self) -> &Schedule {
+        &self.0
+    }
+}
+
+impl AsMut<Schedule> for SharedSchedule {
+    #[inline]
+    fn as_mut(&mut self) -> &mut Schedule {
+        &mut self.0
+    }
+}
+
+impl std::ops::Deref for SharedSchedule {
+    type Target = Schedule;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for SharedSchedule {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

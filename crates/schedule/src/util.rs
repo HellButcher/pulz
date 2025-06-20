@@ -1,7 +1,4 @@
-use std::{
-    cell::UnsafeCell,
-    marker::PhantomData,
-};
+use std::{cell::UnsafeCell, marker::PhantomData};
 
 use bit_set::BitSet;
 

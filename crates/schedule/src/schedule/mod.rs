@@ -36,6 +36,9 @@ pub struct Schedule {
     version: DirtyVersion,
 }
 
+#[repr(transparent)]
+pub struct SharedSchedule(Schedule);
+
 #[derive(thiserror::Error, Debug)]
 pub enum ScheduleError {
     #[error(transparent)]
@@ -60,6 +63,30 @@ impl SystemId {
     #[inline]
     pub const fn is_defined(&self) -> bool {
         self.0 != !0
+    }
+}
+
+pub struct RunSharedSheduleSystem<S>(Option<ResourceId<S>>)
+where
+    S: AsMut<SharedSchedule> + 'static;
+
+impl<S> RunSharedSheduleSystem<S>
+where
+    S: AsMut<SharedSchedule> + 'static,
+{
+    #[inline]
+    pub const fn new() -> Self {
+        Self(None)
+    }
+}
+
+impl<S> Default for RunSharedSheduleSystem<S>
+where
+    S: AsMut<SharedSchedule> + 'static,
+{
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 

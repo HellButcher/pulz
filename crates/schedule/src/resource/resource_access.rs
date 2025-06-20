@@ -60,6 +60,13 @@ impl ResourceAccess {
     pub fn union_with(&mut self, other: &Self) {
         self.shared.union_with(&other.shared);
         self.exclusive.union_with(&other.exclusive);
+        self.shared.difference_with(&self.exclusive);
+    }
+    pub fn union_with_checked(&mut self, other: &Self) {
+        if !self.is_compatible(other) {
+            panic!("resource access is not compatible");
+        }
+        self.union_with(other);
     }
     #[inline]
     pub fn is_compatible(&self, other: &Self) -> bool {
