@@ -2,7 +2,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use pulz_schedule::{
     event::EventWriter,
+    label::CoreSystemSet,
+    local::Local,
     module::{Module, system_module},
+    prelude::Schedule,
 };
 use tracing as log;
 
@@ -37,13 +40,20 @@ fn install_ctrlc_handler() {
     }
 }
 
-#[derive(Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct CtrlCHandlerModule;
 
 #[system_module(install_fn = install_systems_impl)]
 impl CtrlCHandlerModule {
-    #[system]
-    fn fire_event_on_ctrlc(mut events: EventWriter<'_, AppExit>) {
+    #[system(after = CoreSystemSet::First)]
+    fn fire_event_on_ctrlc(
+        mut events: EventWriter<'_, AppExit>,
+        mut is_installed: Local<'_, bool>,
+    ) {
+        if !*is_installed {
+            *is_installed = true;
+            install_ctrlc_handler();
+        }
         if let Some(exit_code) = should_exit() {
             log::info!("Received `Ctrl+C`, exiting with code: {exit_code:?}");
             events.send(exit_code);
@@ -52,10 +62,9 @@ impl CtrlCHandlerModule {
 }
 
 impl Module for CtrlCHandlerModule {
-    fn install_once(&self, _resources: &mut pulz_schedule::prelude::Resources) {
-        install_ctrlc_handler();
-    }
-    fn install_systems(schedule: &mut pulz_schedule::prelude::Schedule) {
+    fn init(self, res: &mut pulz_schedule::prelude::Resources) {
+        res.init_event::<AppExit>();
+        let schedule = res.get_mut::<Schedule>().unwrap();
         Self::install_systems_impl(schedule);
     }
 }

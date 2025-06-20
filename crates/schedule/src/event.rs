@@ -5,6 +5,7 @@ use pulz_schedule_macros::system_module;
 use crate::{
     label::CoreSystemSet,
     local::Local,
+    prelude::ResourceId,
     resource::{Res, ResMut, Resources},
     schedule::Schedule,
     system::SystemData,
@@ -53,13 +54,17 @@ impl<T> Events<T> {
         self.events.is_empty()
     }
 
-    pub fn install_into(resources: &mut Resources)
+    pub fn install_into(res: &mut Resources) -> ResourceId<Self>
     where
         T: Send + Sync + 'static,
     {
-        if resources.try_init::<Self>().is_ok() {
-            let mut schedule = resources.borrow_res_mut::<Schedule>().unwrap();
-            Self::install_systems(&mut schedule);
+        match res.try_init::<Self>() {
+            Err(id) => id,
+            Ok(id) => {
+                let mut schedule = res.borrow_res_mut::<Schedule>().unwrap();
+                Self::install_systems(&mut schedule);
+                id
+            }
         }
     }
 }
@@ -182,5 +187,15 @@ impl<T> Extend<T> for EventWriter<'_, T> {
         I: IntoIterator<Item = T>,
     {
         self.events.send_batch(events.into_iter())
+    }
+}
+
+impl Resources {
+    #[inline]
+    pub fn init_event<T>(&mut self) -> ResourceId<Events<T>>
+    where
+        T: Send + Sync + 'static,
+    {
+        Events::<T>::install_into(self)
     }
 }

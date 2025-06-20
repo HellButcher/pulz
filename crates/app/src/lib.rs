@@ -30,11 +30,15 @@ mod graceful_exit;
 mod lifecycle;
 
 pub mod schedules;
+pub mod time;
 
 pub use app_exit::AppExit;
-pub use graceful_exit::gracefully_exit;
+pub use graceful_exit::{CtrlCHandlerModule, gracefully_exit};
 pub use lifecycle::{AppLifecycle, AppLifecycleController};
-use pulz_schedule::prelude::{FromResourcesMut, Resources};
+use pulz_schedule::{
+    module::Module,
+    prelude::{FromResourcesMut, Resources},
+};
 
 pub struct App {
     resources: Resources,
@@ -101,6 +105,16 @@ impl From<Resources> for App {
 impl From<App> for Resources {
     fn from(app: App) -> Self {
         app.into_resources()
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct AppModule;
+
+impl Module for AppModule {
+    fn init(self, res: &mut Resources) {
+        self.init_lifecycle(res);
+        self.init_time(res);
     }
 }
 

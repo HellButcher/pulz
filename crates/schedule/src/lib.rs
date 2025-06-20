@@ -43,7 +43,7 @@ mod util;
 
 pub mod prelude {
     pub use crate::{
-        module::{Module, ModuleWithOutput},
+        module::Module,
         resource::{FromResources, FromResourcesMut, Res, ResMut, ResourceId, Resources},
         schedule::Schedule,
     };

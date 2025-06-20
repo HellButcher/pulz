@@ -4,7 +4,10 @@ use pulz_schedule::{
 };
 use tracing as log;
 
-use crate::{AppExit, schedules::{MainSchedule, ResumeSchedule, StartupSchedule, StopSchedule, SuspendSchedule}};
+use crate::{
+    AppExit, AppModule,
+    schedules::{MainSchedule, ResumeSchedule, StartupSchedule, StopSchedule, SuspendSchedule},
+};
 
 /// Enum describing the lifecycle state of the application.
 ///  ```txt
@@ -101,26 +104,18 @@ pub struct AppLifecycleController {
 
 impl FromResourcesMut for AppLifecycleController {
     fn from_resources_mut(res: &mut Resources) -> Self {
-        let lifecycle_id = res.init::<AppLifecycle>();
-        let events_id = res.init::<Events<AppLifecycle>>();
-        let exit_events_id = res.init::<Events<AppExit>>();
-        let schedule_startup_id = res.init_unsend::<StartupSchedule>();
-        let schedule_resume_id = res.init_unsend::<ResumeSchedule>();
-        let schedule_id = res.init_unsend::<Schedule>();
-        let schedule_main_id = res.init_unsend::<MainSchedule>();
-        let schedule_suspend_id = res.init_unsend::<SuspendSchedule>();
-        let schedule_stop_id = res.init_unsend::<StopSchedule>();
+        res.install(AppModule);
         Self {
             state: AppState::Created,
-            lifecycle_id,
-            events_id,
-            exit_events_id,
-            schedule_startup_id,
-            schedule_resume_id,
-            schedule_id,
-            schedule_main_id,
-            schedule_suspend_id,
-            schedule_stop_id,
+            lifecycle_id: res.expect_id(),
+            events_id: res.expect_id(),
+            exit_events_id: res.expect_id(),
+            schedule_startup_id: res.expect_id(),
+            schedule_resume_id: res.expect_id(),
+            schedule_id: res.expect_id(),
+            schedule_main_id: res.expect_id(),
+            schedule_suspend_id: res.expect_id(),
+            schedule_stop_id: res.expect_id(),
         }
     }
 }
@@ -173,7 +168,10 @@ impl AppLifecycleController {
             }
             AppState::Stopped(app_exit) => return Some(app_exit),
         }
-        res.get_mut_id(self.exit_events_id)?.last().copied().map(|app_exit| self.stop(res, app_exit))
+        res.get_mut_id(self.exit_events_id)?
+            .last()
+            .copied()
+            .map(|app_exit| self.stop(res, app_exit))
     }
 
     pub fn start(&mut self, res: &mut Resources) -> bool {
@@ -235,5 +233,19 @@ impl AppLifecycleController {
             }
             AppState::Stopped(app_exit) => app_exit,
         }
+    }
+}
+
+impl AppModule {
+    pub(crate) fn init_lifecycle(self, res: &mut Resources) {
+        res.init::<AppLifecycle>();
+        res.init_event::<AppLifecycle>();
+        res.init_event::<AppExit>();
+        res.init_unsend::<StartupSchedule>();
+        res.init_unsend::<ResumeSchedule>();
+        res.init_unsend::<Schedule>();
+        res.init_unsend::<MainSchedule>();
+        res.init_unsend::<SuspendSchedule>();
+        res.init_unsend::<StopSchedule>();
     }
 }

@@ -2,7 +2,8 @@ use pulz_schedule::prelude::Resources;
 use pulz_winit::app::{App, AppExit};
 
 fn create() -> App {
-    let resources = Resources::new();
+    let mut resources = Resources::new();
+    resources.install(pulz_app::CtrlCHandlerModule);
     App::new(resources)
 }
 
