@@ -42,7 +42,6 @@ pub trait Storage: Send + Sync + Any + FromResourcesMut {
     ) -> Option<Self::Component>;
 
     fn insert(&mut self, entity: Entity, value: Self::Component);
-
     fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool;
     fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize>;
 

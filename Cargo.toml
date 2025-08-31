@@ -15,7 +15,7 @@ authors = ["Christoph Hommelsheim <main@chommel.en>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/HellButcher/pulz.git"
 edition = "2024"
-rust-version = "1.86"
+rust-version = "1.89"
 
 [workspace.dependencies]
 bit-set = "0.8"
@@ -26,7 +26,7 @@ tracing = "0.1"
 backtrace = "0.3"
 atomic_refcell = "0.1"
 crossbeam-utils = "0.8"
-darling = "0.20"
+darling = "0.21"
 proc-macro2 = "1.0"
 syn = "2.0"
 quote = "1.0"

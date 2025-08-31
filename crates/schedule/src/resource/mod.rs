@@ -1,7 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-pub use atomic_refcell::{AtomicRef as Res, AtomicRefMut as ResMut};
-
 mod id;
 mod resource_access;
 mod resources;
@@ -12,6 +10,9 @@ pub use self::{
     resource_access::ResourceAccess,
     resources::{Resources, ResourcesSend},
 };
+
+pub type Res<'w, T> = atomic_refcell::AtomicRef<'w, T>;
+pub type ResMut<'w, T> = atomic_refcell::AtomicRefMut<'w, T>;
 
 pub struct Taken<T: ?Sized> {
     value: Box<T>,

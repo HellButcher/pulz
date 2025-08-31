@@ -7,7 +7,7 @@ pub struct ResourceId<T: ?Sized = Void>(pub(super) usize, PhantomData<fn(&T)>);
 
 impl<T: ?Sized> std::fmt::Debug for ResourceId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("ComponentId").field(&self.0).finish()
+        f.debug_tuple("ResourceId").field(&self.0).finish()
     }
 }
 impl<T: ?Sized> Copy for ResourceId<T> {}
