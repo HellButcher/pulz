@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 edition.workspace = true
 repository.workspace = true
-keywords = ["traits", "functional", "generic programming"]
+keywords = ["traits", "functional"]
 categories = ["rust-patterns"]
 readme = "README.md"
 

@@ -15,6 +15,6 @@ proc-macro = true
 
 [dependencies]
 proc-macro2 = { workspace = true }
-syn = { workspace = true, features = ["visit", "visit-mut"]}
+syn = { workspace = true, features = ["visit", "parsing", "visit-mut", "extra-traits", "full"] }
 quote = { workspace = true }
 proc-macro-crate = { workspace = true }

@@ -1,5 +1,6 @@
 [package]
 name = "pulz-app"
+description = "Application lifecycle management for pulz-ecs applications."
 version.workspace = true
 authors.workspace = true
 license.workspace = true
