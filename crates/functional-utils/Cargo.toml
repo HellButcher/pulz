@@ -36,7 +36,7 @@ full = [
 unstable = []
 
 [dependencies]
-pulz-functional-utils-macros = { version = "0.1.0-alpha", path = "macros" }
+pulz-functional-utils-macros = { version = "=0.1.0-alpha2", path = "macros" }
 
 [dev-dependencies]
 pulz-functional-utils = { path = ".", features = ["tuple", "tuple-ops", "tuple-map", "tuple-convert", "func", "func-bind", "func-future"] }
