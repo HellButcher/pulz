@@ -4,7 +4,6 @@ use syn::{DeriveInput, ImplItemFn, ItemImpl, Path, parse_macro_input};
 
 mod attrib_system;
 mod attrib_system_module;
-mod derive_label;
 mod derive_system_data;
 mod utils;
 

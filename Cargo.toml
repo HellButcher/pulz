@@ -9,6 +9,20 @@ default-members = [
   "crates/*"
 ]
 
+[package]
+name = "pulz"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+pulz-schedule.path = "crates/schedule"
+pulz-ecs.path = "crates/ecs"
+pulz-app.path = "crates/app"
+
 [workspace.package]
 version = "0.1.0-alpha"
 authors = ["Christoph Hommelsheim <main@chommel.en>"]
@@ -30,4 +44,4 @@ darling = "0.21"
 proc-macro2 = "1.0"
 syn = "2.0"
 quote = "1.0"
-proc-macro-crate = "3.3"
+proc-macro-crate = "3.4"
