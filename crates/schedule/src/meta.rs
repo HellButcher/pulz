@@ -196,11 +196,10 @@ impl Resources {
     pub fn foreach_meta<T: ?Sized + 'static>(&self, mut f: impl FnMut(&T)) {
         if let Some(meta) = self.get_meta::<T>() {
             for resource_id in meta.resources.iter().copied() {
-                if let Some(r) = self.borrow_res_any(resource_id) {
-                    if let Some(r) = meta.convert_ref(r.deref()) {
+                if let Some(r) = self.borrow_res_any(resource_id)
+                    && let Some(r) = meta.convert_ref(r.deref()) {
                         f(r);
                     }
-                }
             }
         }
     }
@@ -208,11 +207,10 @@ impl Resources {
     pub fn foreach_meta_mut<T: ?Sized + 'static>(&self, mut f: impl FnMut(&mut T)) {
         if let Some(meta) = self.get_meta::<T>() {
             for resource_id in meta.resources.iter().copied() {
-                if let Some(mut r) = self.borrow_res_any_mut(resource_id) {
-                    if let Some(r) = meta.convert_mut(r.deref_mut()) {
+                if let Some(mut r) = self.borrow_res_any_mut(resource_id)
+                    && let Some(r) = meta.convert_mut(r.deref_mut()) {
                         f(r);
                     }
-                }
             }
         }
     }

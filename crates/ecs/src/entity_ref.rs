@@ -316,14 +316,13 @@ impl Drop for EntityMut<'_> {
         // TODO: track_removed
         self.world.tmp_removed.retain(|index| {
             let component = &self.world.components.components[index];
-            if let Some(storage) = storage_mut_dyn(self.res, component) {
-                if storage.swap_remove(self.entity, old.archetype_id, old.index) {
+            if let Some(storage) = storage_mut_dyn(self.res, component)
+                && storage.swap_remove(self.entity, old.archetype_id, old.index) {
                     if component.archetype_component {
                         needs_update_archetype = true;
                     }
                     return true;
                 }
-            }
             false
         });
 
