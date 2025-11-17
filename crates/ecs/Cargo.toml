@@ -11,9 +11,9 @@ categories = ["data-structures", "game-engines", "game-development"]
 readme = "README.md"
 
 [dependencies]
-pulz-bitset = { version = "0.1.0-alpha", path = "../bitset" }
-pulz-schedule = { version = "0.1.0-alpha", path = "../schedule" }
-pulz-ecs-macros = { version = "0.1.0-alpha", path = "macros" }
-pulz-functional-utils = { version = "0.1.0-alpha", path = "../functional-utils" }
+pulz-bitset.workspace = true
+pulz-schedule.workspace = true
+pulz-functional-utils.workspace = true
+pulz-ecs-macros = { version = "=0.1.0-alpha", path = "macros" }
 
-slotmap = { workspace = true }
+slotmap.workspace = true

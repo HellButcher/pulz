@@ -19,9 +19,9 @@ repository.workspace = true
 readme = "README.md"
 
 [dependencies]
-pulz-schedule.path = "crates/schedule"
-pulz-ecs.path = "crates/ecs"
-pulz-app.path = "crates/app"
+pulz-schedule.workspace = true
+pulz-ecs.workspace = true
+pulz-app.workspace = true
 
 [workspace.package]
 version = "0.1.0-alpha"
@@ -45,3 +45,10 @@ proc-macro2 = "1.0"
 syn = "2.0"
 quote = "1.0"
 proc-macro-crate = "3.4"
+
+pulz-schedule = { version = "0.1.0-alpha", path = "crates/schedule" }
+pulz-ecs = { version = "0.1.0-alpha", path = "crates/ecs" }
+pulz-app = { version = "0.1.0-alpha", path = "crates/app" }
+pulz-bitset = { version = "0.1.0-alpha", path = "crates/bitset" }
+pulz-arena = { version = "0.1.0-alpha", path = "crates/arena" }
+pulz-functional-utils = { version = "0.1.0-alpha", path = "crates/functional-utils" }

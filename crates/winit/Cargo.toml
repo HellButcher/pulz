@@ -13,14 +13,14 @@ x11 = [ "winit/x11" ]
 wayland = [ "winit/wayland", "winit/wayland-dlopen" ]
 
 [dependencies]
-pulz-schedule.path = "../schedule"
-pulz-app.path = "../app"
-winit = { version = "0.30", default-features = false, features = ["x11", "rwh_06"] }
+pulz-schedule.workspace = true
+pulz-app.workspace = true
 tracing.workspace = true
+winit = { version = "0.30", default-features = false, features = ["x11", "rwh_06"] }
 raw-window-handle = "0.6"
 
 [dev-dependencies]
-pulz-app = { path = "../app", features = ["tracing-subscriber-init"] }
+pulz-app = { workspace = true, features = ["tracing-subscriber-init"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

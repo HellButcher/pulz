@@ -11,9 +11,9 @@ readme = "README.md"
 tracing-subscriber-init = ["dep:tracing-subscriber", "dep:wasm-tracing", "dep:console_error_panic_hook", "dep:tracing-log"]
 
 [dependencies]
-pulz-schedule.path = "../schedule"
-ctrlc = "3.5"
+pulz-schedule.workspace = true
 tracing.workspace = true
+ctrlc = "3.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true}
