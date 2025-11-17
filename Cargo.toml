@@ -24,7 +24,7 @@ pulz-ecs.workspace = true
 pulz-app.workspace = true
 
 [workspace.package]
-version = "0.1.0-alpha"
+version = "0.1.0-alpha2"
 authors = ["Christoph Hommelsheim <main@chommel.en>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/HellButcher/pulz.git"
@@ -46,7 +46,7 @@ syn = "2.0"
 quote = "1.0"
 proc-macro-crate = "3.4"
 
-pulz-schedule = { version = "0.1.0-alpha", path = "crates/schedule" }
+pulz-schedule = { version = "0.1.0-alpha2", path = "crates/schedule" }
 pulz-ecs = { version = "0.1.0-alpha", path = "crates/ecs" }
 pulz-app = { version = "0.1.0-alpha", path = "crates/app" }
 pulz-bitset = { version = "0.1.0-alpha", path = "crates/bitset" }
