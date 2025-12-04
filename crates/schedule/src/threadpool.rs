@@ -153,7 +153,10 @@ impl<'scope, 'env> Scope<'scope, 'env> {
         let closure = Box::new(closure);
         // lifetime change to ensure that the closure is `'scope` and `'env` compatible
         let closure = unsafe {
-            Box::from_raw(Box::into_raw(closure) as *mut (dyn FnOnce() + Send + 'static))
+            Box::from_raw(std::mem::transmute::<
+                *mut (dyn FnOnce() + Send + '_),
+                *mut (dyn FnOnce() + Send + 'static),
+            >(Box::into_raw(closure)))
         };
 
         self.threadpool.execute(closure);
