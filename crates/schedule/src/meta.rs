@@ -197,9 +197,10 @@ impl Resources {
         if let Some(meta) = self.get_meta::<T>() {
             for resource_id in meta.resources.iter().copied() {
                 if let Some(r) = self.borrow_res_any(resource_id)
-                    && let Some(r) = meta.convert_ref(r.deref()) {
-                        f(r);
-                    }
+                    && let Some(r) = meta.convert_ref(r.deref())
+                {
+                    f(r);
+                }
             }
         }
     }
@@ -208,9 +209,10 @@ impl Resources {
         if let Some(meta) = self.get_meta::<T>() {
             for resource_id in meta.resources.iter().copied() {
                 if let Some(mut r) = self.borrow_res_any_mut(resource_id)
-                    && let Some(r) = meta.convert_mut(r.deref_mut()) {
-                        f(r);
-                    }
+                    && let Some(r) = meta.convert_mut(r.deref_mut())
+                {
+                    f(r);
+                }
             }
         }
     }

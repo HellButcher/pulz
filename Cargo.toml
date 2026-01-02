@@ -34,7 +34,7 @@ rust-version = "1.89"
 
 [workspace.dependencies]
 bit-set = "0.8"
-slotmap = "1.0"
+slotmap = "1.1"
 fnv = "1.0"
 threadpool = "1.8"
 tracing = "0.1"

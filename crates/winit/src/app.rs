@@ -190,41 +190,41 @@ impl<T: 'static> ApplicationHandler<T> for App {
         }
     }
 
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
         self.lifecycle.resume(&mut self.resources);
         self.should_update = true;
     }
 
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
+        _event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        _event: WindowEvent,
     ) {
         // TODO: only redraw on specific events? (RedrawRequested, Resized, etc.)
         self.should_update = true;
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: T) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: T) {
         self.should_update = true;
     }
 
     fn device_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
-        device_id: DeviceId,
-        event: DeviceEvent,
+        _event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        _event: DeviceEvent,
     ) {
         if self.lifecycle.is_running() {
             self.should_update = true;
         }
     }
 
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.lifecycle.suspend(&mut self.resources);
     }
 
-    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         let app_exit = self.app_exit.unwrap_or(AppExit::Success);
         self.lifecycle.stop(&mut self.resources, app_exit);
         self.resources.clear();

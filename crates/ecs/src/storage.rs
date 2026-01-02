@@ -140,9 +140,10 @@ where
     fn swap_remove(&mut self, _entity: Entity, archetype: ArchetypeId, index: usize) -> Option<T> {
         self.tmp = None;
         if let Some(col) = self.data.get_mut(archetype.index())
-            && index < col.len() {
-                return Some(col.swap_remove(index));
-            }
+            && index < col.len()
+        {
+            return Some(col.swap_remove(index));
+        }
         None
     }
 
