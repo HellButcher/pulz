@@ -3,9 +3,9 @@ use std::borrow::Cow;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, TokenStreamExt, format_ident, quote, quote_spanned};
 use syn::{
-    Expr, FnArg, Generics, Index, LitBool, Pat, PatType, Path, PathArguments, Result, Token, Type,
-    meta::ParseNestedMeta, parse::Parser, parse_quote_spanned, punctuated::Punctuated,
-    spanned::Spanned, visit::Visit,
+    Expr, FnArg, Generics, Index, Lifetime, LitBool, Pat, PatType, Path, PathArguments,
+    ReceiverKind, Result, Token, Type, meta::ParseNestedMeta, parse::Parser, parse_quote,
+    parse_quote_spanned, punctuated::Punctuated, spanned::Spanned, visit::Visit,
 };
 
 use crate::utils::{
@@ -174,7 +174,36 @@ impl<'a> SystemArgGenerator<'a> {
     fn map_arg(arg: &FnArg, expr: &Expr) -> (Type, Option<syn::Expr>, bool) {
         match arg {
             FnArg::Typed(pat) => Self::map_arg_type(&pat.ty, expr),
-            FnArg::Receiver(r) => Self::map_arg_type(&r.ty, expr),
+            FnArg::Receiver(r) => match &r.kind {
+                ReceiverKind::Value => (parse_quote!(Self), None, false),
+                ReceiverKind::Reference(_, _, mutability) => {
+                    if mutability.is_some() {
+                        (
+                            parse_quote_spanned!(r.span() => ::pulz_schedule::resource::ResMut<'_, Self>),
+                            Some(
+                                parse_quote_spanned!(r.span() => ::std::ops::DerefMut::deref_mut(&mut #expr)),
+                            ),
+                            true,
+                        )
+                    } else {
+                        (
+                            parse_quote_spanned!(r.span() => ::pulz_schedule::resource::Res<'_, Self>),
+                            Some(
+                                parse_quote_spanned!(r.span() => ::std::ops::Deref::deref(&#expr)),
+                            ),
+                            false,
+                        )
+                    }
+                }
+                ReceiverKind::Typed(_, ty) => Self::map_arg_type(ty, expr),
+                _ => (
+                    Type::Verbatim(
+                        quote_spanned!(r.span() => compiler_error!("unable to map this receiver type")),
+                    ),
+                    None,
+                    false,
+                ),
+            },
         }
     }
 

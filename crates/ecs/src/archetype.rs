@@ -413,13 +413,10 @@ impl<T> ArchetypeMap<T> {
     }
 }
 
-impl<T> Default for ArchetypeMap<T>
-where
-    T: Default,
-{
+impl<T> Default for ArchetypeMap<T> {
     #[inline]
     fn default() -> Self {
-        Self(Vec::new())
+        Self::new()
     }
 }
 

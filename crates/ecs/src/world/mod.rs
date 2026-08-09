@@ -9,10 +9,10 @@ use pulz_schedule::{
 };
 
 use crate::{
-    ResourcesExt, WorldInner, WorldMutInnerTemp,
     archetype::Archetypes,
     component::{Component, ComponentId, Components},
     entity::{Entities, Entity},
+    ResourcesExt, WorldInner, WorldMutInnerTemp,
 };
 
 mod inner;
@@ -83,8 +83,10 @@ pub struct WorldMut<'a> {
 impl<'a> WorldMut<'a> {
     #[inline]
     pub(super) fn from_resources_mut(res: &'a mut Resources) -> Self {
-        let world = res.take::<WorldInner>().unwrap();
-        let world_tmp = res.take::<WorldMutInnerTemp>().unwrap();
+        let world_id = res.init::<WorldInner>();
+        let world_tmp_id = res.init::<WorldMutInnerTemp>();
+        let world = res.take_id(world_id).unwrap();
+        let world_tmp = res.take_id(world_tmp_id).unwrap();
         WorldMut {
             res,
             world: ManuallyDrop::new(world),

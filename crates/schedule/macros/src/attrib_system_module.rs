@@ -1,11 +1,11 @@
 use proc_macro2::{Ident, Span, TokenStream};
-use quote::{ToTokens, TokenStreamExt, quote};
+use quote::{quote, ToTokens, TokenStreamExt};
 use syn::{
-    ItemImpl, LitBool, Path, Result, Visibility,
     meta::ParseNestedMeta,
     parse::{Parse, Parser},
     parse_quote,
     spanned::Spanned,
+    ItemImpl, LitBool, Path, Result, Visibility,
 };
 
 use crate::{
@@ -101,7 +101,7 @@ pub struct SystemModuleGenerator<'a> {
 impl<'a> SystemModuleGenerator<'a> {
     pub fn new(item_impl: &'a mut ItemImpl, params: SystemModuleParams) -> Result<Self> {
         let mut diagnostics = Diagnostics::new();
-        if let Some(defaultness) = item_impl.defaultness.as_ref() {
+        if let Some(defaultness) = item_impl.modifiers.defaultness.as_ref() {
             diagnostics.add(syn::Error::new_spanned(
                 defaultness,
                 "Default system modules are not supported",
@@ -113,9 +113,9 @@ impl<'a> SystemModuleGenerator<'a> {
                 "Unsafe system modules are not supported",
             ));
         }
-        if let Some((_, trait_, _)) = item_impl.trait_.as_ref() {
+        if let Some((_, for_token)) = item_impl.trait_.as_ref() {
             diagnostics.add(syn::Error::new_spanned(
-                trait_,
+                for_token,
                 "System modules must be an `impl` block, not a trait impl",
             ));
         }

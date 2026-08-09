@@ -47,9 +47,9 @@ bump-scope = "1.5"
 atomic_refcell = "0.1"
 crossbeam-utils = "0.8"
 proc-macro2 = "1.0"
-syn = "2.0"
+syn = "3.0"
 quote = "1.0"
-synbounds = "0.1.3"
+synbounds = "0.2.0"
 
 pulz-schedule = { version = "0.1.0-alpha2", path = "crates/schedule" }
 pulz-ecs = { version = "0.1.0-alpha2", path = "crates/ecs" }

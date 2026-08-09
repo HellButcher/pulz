@@ -74,9 +74,8 @@ impl WorldInner {
             Err(id)
         } else {
             let storage_id = res.init::<T::Storage>();
-            res.init_meta_id::<dyn AnyStorage, T::Storage>(storage_id);
             let id = self.components.try_init::<T>(storage_id)?;
-            // TODO: install special component systems here?
+            res.init_meta_id::<dyn AnyStorage, T::Storage>(storage_id);
             Ok(id)
         }
     }

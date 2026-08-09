@@ -8,14 +8,14 @@ use std::any::{Any, TypeId};
 use pulz_schedule::{
     impl_any_cast,
     module::system_module,
-    prelude::{FromResources, FromResourcesMut, ResMut, ResourceId},
+    prelude::{FromResourcesMut, ResMut, ResourceId},
     resource::Resources,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
 use crate::{
     archetype::{ArchetypeId, ArchetypeMap},
-    component::{Component, ComponentId, Components},
+    component::Component,
     entity::Entity,
 };
 
@@ -156,7 +156,6 @@ impl_any_cast!(dyn AnyStorage);
 /// Stores component data in per-archetype `Vec<T>` columns at the same index as the entity's
 /// row in the archetype. A temporary slot (`tmp`) holds a value between `insert` and `flush_*`.
 pub struct ArchetypeStorage<T> {
-    id: ComponentId<T>,
     data: ArchetypeMap<Vec<T>>,
     tmp: Option<T>,
 }
@@ -167,28 +166,20 @@ pub type SlotStorage<T> = SecondaryMap<Entity, T>;
 pub type SparseStorage<T> = SparseSecondaryMap<Entity, T>;
 
 impl<T> ArchetypeStorage<T> {
-    /// Creates a new empty storage associated with the given component id.
+    /// Creates a new empty archetype storage.
     #[inline]
-    pub const fn new(id: ComponentId<T>) -> Self {
+    pub const fn new() -> Self {
         Self {
-            id,
             data: ArchetypeMap::new(),
             tmp: None,
         }
     }
 }
 
-impl<T> FromResources for ArchetypeStorage<T>
-where
-    T: Component,
-{
+impl<T> Default for ArchetypeStorage<T> {
     #[inline]
-    fn from_resources(resources: &Resources) -> Self {
-        let id = resources
-            .borrow_res::<Components>()
-            .unwrap()
-            .expect_id::<T>();
-        Self::new(id)
+    fn default() -> Self {
+        Self::new()
     }
 }
 

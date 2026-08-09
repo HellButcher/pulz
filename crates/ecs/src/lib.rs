@@ -49,6 +49,7 @@ struct WorldInner {
     components: component::Components,
     archetypes: archetype::Archetypes,
 }
+#[derive(Default)]
 struct WorldMutInnerTemp {
     tmp_removed: component::set::ComponentSet,
     tmp_inserted: component::set::ComponentSet,
