@@ -1,3 +1,5 @@
+//! System traits and the `#[system]` / `#[derive(System)]` proc-macro entry points.
+
 use std::marker::PhantomData;
 
 use crate::{
@@ -15,7 +17,11 @@ pub use pulz_schedule_macros::{into_system as System, system};
 
 pub(crate) use self::boxed::BoxedSystem;
 
+/// Initialization interface shared by all system variants.
+///
+/// Called once when the system is first added to a schedule.
 pub trait SystemInit: 'static {
+    /// Initialises the system's resources, e.g. registering components or resource ids.
     fn init(&mut self, res: &mut Resources);
     fn system_type_name(&self) -> &'static str {
         std::any::type_name::<Self>()
@@ -24,26 +30,36 @@ pub trait SystemInit: 'static {
         std::any::TypeId::of::<Self>()
     }
     fn system_label(&self) -> SystemLabel {
-        SystemLabel(self.system_type_id(), self.system_type_name())
+        SystemLabel(self.system_type_name())
     }
 }
 
+/// A system that requires exclusive access to [`Resources`].
 pub trait ExclusiveSystem: SystemInit {
+    /// Runs the system with a mutable reference to all resources.
     fn run_exclusive(&mut self, res: &mut Resources);
 }
 
+/// A system that only needs shared access to [`Resources`] and declares its resource access upfront.
 pub trait System: ExclusiveSystem {
+    /// Runs the system with a shared reference to resources.
     fn run(&mut self, res: &Resources);
+    /// Declares which resources this system reads and writes.
     fn update_access(&self, res: &Resources, access: &mut ResourceAccess);
 }
 
+/// A [`System`] that is also `Send + Sync` and can run on a thread pool.
 pub trait SendSystem: System + Send + Sync {
+    /// Runs the system on a worker thread with send-safe resource access.
     fn run_send(&mut self, res: &ResourcesSend);
 }
 
+/// Conversion trait that turns a value (or function) into a concrete [`ExclusiveSystem`].
 pub trait IntoSystem<Marker> {
+    /// The concrete system type produced.
     type System: ExclusiveSystem;
 
+    /// Converts this value into a system.
     fn into_system(self) -> Self::System;
 }
 

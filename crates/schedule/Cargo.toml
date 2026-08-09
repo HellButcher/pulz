@@ -10,6 +10,9 @@ categories = ["data-structures", "game-engines", "game-development", "asynchrono
 repository = "https://github.com/HellButcher/pulz.git"
 readme = "README.md"
 
+[features]
+interned-u32 = []  # Use NonZeroU32 instead of NonZeroU16 for InternedStr handles
+
 [dependencies]
 pulz-functional-utils = { workspace = true, features = ["func"]}
 pulz-schedule-macros = { version = "=0.1.0-alpha2", path = "macros" }

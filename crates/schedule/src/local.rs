@@ -1,3 +1,5 @@
+//! System-local state that persists between runs of the same system instance.
+
 use std::ops::{Deref, DerefMut};
 
 use crate::{
@@ -5,6 +7,10 @@ use crate::{
     system::{SystemData, SystemDataSend},
 };
 
+/// System parameter for mutable per-system-instance state that persists across frames.
+///
+/// The value is initialised via [`FromResources`] the first time the system runs and stored
+/// alongside the system's [`Data`](SystemData::Data) — it is not a shared resource.
 pub struct Local<'l, T>(&'l mut T);
 
 impl<T> Deref for Local<'_, T> {

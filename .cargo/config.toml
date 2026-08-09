@@ -1,0 +1,11 @@
+
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))']
+# hi_sparse_bitset requires: +popcnt,+bmi1, and uses `wide` which should use ss2 features
+rustflags = ["-C", "target-feature=+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+aes,+avx,+avx2,+popcnt,+bmi1"]
+#runner = ["lldb"]
+
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg=web_sys_unstable_apis"]
+
+[alias]
+run-wasm = "run --release --package run-wasm --"

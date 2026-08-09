@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
   "crates/*/macros",
   "crates/*",
@@ -12,6 +12,8 @@ default-members = [
 [package]
 name = "pulz"
 description = "A high-performance ECS and scheduling framework for Rust applications."
+keywords = ["ecs", "game-engine", "framework"]
+categories = ["game-engines", "data-structures"]
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -35,21 +37,21 @@ rust-version = "1.89"
 [workspace.dependencies]
 bit-set = "0.8"
 slotmap = "1.1"
+bit-vec = "0.8"
 fnv = "1.0"
+roaring = "0.11"
 threadpool = "1.8"
 tracing = "0.1"
 backtrace = "0.3"
+bump-scope = "1.5"
 atomic_refcell = "0.1"
 crossbeam-utils = "0.8"
-darling = "0.21"
 proc-macro2 = "1.0"
 syn = "2.0"
 quote = "1.0"
-proc-macro-crate = "3.4"
+synbounds = "0.1.3"
 
 pulz-schedule = { version = "0.1.0-alpha2", path = "crates/schedule" }
-pulz-ecs = { version = "0.1.0-alpha", path = "crates/ecs" }
-pulz-app = { version = "0.1.0-alpha", path = "crates/app" }
-pulz-bitset = { version = "0.1.0-alpha", path = "crates/bitset" }
-pulz-arena = { version = "0.1.0-alpha", path = "crates/arena" }
-pulz-functional-utils = { version = "0.1.0-alpha", path = "crates/functional-utils" }
+pulz-ecs = { version = "0.1.0-alpha2", path = "crates/ecs" }
+pulz-app = { version = "0.1.0-alpha2", path = "crates/app" }
+pulz-functional-utils = { version = "0.1.0-alpha2", path = "crates/functional-utils" }

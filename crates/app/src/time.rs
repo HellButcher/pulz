@@ -1,3 +1,9 @@
+//! Time tracking resources: wall-clock, virtual, and fixed-step time.
+//!
+//! [`RealTime`] measures actual elapsed time; [`VirtTime`] applies a speed factor and supports
+//! pausing; [`FixedTime`] accumulates virtual delta and steps at a fixed interval.
+//! A system updates all three each frame and stores a snapshot in the shared [`Time`] resource.
+
 use std::time::{Duration, Instant};
 
 use pulz_schedule::{
@@ -8,32 +14,46 @@ use pulz_schedule::{
 
 use crate::{AppModule, schedules::MainSchedule};
 
+/// Snapshot of elapsed and per-frame delta time, stored as nanosecond integers plus an `f64` second delta.
 #[derive(Debug, Clone, Copy)]
 pub struct Time {
+    /// Total elapsed time in nanoseconds since this timer was created or last cleared.
     pub duration_nanos: u64,
+    /// Duration of the last frame in nanoseconds.
     pub delta_nanos: u64,
+    /// Duration of the last frame in seconds (`f64` for use in physics/animation).
     pub delta_sec: f64,
 }
 
+/// Wall-clock time tracker that measures real elapsed time using [`Instant`].
 #[derive(Debug, Clone)]
 pub struct RealTime {
+    /// The current time snapshot.
     pub time: Time,
     last_update: Option<Instant>,
 }
 
+/// Virtual (game) time that can be paused or scaled relative to real time.
 pub struct VirtTime {
+    /// The current virtual time snapshot.
     pub time: Time,
     speed_factor: f64,
     paused: bool,
 }
 
+/// Fixed-step time accumulator for deterministic simulation updates.
+///
+/// Call [`accumulate`](FixedTime::accumulate) with the virtual delta, then call [`step`](FixedTime::step)
+/// in a loop until it returns `false` to consume full fixed intervals.
 pub struct FixedTime {
+    /// The current fixed time snapshot, advanced by `step_nanos` each step.
     pub time: Time,
     step_nanos: u64,
     remaining_nanos: u64,
 }
 
 impl Time {
+    /// Creates a zeroed-out time snapshot.
     pub const fn new() -> Self {
         Self {
             duration_nanos: 0,
@@ -48,11 +68,13 @@ impl Time {
         self.duration_nanos = self.duration_nanos.wrapping_add(self.delta_nanos);
     }
 
+    /// Returns the total elapsed time as a [`Duration`].
     #[inline]
     pub fn duration(&self) -> Duration {
         Duration::from_nanos(self.duration_nanos)
     }
 
+    /// Returns the per-frame delta time as a [`Duration`].
     #[inline]
     pub fn delta(&self) -> Duration {
         Duration::from_nanos(self.delta_nanos)
@@ -67,6 +89,7 @@ impl Default for Time {
 }
 
 impl RealTime {
+    /// Creates a new `RealTime` with no prior measurement.
     pub const fn new() -> Self {
         Self {
             time: Time::new(),
@@ -74,12 +97,14 @@ impl RealTime {
         }
     }
 
+    /// Measures the time since the last call and advances the snapshot. Returns the delta.
     #[inline]
     pub fn update(&mut self) -> Duration {
         let now = Instant::now();
         self.update_with(now)
     }
 
+    /// Like [`update`](Self::update) but accepts an externally provided `now` timestamp.
     pub fn update_with(&mut self, now: Instant) -> Duration {
         let delta = if let Some(last_update) = self.last_update {
             let delta = now.saturating_duration_since(last_update);
@@ -110,6 +135,7 @@ impl std::ops::Deref for RealTime {
 }
 
 impl VirtTime {
+    /// Creates a new `VirtTime` running at 1× speed.
     pub fn new() -> Self {
         Self {
             time: Time::new(),
@@ -118,6 +144,7 @@ impl VirtTime {
         }
     }
 
+    /// Scales `real_delta` by the speed factor, advances the snapshot, and returns the virtual delta.
     pub fn update(&mut self, real_delta: Duration) -> Duration {
         if !self.paused && self.speed_factor != 0.0 && !real_delta.is_zero() {
             let scaled_duration = if self.speed_factor == 1.0 {
@@ -134,21 +161,25 @@ impl VirtTime {
         }
     }
 
+    /// Pauses virtual time; subsequent `update` calls return zero delta.
     #[inline]
     pub fn pause(&mut self) {
         self.paused = true;
     }
 
+    /// Resumes virtual time after a pause.
     #[inline]
     pub fn resume(&mut self) {
         self.paused = false;
     }
 
+    /// Returns `true` if virtual time is currently paused.
     #[inline]
     pub fn is_paused(&self) -> bool {
         self.paused
     }
 
+    /// Sets the speed multiplier applied to real-time deltas.
     pub fn set_speed_factor(&mut self, factor: f64) {
         self.speed_factor = factor;
     }
@@ -171,8 +202,10 @@ impl std::ops::Deref for VirtTime {
 }
 
 impl FixedTime {
-    pub const DEFAULT_STEP: u64 = 16_393_453; // Default step size: coresponds to about 61Hz (prime number)
+    /// Default step size in nanoseconds (~61 Hz, chosen as a prime to avoid resonance with common refresh rates).
+    pub const DEFAULT_STEP: u64 = 16_393_453;
 
+    /// Creates a `FixedTime` with the given step size in nanoseconds.
     pub const fn new(step_nanos: u64) -> Self {
         Self {
             time: Time::new(),
@@ -181,12 +214,15 @@ impl FixedTime {
         }
     }
 
+    /// Adds `virt_delta` to the remaining-time accumulator.
     pub fn accumulate(&mut self, virt_delta: Duration) {
         self.remaining_nanos = self
             .remaining_nanos
             .saturating_add(virt_delta.as_nanos() as u64);
     }
 
+    /// Consumes one step from the accumulator and advances the time snapshot.
+    /// Returns `false` when the accumulator has less than one full step remaining.
     pub fn step(&mut self) -> bool {
         let step_nanos = self.step_nanos;
         let Some(new_remaining) = self.remaining_nanos.checked_sub(step_nanos) else {
@@ -232,6 +268,7 @@ custom_schedule_type! {
     pub struct FixedMainSchedule
 }
 
+/// An exclusive system that drives the [`FixedMainSchedule`] at a fixed timestep.
 #[derive(Clone, Copy)]
 pub struct FixedMainSystem(ResourceId<FixedTime>, ResourceId<FixedMainSchedule>);
 

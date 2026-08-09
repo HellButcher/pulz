@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 pub use pulz_schedule_macros::SystemData;
 
 use crate::resource::{ResourceAccess, Resources, ResourcesSend};
@@ -32,6 +34,29 @@ impl SystemData for () {
 impl SystemDataSend for () {
     #[inline]
     fn get_send<'a>(_res: &'a ResourcesSend, _data: &'a mut Self::Data) -> Self::Arg<'a> {}
+}
+
+#[diagnostic::do_not_recommend]
+impl<T: ?Sized> SystemData for PhantomData<T> {
+    type Data = ();
+    type Arg<'a> = Self;
+
+    #[inline]
+    fn init(_res: &mut Resources) -> Self::Data {}
+    #[inline]
+    fn update_access(_res: &Resources, _access: &mut ResourceAccess, _data: &Self::Data) {}
+    #[inline]
+    fn get<'a>(_res: &'a Resources, _data: &'a mut Self::Data) -> Self::Arg<'a> {
+        Self
+    }
+}
+
+#[diagnostic::do_not_recommend]
+impl<T: Send + ?Sized> SystemDataSend for PhantomData<T> {
+    #[inline]
+    fn get_send<'a>(_res: &'a ResourcesSend, _data: &'a mut Self::Data) -> Self::Arg<'a> {
+        Self
+    }
 }
 
 macro_rules! impl_system_data {

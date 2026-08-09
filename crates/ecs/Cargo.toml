@@ -1,19 +1,18 @@
 [package]
 name = "pulz-ecs"
-description = "An archetype based ECS"
+description = "High-performance Entity Component System (ECS) built on pulz-schedule."
+keywords = ["ecs", "game-engine", "entity-component-system"]
+categories = ["game-engines", "data-structures"]
 version.workspace = true
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
 repository.workspace = true
-keywords = ["ecs", "game"]
-categories = ["data-structures", "game-engines", "game-development"]
 readme = "README.md"
 
 [dependencies]
-pulz-bitset.workspace = true
 pulz-schedule.workspace = true
-pulz-functional-utils.workspace = true
 pulz-ecs-macros = { version = "=0.1.0-alpha2", path = "macros" }
-
+pulz-functional-utils.workspace = true
 slotmap.workspace = true
+roaring.workspace = true

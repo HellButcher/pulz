@@ -6,8 +6,8 @@ publish = false
 
 
 [dev-dependencies]
-pulz-ecs.workspace = true 
-bevy_ecs = "0.16"
+pulz-ecs.workspace = true
+bevy_ecs = "0.17"
 
 criterion = { version = "0.7", features = [ "html_reports" ] }
 

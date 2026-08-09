@@ -12,6 +12,8 @@ use winit::{
 };
 
 use crate::windows::WinitWindows;
+
+/// A winit-backed application that drives the ECS lifecycle via an `EventLoop`.
 pub struct App {
     resources: Resources,
     lifecycle: AppLifecycleController,
@@ -51,12 +53,13 @@ impl App {
         }
     }
 
+    /// Runs the application on the given event loop, blocking until exit.
     pub fn run<T: 'static>(mut self, event_loop: EventLoop<T>) -> AppExit {
         if let Err(e) = event_loop.run_app(&mut self) {
             log::error!("event loop returned an error: {e}");
             AppExit::error()
         } else {
-            self.app_exit.unwrap()
+            self.app_exit.unwrap_or(AppExit::Success)
         }
     }
 
@@ -84,6 +87,7 @@ impl App {
         self.resources
     }
 
+    /// Returns the pending exit value if the app has been asked to stop.
     pub fn should_exit(&self) -> Option<AppExit> {
         self.lifecycle.should_exit(&self.resources)
     }

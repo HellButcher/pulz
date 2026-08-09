@@ -1,4 +1,4 @@
-# `pulz-ecs`
+# `pulz-ecs` 
 
 <img align="right" src="https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo-full.png"/>
 
@@ -7,13 +7,17 @@
 [![license: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
 [![Rust CI](https://github.com/HellButcher/pulz/actions/workflows/rust.yml/badge.svg)](https://github.com/HellButcher/pulz/actions/workflows/rust.yml)
 
-An _archetype_ based ECS (Entity Component System).
+<!-- TODO: Short Introduction -->
+**TODO**
 
 ## Example
 
+<!-- TODO: basic Usage Example -->
 **TODO**
 
 ## License
+
+[license]: #license
 
 This project is licensed under either of
 

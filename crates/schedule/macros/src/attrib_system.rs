@@ -3,13 +3,13 @@ use std::borrow::Cow;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, TokenStreamExt, format_ident, quote, quote_spanned};
 use syn::{
-    Expr, FnArg, Generics, Index, Pat, PatType, Path, PathArguments, Result, Token, Type,
+    Expr, FnArg, Generics, Index, LitBool, Pat, PatType, Path, PathArguments, Result, Token, Type,
     meta::ParseNestedMeta, parse::Parser, parse_quote_spanned, punctuated::Punctuated,
     spanned::Spanned, visit::Visit,
 };
 
 use crate::utils::{
-    self, Diagnostics, ParseAttributes, ReduceBoundGenerics, ReplaceAllLifetimes, ReplaceSelf,
+    Diagnostics, ParseAttributes, ParseNestedMetaExt, ReplaceAllLifetimes, ReplaceSelf,
 };
 
 mod kw {
@@ -17,33 +17,40 @@ mod kw {
     syn::custom_keyword!(exclusive);
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct SystemParams {
-    pub unsend: Option<kw::unsend>,
-    pub exclusive: Option<kw::exclusive>,
+    pub unsend: LitBool,
+    pub exclusive: LitBool,
     pub after: Punctuated<Path, Token![,]>,
     pub before: Punctuated<Path, Token![,]>,
     pub into: Option<Path>,
 }
 
+impl Default for SystemParams {
+    fn default() -> Self {
+        let span = Span::call_site();
+        Self {
+            unsend: LitBool::new(false, span),
+            exclusive: LitBool::new(false, span),
+            after: Punctuated::new(),
+            before: Punctuated::new(),
+            into: None,
+        }
+    }
+}
+
 impl ParseAttributes for SystemParams {
     const IDENT: &'static str = "system";
     fn parse_nested_meta(&mut self, meta: ParseNestedMeta) -> Result<()> {
-        if meta.path.is_ident("unsend") {
-            if !meta.input.is_empty() {
-                return Err(meta.error("Expected no arguments"));
-            }
-            self.unsend = Some(kw::unsend(meta.path.span()));
-        } else if meta.path.is_ident("exclusive") {
-            if !meta.input.is_empty() {
-                return Err(meta.error("Expected no arguments"));
-            }
-            self.exclusive = Some(kw::exclusive(meta.path.span()));
-        } else if meta.path.is_ident("after") {
+        if meta.is_attr("unsend") {
+            self.unsend = meta.get_flag()?;
+        } else if meta.is_attr("exclusive") {
+            self.exclusive = meta.get_flag()?;
+        } else if meta.is_attr("after") {
             self.after = Punctuated::parse_terminated(meta.value()?)?;
-        } else if meta.path.is_ident("before") {
+        } else if meta.is_attr("before") {
             self.before = Punctuated::parse_terminated(meta.value()?)?;
-        } else if meta.path.is_ident("into") || meta.path.is_ident("phase") {
+        } else if meta.is_attr("into") || meta.is_attr("phase") {
             self.into = Some(meta.value()?.parse()?);
         } else {
             return Err(meta.error("Unknown attribute"));
@@ -89,12 +96,11 @@ impl<'a> SystemArgGenerator<'a> {
         if path.segments.len() != 1 || path.segments[0].ident != "Option" {
             return None;
         }
-        if let PathArguments::AngleBracketed(args) = &path.segments[0].arguments {
-            if args.args.len() == 1 {
-                if let syn::GenericArgument::Type(ty) = &args.args[0] {
-                    return Some(ty);
-                }
-            }
+        if let PathArguments::AngleBracketed(args) = &path.segments[0].arguments
+            && args.args.len() == 1
+            && let syn::GenericArgument::Type(ty) = &args.args[0]
+        {
+            return Some(ty);
         }
         None
     }
@@ -109,13 +115,7 @@ impl<'a> SystemArgGenerator<'a> {
                     let (argtype, argwrap, needmut) = Self::map_arg_type(ty, &mapper_expr);
                     return (
                         parse_quote_spanned!(argtype.span() => Option<#argtype>),
-                        if let Some(nested_wrap) = argwrap {
-                            Some(
-                                parse_quote_spanned!(argtype.span() => #expr.map(|#mapper_arg_ident| #nested_wrap)),
-                            )
-                        } else {
-                            None
-                        },
+                        argwrap.map(|nested_wrap| parse_quote_spanned!(argtype.span() => #expr.map(|#mapper_arg_ident| #nested_wrap))),
                         needmut,
                     );
                 }
@@ -124,7 +124,7 @@ impl<'a> SystemArgGenerator<'a> {
                 let ty = &r.elem;
                 if r.mutability.is_some() {
                     return (
-                        parse_quote_spanned!(r.span() => __pulz_schedule::resource::ResMut<'_, #ty>),
+                        parse_quote_spanned!(r.span() => ::pulz_schedule::resource::ResMut<'_, #ty>),
                         Some(
                             parse_quote_spanned!(r.span() => ::std::ops::DerefMut::deref_mut(&mut #expr)),
                         ),
@@ -132,7 +132,7 @@ impl<'a> SystemArgGenerator<'a> {
                     );
                 } else {
                     return (
-                        parse_quote_spanned!(r.span() => __pulz_schedule::resource::Res<'_, #ty>),
+                        parse_quote_spanned!(r.span() => ::pulz_schedule::resource::Res<'_, #ty>),
                         Some(parse_quote_spanned!(r.span() => ::std::ops::Deref::deref(&#expr))),
                         false,
                     );
@@ -173,8 +173,8 @@ impl<'a> SystemArgGenerator<'a> {
 
     fn map_arg(arg: &FnArg, expr: &Expr) -> (Type, Option<syn::Expr>, bool) {
         match arg {
-            FnArg::Typed(pat) => Self::map_arg_type(&pat.ty, &expr),
-            FnArg::Receiver(r) => Self::map_arg_type(&r.ty, &expr),
+            FnArg::Typed(pat) => Self::map_arg_type(&pat.ty, expr),
+            FnArg::Receiver(r) => Self::map_arg_type(&r.ty, expr),
         }
     }
 
@@ -195,7 +195,6 @@ impl<'a> SystemArgGenerator<'a> {
 pub struct SystemGenerator<'a> {
     pub fn_item: &'a syn::ImplItemFn,
     pub params: SystemParams,
-    pub crate_path: &'a Path,
     self_ty: Option<(&'a Type, &'a Generics)>,
     system_ident: Ident,
     system_trait_ident: Ident,
@@ -203,11 +202,7 @@ pub struct SystemGenerator<'a> {
 }
 
 impl<'a> SystemGenerator<'a> {
-    pub fn new(
-        fn_item: &'a syn::ImplItemFn,
-        params: SystemParams,
-        crate_path: &'a Path,
-    ) -> Result<Self> {
+    pub fn new(fn_item: &'a syn::ImplItemFn, params: SystemParams) -> Result<Self> {
         let mut diagnostics = Diagnostics::new();
         if !fn_item.sig.generics.params.is_empty() {
             diagnostics.add(syn::Error::new_spanned(
@@ -217,7 +212,7 @@ impl<'a> SystemGenerator<'a> {
         }
         if fn_item.sig.asyncness.is_some() {
             diagnostics.add(syn::Error::new_spanned(
-                &fn_item.sig.asyncness,
+                fn_item.sig.asyncness,
                 "System functions must not be async",
             ));
         }
@@ -230,9 +225,9 @@ impl<'a> SystemGenerator<'a> {
 
         let span = fn_item.sig.ident.span();
         let system_ident = into_system_ident(&fn_item.sig.ident);
-        let system_trait_ident = if params.exclusive.is_some() {
+        let system_trait_ident = if params.exclusive.value {
             Ident::new("ExclusiveSystem", span)
-        } else if params.unsend.is_none() {
+        } else if !params.unsend.value {
             Ident::new("SendSystem", span)
         } else {
             Ident::new("System", span)
@@ -253,7 +248,6 @@ impl<'a> SystemGenerator<'a> {
             system_ident,
             system_trait_ident,
             args,
-            crate_path,
         })
     }
 
@@ -309,11 +303,11 @@ impl<'a> SystemGenerator<'a> {
                 .predicates
                 .extend(where_clause.predicates.iter().cloned());
         }
-        let mut visitor = ReduceBoundGenerics::new(&generics);
+        let mut visitor = synbounds::BoundGenerics::new(&generics);
         for arg in &self.args {
             visitor.visit_type(&arg.mapped_type);
         }
-        visitor.get()
+        visitor.to_bound_generics()
     }
 }
 
@@ -349,7 +343,7 @@ impl ToTokens for SystemGenerator<'_> {
         tokens.extend(quote_spanned! { span =>
             struct __Data #impl_generics #where_clause {
                 #(
-                    #argidents: <#argtypesstatic as __pulz_schedule::system::SystemData>::Data,
+                    #argidents: <#argtypesstatic as ::pulz_schedule::system::SystemData>::Data,
                 )*
             }
             struct __System #impl_generics #where_clause {
@@ -357,11 +351,11 @@ impl ToTokens for SystemGenerator<'_> {
                 // TODO: local vars and args
             }
 
-            impl #impl_generics __pulz_schedule::system::SystemInit for __System #type_generics #where_clause {
-                fn init(&mut self, res: &mut __pulz_schedule::resource::Resources) {
+            impl #impl_generics ::pulz_schedule::system::SystemInit for __System #type_generics #where_clause {
+                fn init(&mut self, res: &mut ::pulz_schedule::resource::Resources) {
                     self.__data = Some(__Data {
                         #(
-                            #argidents: <#argtypesstatic as __pulz_schedule::system::SystemData>::init(res),
+                            #argidents: <#argtypesstatic as ::pulz_schedule::system::SystemData>::init(res),
                         )*
                     });
                 }
@@ -372,7 +366,7 @@ impl ToTokens for SystemGenerator<'_> {
             }
         });
 
-        let (datatrait, dataget) = if self.params.unsend.is_some() {
+        let (datatrait, dataget) = if self.params.unsend.value {
             (
                 Ident::new("SystemData", Span::call_site()),
                 Ident::new("get", Span::call_site()),
@@ -387,52 +381,52 @@ impl ToTokens for SystemGenerator<'_> {
         let run_impl = quote_spanned! { span =>
             let __data = self.__data.as_mut().expect("System not initialized");
             #(
-                let #argpats = <#argtypes as __pulz_schedule::system::#datatrait>::#dataget(__res, &mut __data.#argidents);
+                let #argpats = <#argtypes as ::pulz_schedule::system::#datatrait>::#dataget(__res, &mut __data.#argidents);
             )*
             #fn_self_path ( #(#argexprs),* );
         };
         let updateaccess_impl = quote_spanned! { span =>
             let __data = self.__data.as_ref().expect("System not initialized");
             #(
-                <#argtypesstatic as __pulz_schedule::system::SystemData>::update_access(__res, __access, &__data.#argidents);
+                <#argtypesstatic as ::pulz_schedule::system::SystemData>::update_access(__res, __access, &__data.#argidents);
             )*
         };
 
-        if self.params.exclusive.is_some() {
+        if self.params.exclusive.value {
             tokens.extend(quote_spanned! { span =>
-                impl #impl_generics __pulz_schedule::system::ExclusiveSystem for __System #type_generics #where_clause {
-                    fn run_exclusive(&mut self, __res: &mut __pulz_schedule::resource::Resources) {
+                impl #impl_generics ::pulz_schedule::system::ExclusiveSystem for __System #type_generics #where_clause {
+                    fn run_exclusive(&mut self, __res: &mut ::pulz_schedule::resource::Resources) {
                         #run_impl
                     }
                 }
             });
         } else {
-            if self.params.unsend.is_some() {
+            if self.params.unsend.value {
                 tokens.extend(quote_spanned! { span =>
-                    impl #impl_generics __pulz_schedule::system::System for __System #type_generics #where_clause {
-                        fn run(&mut self, __res: &__pulz_schedule::resource::Resources) {
+                    impl #impl_generics ::pulz_schedule::system::System for __System #type_generics #where_clause {
+                        fn run(&mut self, __res: &::pulz_schedule::resource::Resources) {
                             #run_impl
                         }
 
-                        fn update_access(&self, __res: &__pulz_schedule::resource::Resources, __access: &mut __pulz_schedule::resource::ResourceAccess) {
+                        fn update_access(&self, __res: &::pulz_schedule::resource::Resources, __access: &mut ::pulz_schedule::resource::ResourceAccess) {
                             #updateaccess_impl
                         }
                     }
                 });
             } else {
                 tokens.extend(quote_spanned! { span =>
-                    impl #impl_generics __pulz_schedule::system::System for __System #type_generics #where_clause {
+                    impl #impl_generics ::pulz_schedule::system::System for __System #type_generics #where_clause {
                         #[inline]
-                        fn run(&mut self, __res: &__pulz_schedule::resource::Resources) {
-                            __pulz_schedule::system::SendSystem::run_send(self, __res);
+                        fn run(&mut self, __res: &::pulz_schedule::resource::Resources) {
+                            ::pulz_schedule::system::SendSystem::run_send(self, __res);
                         }
 
-                        fn update_access(&self, __res: &__pulz_schedule::resource::Resources, __access: &mut __pulz_schedule::resource::ResourceAccess) {
+                        fn update_access(&self, __res: &::pulz_schedule::resource::Resources, __access: &mut ::pulz_schedule::resource::ResourceAccess) {
                             #updateaccess_impl
                         }
                     }
-                    impl #impl_generics __pulz_schedule::system::SendSystem for __System #type_generics #where_clause {
-                        fn run_send(&mut self, __res: &__pulz_schedule::resource::ResourcesSend) {
+                    impl #impl_generics ::pulz_schedule::system::SendSystem for __System #type_generics #where_clause {
+                        fn run_send(&mut self, __res: &::pulz_schedule::resource::ResourcesSend) {
                             #run_impl
                         }
                     }
@@ -453,7 +447,6 @@ pub struct IntoSystemGenerator<'a>(pub &'a SystemGenerator<'a>);
 
 impl ToTokens for IntoSystemGenerator<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let crate_path = self.0.crate_path;
         let vis = &self.0.fn_item.vis;
         let span = self.0.fn_item.sig.ident.span();
         let system_ident = &self.0.system_ident;
@@ -462,9 +455,7 @@ impl ToTokens for IntoSystemGenerator<'_> {
         tokens.append_all(quote_spanned! { span =>
             #[doc(hidden)]
             #[allow(non_snake_case,unused_qualifications)]
-            #vis const fn #system_ident() -> impl #crate_path::system::#system_trait {
-                use #crate_path as __pulz_schedule;
-
+            #vis const fn #system_ident() -> impl ::pulz_schedule::system::#system_trait {
                 #system
             }
         });
@@ -477,11 +468,11 @@ impl ToTokens for InstallSystemGenerator<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let span = self.0.fn_item.sig.ident.span();
         let system_path = self.0.system_expr_path();
-        let add_call = if self.0.params.exclusive.is_some() {
+        let add_call = if self.0.params.exclusive.value {
             quote! {
                 __systems.add_system_exclusive(#system_path())
             }
-        } else if self.0.params.unsend.is_some() {
+        } else if self.0.params.unsend.value {
             quote! {
                 __systems.add_system_unsend(#system_path())
             }
@@ -514,15 +505,13 @@ pub fn into_system_path(mut path: Path) -> Path {
     path
 }
 
-pub fn attrib_system(attributes: TokenStream, mut input: syn::ImplItemFn) -> TokenStream {
-    let crate_path = utils::CratePath::remove_from_attrs(&mut input.attrs).to_path();
+pub fn attrib_system(attributes: TokenStream, input: syn::ImplItemFn) -> TokenStream {
     let mut output = input.to_token_stream();
     let mut diagnostics = Diagnostics::new();
     let mut params = SystemParams::default();
     diagnostics.add_if_err(params.parser().parse2(attributes));
 
-    let Some(system) = diagnostics.add_if_err(SystemGenerator::new(&input, params, &crate_path))
-    else {
+    let Some(system) = diagnostics.add_if_err(SystemGenerator::new(&input, params)) else {
         output.extend(diagnostics.take_compile_errors());
         return output;
     };

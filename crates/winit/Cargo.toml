@@ -1,6 +1,8 @@
 [package]
 name = "pulz-winit"
-description = "Winit backend for pulz-app"
+description = "Winit-based windowing and event loop backend for pulz-app."
+keywords = ["ecs", "game-engine", "windowing"]
+categories = ["game-engines", "gui"]
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -18,7 +20,6 @@ pulz-schedule.workspace = true
 pulz-app.workspace = true
 tracing.workspace = true
 winit = { version = "0.30", default-features = false, features = ["x11", "rwh_06"] }
-raw-window-handle = "0.6"
 
 [dev-dependencies]
 pulz-app = { workspace = true, features = ["tracing-subscriber-init"] }

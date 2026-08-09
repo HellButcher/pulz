@@ -1,6 +1,10 @@
+//! ECS (Entity Component System) implementation built on top of [`pulz_schedule`].
+//!
+//! Provides entities, components stored in archetype-based column storage,
+//! and queries for efficiently iterating matching entities.
 #![warn(
-    //missing_docs,
-    //rustdoc::missing_doc_code_examples,
+    missing_docs,
+    rustdoc::missing_doc_code_examples,
     future_incompatible,
     rust_2018_idioms,
     unused,
@@ -17,99 +21,57 @@
     clippy::use_self,
     clippy::suspicious_operation_groupings,
     clippy::useless_let_if_seq,
-    //clippy::missing_errors_doc,
-    //clippy::missing_panics_doc,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
     clippy::wildcard_imports
 )]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/HellButcher/pulz/master/docs/logo.png")]
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-use component::ComponentSet;
-pub use pulz_schedule::*;
-
-#[doc(hidden)]
-pub enum Void {}
+// Allows macro-generated code to resolve to this crate when used internally (tests, doctests).
 
 pub mod archetype;
 pub mod component;
-pub mod query;
-
 pub mod entity;
-mod entity_ref;
-pub mod removed;
+pub mod query;
 pub mod storage;
-pub mod world;
+mod world;
 
-pub use component::Component;
-pub use entity::{Entity, EntityMut, EntityRef};
-use pulz_schedule::schedule::Schedule;
-pub use world::WorldExt;
+#[doc(hidden)]
+use pulz_schedule::Void;
 
-use crate::storage::AnyStorage;
+pub use crate::world::{World, WorldMut};
 
-pub mod prelude {
-    pub use pulz_schedule::prelude::*;
-
-    pub use crate::{
-        component::Component,
-        entity::{Entity, EntityMut, EntityRef},
-        query::Query,
-        world::{World, WorldExt},
-    };
-}
-
+#[derive(Default)]
 struct WorldInner {
     entities: entity::Entities,
     components: component::Components,
     archetypes: archetype::Archetypes,
-
-    tmp_removed: ComponentSet,
-    tmp_inserted: ComponentSet,
+}
+struct WorldMutInnerTemp {
+    tmp_removed: component::set::ComponentSet,
+    tmp_inserted: component::set::ComponentSet,
     // tracks removed components
     //removed: component::ComponentMap<Vec<Entity>>,
 }
 
-impl Default for WorldInner {
-    fn default() -> Self {
-        Self {
-            entities: entity::Entities::new(),
-            components: component::Components::new(),
-            archetypes: archetype::Archetypes::new(),
-
-            tmp_removed: ComponentSet::new(),
-            tmp_inserted: ComponentSet::new(),
-            //removed: component::ComponentMap::new(),
-        }
-    }
+/// Extension trait that adds [`World`] and [`WorldMut`] accessors to [`pulz_schedule::resource::Resources`].
+pub trait ResourcesExt {
+    /// Returns a shared view of the ECS world stored in these resources.
+    fn world(&self) -> World<'_>;
+    /// Returns an exclusive view of the ECS world stored in these resources.
+    fn world_mut(&mut self) -> WorldMut<'_>;
 }
 
-fn insert_sorted<T: Ord>(vec: &mut Vec<T>, value: T) {
-    if let Err(pos) = vec.binary_search(&value) {
-        vec.insert(pos, value);
-    }
-}
+/// Convenience re-exports for common ECS types.
+pub mod prelude {
+    pub use pulz_schedule::prelude::*;
 
-fn get_or_init_component<'a, T>(
-    res: &'a mut resource::Resources,
-    comps: &'a mut component::Components,
-) -> (resource::ResourceId<T::Storage>, component::ComponentId<T>)
-where
-    T: Component,
-{
-    use storage::Storage;
-    if let Some(component_id) = comps.id::<T>() {
-        let component = comps.get(component_id).unwrap();
-        (component.storage_id.typed(), component_id)
-    } else {
-        let storage_id = res.init::<T::Storage>();
-        res.init_meta_id::<dyn AnyStorage, _>(storage_id);
-        let component_id = comps.insert(storage_id, T::Storage::SPARSE).unwrap();
-        {
-            let schedule = res.get_mut::<Schedule>().unwrap();
-            <T::Storage as Storage>::install_systems(schedule);
-        }
-
-        (storage_id, component_id)
-    }
+    pub use crate::{
+        ResourcesExt, World, WorldMut,
+        component::Component,
+        entity::{Entity, EntityMut, EntityRef},
+        query::{Query, QueryData, QueryFilter, With, Without},
+    };
 }

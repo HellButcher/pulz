@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use pulz_schedule::{
     event::EventWriter,
@@ -12,6 +15,7 @@ use tracing as log;
 use crate::AppExit;
 
 static SHOULD_EXIT: AtomicUsize = AtomicUsize::new(0);
+static HOOKS: Mutex<Vec<Box<dyn FnOnce() + Send + 'static>>> = Mutex::new(Vec::new());
 
 /// Sends an [`AppExit::Success`] event to the application, indicating that it should exit.
 pub fn gracefully_exit() {
@@ -22,6 +26,16 @@ pub fn gracefully_exit() {
 pub fn gracefully_exit_with_code(code: AppExit) {
     let intern_value = u8::from(code) as usize + 1;
     SHOULD_EXIT.store(intern_value, Ordering::Relaxed);
+    HOOKS.lock().unwrap().drain(..).for_each(|hook| {
+        hook();
+    });
+}
+
+pub fn add_hook<F>(hook: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    HOOKS.lock().unwrap().push(Box::new(hook));
 }
 
 fn should_exit() -> Option<AppExit> {
@@ -40,6 +54,7 @@ fn install_ctrlc_handler() {
     }
 }
 
+/// A [`Module`](pulz_schedule::module::Module) that installs a Ctrl+C handler to trigger graceful shutdown.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct CtrlCHandlerModule;
 

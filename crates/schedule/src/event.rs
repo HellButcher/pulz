@@ -1,3 +1,8 @@
+//! A double-buffered event queue with per-subscriber read cursors.
+//!
+//! [`Events<T>`] stores events across two frames; a system clears the older half each frame.
+//! [`EventSubscriber`] tracks a per-system read cursor; [`EventWriter`] sends new events.
+
 use std::{collections::VecDeque, marker::PhantomData};
 
 use pulz_schedule_macros::system_module;
@@ -14,6 +19,10 @@ use crate::{
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EventId<T>(usize, PhantomData<fn() -> T>);
 
+/// A double-buffered queue of events of type `T`.
+///
+/// Events are retained for two frames so that systems which run once per frame always see them.
+/// Use [`EventSubscriber`] to read and [`EventWriter`] to write from systems.
 pub struct Events<T> {
     events: VecDeque<T>,
     first_id: usize,
@@ -21,6 +30,7 @@ pub struct Events<T> {
 }
 
 impl<T> Events<T> {
+    /// Creates an empty event queue.
     pub fn new() -> Self {
         Self {
             events: VecDeque::new(),
@@ -29,14 +39,17 @@ impl<T> Events<T> {
         }
     }
 
+    /// Returns a reference to the most recently sent event, if any.
     pub fn last(&self) -> Option<&T> {
         self.events.back()
     }
 
+    /// Enqueues a single event.
     pub fn send(&mut self, event: T) {
         self.events.push_back(event);
     }
 
+    /// Enqueues multiple events from an iterator.
     pub fn send_batch(&mut self, events: impl Iterator<Item = T>) {
         self.events.extend(events);
     }
@@ -70,7 +83,6 @@ impl<T> Events<T> {
 }
 
 #[system_module]
-#[__crate_path(crate)]
 impl<T: Send + Sync + 'static> Events<T> {
     #[system(into = CoreSystemSet::First)]
     pub fn update(&mut self) {
@@ -137,8 +149,10 @@ impl<T> ExactSizeIterator for IdIter<'_, T> {}
 
 impl<T> std::iter::FusedIterator for IdIter<'_, T> {}
 
+/// System parameter that reads events from an [`Events<T>`] queue with a persistent read cursor.
+///
+/// Each subscriber tracks how far it has read so events are only delivered once per subscriber.
 #[derive(SystemData)]
-#[__crate_path(crate)]
 pub struct EventSubscriber<'r, T: 'static> {
     next_id: Local<'r, usize>,
     events: Res<'r, Events<T>>,
@@ -150,12 +164,14 @@ impl<T> EventSubscriber<'_, T> {
         self.next_id.saturating_sub(self.events.first_id)
     }
 
+    /// Returns an iterator over all events not yet read by this subscriber.
     pub fn iter(&mut self) -> Iter<'_, T> {
         let offset = self.offset();
         *self.next_id += self.events.events.len();
         self.events.events.range(offset..)
     }
 
+    /// Like [`iter`](Self::iter) but also yields the [`EventId`] for each event.
     pub fn iter_with_id(&mut self) -> IdIter<'_, T> {
         let next_id = *self.next_id;
         IdIter {
@@ -165,17 +181,19 @@ impl<T> EventSubscriber<'_, T> {
     }
 }
 
+/// System parameter for sending events into an [`Events<T>`] queue.
 #[derive(SystemData)]
-#[__crate_path(crate)]
 pub struct EventWriter<'r, T: 'static> {
     events: ResMut<'r, Events<T>>,
 }
 
 impl<T> EventWriter<'_, T> {
+    /// Sends a single event.
     pub fn send(&mut self, event: T) {
         self.events.send(event);
     }
 
+    /// Sends multiple events.
     pub fn send_batch(&mut self, events: impl Iterator<Item = T>) {
         self.events.send_batch(events);
     }

@@ -1,6 +1,8 @@
 [package]
 name = "pulz-app"
 description = "Application lifecycle management for pulz-ecs applications."
+keywords = ["ecs", "game-engine", "framework"]
+categories = ["game-engines", "data-structures"]
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -12,7 +14,7 @@ readme = "README.md"
 tracing-subscriber-init = ["dep:tracing-subscriber", "dep:wasm-tracing", "dep:console_error_panic_hook", "dep:tracing-log"]
 
 [dependencies]
-pulz-schedule.workspace = true
+pulz-schedule.path = "../schedule"
 tracing.workspace = true
 ctrlc = "3.5"
 

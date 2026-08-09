@@ -10,7 +10,7 @@ use syn::{
 
 use crate::{
     attrib_system::{InstallSystemGenerator, IntoSystemGenerator, SystemGenerator, SystemParams},
-    utils::{self, Diagnostics, ParseAttributes},
+    utils::{Diagnostics, ParseAttributes, ParseNestedMetaExt},
 };
 
 #[derive(Clone, Debug)]
@@ -81,9 +81,9 @@ impl<T: Parse> Parse for DefaultBehaviourDisableable<T> {
 impl ParseAttributes for SystemModuleParams {
     const IDENT: &'static str = "system_module";
     fn parse_nested_meta(&mut self, meta: ParseNestedMeta) -> Result<()> {
-        if meta.path.is_ident("schedule") {
+        if meta.is_attr("schedule") {
             self.schedule = Some(meta.value()?.parse()?);
-        } else if meta.path.is_ident("install_fn") {
+        } else if meta.is_attr("install_fn") {
             self.install_fn = meta.value()?.parse()?;
         } else {
             return Err(meta.error("Unknown attribute"));
@@ -96,15 +96,10 @@ pub struct SystemModuleGenerator<'a> {
     pub item_impl: &'a ItemImpl,
     pub params: SystemModuleParams,
     pub systems: Vec<SystemGenerator<'a>>,
-    pub crate_path: &'a Path,
 }
 
 impl<'a> SystemModuleGenerator<'a> {
-    pub fn new(
-        item_impl: &'a mut ItemImpl,
-        params: SystemModuleParams,
-        crate_path: &'a Path,
-    ) -> Result<Self> {
+    pub fn new(item_impl: &'a mut ItemImpl, params: SystemModuleParams) -> Result<Self> {
         let mut diagnostics = Diagnostics::new();
         if let Some(defaultness) = item_impl.defaultness.as_ref() {
             diagnostics.add(syn::Error::new_spanned(
@@ -164,7 +159,7 @@ impl<'a> SystemModuleGenerator<'a> {
             .into_iter()
             .filter_map(|(i, params)| {
                 if let syn::ImplItem::Fn(fn_item) = &item_impl.items[i] {
-                    match SystemGenerator::new(fn_item, params, crate_path) {
+                    match SystemGenerator::new(fn_item, params) {
                         Ok(mut system) => {
                             system.set_self_ty(&item_impl.self_ty, &item_impl.generics);
                             Some(system)
@@ -184,7 +179,6 @@ impl<'a> SystemModuleGenerator<'a> {
             item_impl,
             params,
             systems,
-            crate_path,
         })
     }
 }
@@ -212,7 +206,7 @@ impl ToTokens for SystemModuleGenerator<'_> {
                 .params
                 .schedule
                 .clone()
-                .unwrap_or_else(|| parse_quote!(__pulz_schedule::schedule::Schedule));
+                .unwrap_or_else(|| parse_quote!(::pulz_schedule::schedule::Schedule));
 
             let install_impl = self.systems.iter().map(InstallSystemGenerator);
             quote! {
@@ -236,15 +230,13 @@ impl ToTokens for SystemModuleGenerator<'_> {
 }
 
 pub fn attrib_system_module(attributes: TokenStream, mut input: syn::ItemImpl) -> TokenStream {
-    let crate_path = utils::CratePath::remove_from_attrs(&mut input.attrs).to_path();
     let mut diagnostics = Diagnostics::new();
     let mut params = SystemModuleParams::default();
     if let Err(e) = params.parser().parse2(attributes) {
         diagnostics.add(e);
     }
 
-    let Some(module_impl) =
-        diagnostics.add_if_err(SystemModuleGenerator::new(&mut input, params, &crate_path))
+    let Some(module_impl) = diagnostics.add_if_err(SystemModuleGenerator::new(&mut input, params))
     else {
         let mut output = input.to_token_stream();
         output.extend(diagnostics.take_compile_errors());
@@ -261,8 +253,6 @@ pub fn attrib_system_module(attributes: TokenStream, mut input: syn::ItemImpl) -
         #[doc(hidden)]
         #[allow(non_snake_case,unused_qualifications)]
         const _: () = {
-            use #crate_path as __pulz_schedule;
-
             #module_impl
         };
     });

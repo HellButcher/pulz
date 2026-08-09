@@ -25,5 +25,7 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
+/// winit-backed application runner.
 pub mod app;
+/// Window management types wrapping winit windows.
 pub mod windows;

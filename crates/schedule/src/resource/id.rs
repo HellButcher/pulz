@@ -1,7 +1,13 @@
+//! Phantom-typed resource identifier.
+
 use std::{hash::Hash, marker::PhantomData};
 
 use crate::Void;
 
+/// A phantom-typed index that identifies a resource stored in [`Resources`].
+///
+/// The type parameter `T` is erased at runtime but prevents mixing up ids at compile time.
+/// Use [`untyped`](ResourceId::untyped) to erase the type and [`typed`](ResourceId::typed) to restore it.
 #[repr(transparent)]
 pub struct ResourceId<T: ?Sized = Void>(pub(super) usize, PhantomData<fn(&T)>);
 
@@ -33,7 +39,7 @@ impl<T: ?Sized> PartialEq<Self> for ResourceId<T> {
 impl<T: ?Sized> PartialOrd<Self> for ResourceId<T> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.0.cmp(&other.0))
+        Some(self.cmp(other))
     }
 }
 impl<T: ?Sized> Hash for ResourceId<T> {
@@ -54,6 +60,7 @@ impl<T: ?Sized> ResourceId<T> {
         ResourceId(self.0, PhantomData)
     }
 
+    /// Erases the resource type, returning an untyped id.
     #[inline(always)]
     pub const fn untyped(self) -> ResourceId {
         self.cast()
@@ -61,6 +68,10 @@ impl<T: ?Sized> ResourceId<T> {
 }
 
 impl ResourceId {
+    /// Restores the resource type.
+    ///
+    /// # Safety (logical)
+    /// The caller must ensure `T` matches the original resource type.
     #[inline]
     pub fn typed<T>(self) -> ResourceId<T>
     where

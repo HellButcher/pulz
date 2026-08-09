@@ -1,39 +1,59 @@
+//! Component storage traits and built-in storage implementations.
+//!
+//! [`Storage`] is the typed trait; [`AnyStorage`] is its type-erased counterpart.
+//! [`ArchetypeStorage`] stores data column-wise per archetype; [`SparseStorage`] uses a slot-map.
+
 use std::any::{Any, TypeId};
 
 use pulz_schedule::{
-    impl_any_cast, module::system_module, resource::Resources, schedule::Schedule,
+    impl_any_cast,
+    module::system_module,
+    prelude::{FromResources, FromResourcesMut, ResMut, ResourceId},
+    resource::Resources,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
 use crate::{
-    Entity,
-    archetype::{Archetype, ArchetypeId},
-    component::ComponentDetails,
-    insert_sorted,
-    resource::FromResourcesMut,
+    archetype::{ArchetypeId, ArchetypeMap},
+    component::{Component, ComponentId, Components},
+    entity::Entity,
 };
 
+/// Trait for typed component storage backends.
+///
+/// Each component type has exactly one storage resource. The storage handles
+/// insert/remove/move operations driven by archetype transitions.
 pub trait Storage: Send + Sync + Any + FromResourcesMut {
+    /// When `true`, the storage is entity-keyed (sparse) and does not participate in archetype tracking.
     const SPARSE: bool;
 
+    /// The component type stored by this storage.
     type Component;
 
-    #[inline]
-    fn install_systems(_schedule: &mut Schedule) {}
-
+    /// Returns the [`TypeId`] of the component type this storage holds.
     #[inline]
     fn component_type_id() -> TypeId {
         TypeId::of::<Self::Component>()
     }
 
-    fn fast_contains(
-        res: &Resources,
-        entity: Entity,
-        component: &ComponentDetails,
-        archetype: &Archetype,
-    ) -> bool;
+    /// Borrows this storage as a type-erased [`AnyStorage`] via the resource container.
+    fn borrow_mut_any(res: &Resources, id: ResourceId) -> ResMut<'_, dyn AnyStorage>
+    where
+        Self: Sized,
+    {
+        let storage = res
+            .borrow_res_mut_id::<Self>(id.typed::<Self>())
+            .expect("storage resource not initialized");
+        ResMut::map(storage, |s| {
+            let casted: &mut dyn AnyStorage = s;
+            casted
+        })
+    }
 
+    /// Returns `true` if the given entity has this component.
     fn contains(&self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool;
+
+    /// Removes the component by swap-removing its slot and returns the value if present.
     fn swap_remove(
         &mut self,
         entity: Entity,
@@ -41,20 +61,33 @@ pub trait Storage: Send + Sync + Any + FromResourcesMut {
         index: usize,
     ) -> Option<Self::Component>;
 
-    fn insert(&mut self, entity: Entity, value: Self::Component);
-    fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool;
-    fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize>;
-
-    fn swap_remove_and_insert(
+    /// Updates the archetype of the component by swapping it from one archetype to another.
+    fn swap_remove_and_push(
         &mut self,
         remove_from_archetype: ArchetypeId,
         remove_from_index: usize,
-        insert_to_archetype: ArchetypeId,
+        push_to_archetype: ArchetypeId,
     ) -> Option<usize>;
 
+    /// Non-Archetype storage operations:
+    /// - `insert` directly inserts the value into the storage.
+    ///
+    /// Archetype storage operations:
+    /// - first, `insert` is used to store the value in a temporary location;
+    /// - then, the `flush_push` or `flush_replace` method is called to update the value when the final archetype is known.
+    ///
+    /// Stores a new component value. For archetype storage this is a temporary slot pending `flush_*`.
+    fn insert(&mut self, entity: Entity, value: Self::Component);
+    /// Moves the pending value from the temporary slot to an existing archetype row.
+    fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool;
+    /// Appends the pending value to the end of the archetype's column; returns the new row index.
+    fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize>;
+
+    /// Returns a shared reference to the component value, if present.
     fn get(&self, entity: Entity, archetype: ArchetypeId, index: usize)
     -> Option<&Self::Component>;
 
+    /// Returns an exclusive reference to the component value, if present.
     fn get_mut(
         &mut self,
         entity: Entity,
@@ -63,83 +96,120 @@ pub trait Storage: Send + Sync + Any + FromResourcesMut {
     ) -> Option<&mut Self::Component>;
 }
 
+/// Type-erased counterpart of [`Storage`], used when the component type is not statically known.
 pub trait AnyStorage: Send + Sync + Any {
-    fn component_type_id(&self) -> TypeId;
+    /// Returns `true` if the given entity has this component.
     fn contains(&self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool;
-    fn swap_remove(&mut self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool;
 
-    fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool;
-    fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize>;
-
-    fn swap_remove_and_insert(
+    /// Moves a component from one archetype column to another via swap-remove.
+    fn swap_remove_and_push(
         &mut self,
         remove_from_archetype: ArchetypeId,
         remove_from_index: usize,
-        insert_to_archetype: ArchetypeId,
+        push_to_archetype: ArchetypeId,
     ) -> Option<usize>;
+
+    /// Removes the component in place and returns `true` if it was present.
+    fn swap_remove(&mut self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool;
+    /// Replaces a pending inserted value at the given archetype slot; returns `true` on success.
+    fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool;
+    /// Moves a pending inserted value to the end of the given archetype's column; returns the new index.
+    fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize>;
+}
+
+impl<S: Storage> AnyStorage for S {
+    fn contains(&self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool {
+        S::contains(self, entity, archetype, index)
+    }
+
+    fn swap_remove_and_push(
+        &mut self,
+        remove_from_archetype: ArchetypeId,
+        remove_from_index: usize,
+        push_to_archetype: ArchetypeId,
+    ) -> Option<usize> {
+        S::swap_remove_and_push(
+            self,
+            remove_from_archetype,
+            remove_from_index,
+            push_to_archetype,
+        )
+    }
+
+    fn swap_remove(&mut self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool {
+        S::swap_remove(self, entity, archetype, index).is_some()
+    }
+
+    fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool {
+        S::flush_replace(self, archetype, index)
+    }
+
+    fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize> {
+        S::flush_push(self, archetype)
+    }
 }
 
 impl_any_cast!(dyn AnyStorage);
 
+/// Column-oriented storage for archetype-tracked components.
+///
+/// Stores component data in per-archetype `Vec<T>` columns at the same index as the entity's
+/// row in the archetype. A temporary slot (`tmp`) holds a value between `insert` and `flush_*`.
 pub struct ArchetypeStorage<T> {
-    data: Vec<Vec<T>>,
+    id: ComponentId<T>,
+    data: ArchetypeMap<Vec<T>>,
     tmp: Option<T>,
 }
 
+/// Dense entity-keyed storage backed by a [`SecondaryMap`].
 pub type SlotStorage<T> = SecondaryMap<Entity, T>;
+/// Sparse entity-keyed storage backed by a [`SparseSecondaryMap`]; component presence does not affect archetype.
 pub type SparseStorage<T> = SparseSecondaryMap<Entity, T>;
 
-#[deprecated]
-pub type DenseStorage<T> = ArchetypeStorage<T>;
-#[deprecated]
-pub type HashMapStorage<T> = SparseStorage<T>;
-
-impl<T> Default for ArchetypeStorage<T> {
+impl<T> ArchetypeStorage<T> {
+    /// Creates a new empty storage associated with the given component id.
     #[inline]
-    fn default() -> Self {
+    pub const fn new(id: ComponentId<T>) -> Self {
         Self {
-            data: Vec::new(),
+            id,
+            data: ArchetypeMap::new(),
             tmp: None,
         }
     }
 }
 
-fn vec_make_available<T: Default>(vec: &mut Vec<T>, index: usize) -> &mut T {
-    if vec.len() <= index {
-        vec.resize_with(index + 1, Default::default);
+impl<T> FromResources for ArchetypeStorage<T>
+where
+    T: Component,
+{
+    #[inline]
+    fn from_resources(resources: &Resources) -> Self {
+        let id = resources
+            .borrow_res::<Components>()
+            .unwrap()
+            .expect_id::<T>();
+        Self::new(id)
     }
-    // SAFETY: was resized if length was to short
-    unsafe { vec.get_unchecked_mut(index) }
 }
 
 impl<T> Storage for ArchetypeStorage<T>
 where
-    T: Send + Sync + 'static,
+    T: Component<Storage = Self>,
 {
     const SPARSE: bool = false;
     type Component = T;
 
     #[inline]
-    fn fast_contains(
-        _res: &Resources,
-        _entity: Entity,
-        component: &ComponentDetails,
-        archetype: &Archetype,
-    ) -> bool {
-        archetype.components.contains(component.id())
-    }
-
-    #[inline]
     fn contains(&self, _entity: Entity, archetype: ArchetypeId, index: usize) -> bool {
         self.data
-            .get(archetype.index())
+            .get(archetype)
             .is_some_and(|col| index < col.len())
     }
 
     #[inline]
     fn swap_remove(&mut self, _entity: Entity, archetype: ArchetypeId, index: usize) -> Option<T> {
         self.tmp = None;
-        if let Some(col) = self.data.get_mut(archetype.index())
+        if let Some(col) = self.data.get_mut(archetype)
             && index < col.len()
         {
             return Some(col.swap_remove(index));
@@ -147,50 +217,48 @@ where
         None
     }
 
-    #[inline]
-    fn insert(&mut self, _entity: Entity, value: T) {
-        self.tmp.replace(value);
+    fn insert(&mut self, _entity: Entity, value: Self::Component) {
+        self.tmp = Some(value);
     }
 
-    fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool {
+    fn flush_replace(&mut self, archetype_id: ArchetypeId, index: usize) -> bool {
+        let Some(value) = self.tmp.take() else {
+            return false; // TODO: error: no value inserted
+        };
         let Some(cell) = self
             .data
-            .get_mut(archetype.index())
-            .and_then(|c| c.get_mut(index))
+            .get_mut(archetype_id)
+            .and_then(|col| col.get_mut(index))
         else {
-            return false;
+            return false; // TODO: error: archetype and index not present
         };
-        if let Some(value) = self.tmp.take() {
-            *cell = value;
-            true
-        } else {
-            false
-        }
+        *cell = value;
+        true
     }
 
     fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize> {
         let value = self.tmp.take()?;
-        let col = vec_make_available(&mut self.data, archetype.index());
+        let col = self.data.get_or_insert_default(archetype);
         let index = col.len();
         col.push(value);
         Some(index)
     }
 
-    fn swap_remove_and_insert(
+    fn swap_remove_and_push(
         &mut self,
         remove_from_archetype: ArchetypeId,
         remove_from_index: usize,
-        insert_to_archetype: ArchetypeId,
+        push_to_archetype: ArchetypeId,
     ) -> Option<usize> {
-        if remove_from_archetype == insert_to_archetype {
+        if remove_from_archetype == push_to_archetype {
             return None;
         }
-        let col = self.data.get_mut(remove_from_archetype.index())?;
+        let col = self.data.get_mut(remove_from_archetype)?;
         if remove_from_index >= col.len() {
             return None;
         }
         let removed_value = col.swap_remove(remove_from_index);
-        let col = vec_make_available(&mut self.data, insert_to_archetype.index());
+        let col = self.data.get_or_insert_default(push_to_archetype);
         let index = col.len();
         col.push(removed_value);
         Some(index)
@@ -200,45 +268,35 @@ where
     fn get(
         &self,
         _entity: Entity,
-        archetype: ArchetypeId,
+        archetype_id: ArchetypeId,
         index: usize,
     ) -> Option<&Self::Component> {
-        self.data.get(archetype.index())?.get(index)
+        self.data.get(archetype_id)?.get(index)
     }
 
     #[inline]
     fn get_mut(
         &mut self,
         _entity: Entity,
-        archetype: ArchetypeId,
+        archetype_id: ArchetypeId,
         index: usize,
     ) -> Option<&mut Self::Component> {
-        self.data.get_mut(archetype.index())?.get_mut(index)
+        self.data.get_mut(archetype_id)?.get_mut(index)
     }
 }
 
 impl<T> Storage for SparseStorage<T>
 where
-    T: Send + Sync + 'static,
+    T: Component<Storage = Self>,
 {
     const SPARSE: bool = true;
     type Component = T;
 
     #[inline]
-    fn fast_contains(
-        res: &Resources,
-        entity: Entity,
-        component: &ComponentDetails,
-        _archetype: &Archetype,
-    ) -> bool {
-        res.borrow_res_id(component.storage_id.typed::<Self>())
-            .is_some_and(|s| s.contains_key(entity))
-    }
-
-    #[inline]
     fn contains(&self, entity: Entity, _archetype: ArchetypeId, _index: usize) -> bool {
         self.contains_key(entity)
     }
+
     #[inline]
     fn swap_remove(&mut self, entity: Entity, _archetype: ArchetypeId, _index: usize) -> Option<T> {
         self.remove(entity)
@@ -260,11 +318,11 @@ where
     }
 
     #[inline]
-    fn swap_remove_and_insert(
+    fn swap_remove_and_push(
         &mut self,
         _remove_from_archetype: ArchetypeId,
         _remove_from_index: usize,
-        _insert_to_archetype: ArchetypeId,
+        _push_to_archetype: ArchetypeId,
     ) -> Option<usize> {
         None
     }
@@ -290,6 +348,10 @@ where
     }
 }
 
+/// Storage wrapper that records entities whose component was removed this frame.
+///
+/// Wraps any [`Storage`] and appends removed entities to a sorted `removed` list on each
+/// `swap_remove`. A system registered via [`Tracked::install_systems`] clears the list each frame.
 pub struct Tracked<S> {
     base: S,
     pub(crate) removed: Vec<Entity>,
@@ -316,20 +378,6 @@ impl<S: FromResourcesMut> FromResourcesMut for Tracked<S> {
 impl<S: Storage> Storage for Tracked<S> {
     const SPARSE: bool = S::SPARSE;
     type Component = S::Component;
-
-    fn install_systems(schedule: &mut Schedule) {
-        Self::install_systems_impl(schedule);
-    }
-
-    #[inline]
-    fn fast_contains(
-        res: &Resources,
-        entity: Entity,
-        component: &ComponentDetails,
-        archetype: &Archetype,
-    ) -> bool {
-        S::fast_contains(res, entity, component, archetype)
-    }
 
     #[inline]
     fn contains(&self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool {
@@ -364,17 +412,14 @@ impl<S: Storage> Storage for Tracked<S> {
     }
 
     #[inline]
-    fn swap_remove_and_insert(
+    fn swap_remove_and_push(
         &mut self,
         remove_from_archetype: ArchetypeId,
         remove_from_index: usize,
-        insert_to_archetype: ArchetypeId,
+        push_to_archetype: ArchetypeId,
     ) -> Option<usize> {
-        self.base.swap_remove_and_insert(
-            remove_from_archetype,
-            remove_from_index,
-            insert_to_archetype,
-        )
+        self.base
+            .swap_remove_and_push(remove_from_archetype, remove_from_index, push_to_archetype)
     }
 
     #[inline]
@@ -398,41 +443,8 @@ impl<S: Storage> Storage for Tracked<S> {
     }
 }
 
-impl<S> AnyStorage for S
-where
-    S: Storage,
-{
-    fn component_type_id(&self) -> TypeId {
-        S::component_type_id()
-    }
-
-    fn contains(&self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool {
-        S::contains(self, entity, archetype, index)
-    }
-
-    fn swap_remove(&mut self, entity: Entity, archetype: ArchetypeId, index: usize) -> bool {
-        S::swap_remove(self, entity, archetype, index).is_some()
-    }
-
-    fn flush_replace(&mut self, archetype: ArchetypeId, index: usize) -> bool {
-        S::flush_replace(self, archetype, index)
-    }
-
-    fn flush_push(&mut self, archetype: ArchetypeId) -> Option<usize> {
-        S::flush_push(self, archetype)
-    }
-
-    fn swap_remove_and_insert(
-        &mut self,
-        remove_from_archetype: ArchetypeId,
-        remove_from_index: usize,
-        insert_to_archetype: ArchetypeId,
-    ) -> Option<usize> {
-        S::swap_remove_and_insert(
-            self,
-            remove_from_archetype,
-            remove_from_index,
-            insert_to_archetype,
-        )
+fn insert_sorted<T: Ord>(vec: &mut Vec<T>, value: T) {
+    if let Err(pos) = vec.binary_search(&value) {
+        vec.insert(pos, value);
     }
 }

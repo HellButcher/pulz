@@ -13,21 +13,25 @@ pub enum AppExit {
 }
 
 impl AppExit {
+    /// Creates an `AppExit` representing a generic error (exit code 1).
     #[must_use]
     pub const fn error() -> Self {
         Self::Error(NonZero::<u8>::MIN)
     }
 
+    /// Returns `true` if the exit was successful.
     #[must_use]
     pub const fn is_success(&self) -> bool {
         matches!(self, Self::Success)
     }
 
+    /// Returns `true` if the exit was an error.
     #[must_use]
     pub const fn is_error(&self) -> bool {
         matches!(self, Self::Error(_))
     }
 
+    /// Creates an `AppExit` from a numeric exit code: `0` means success, anything else is an error.
     #[must_use]
     pub const fn from_code(code: u8) -> Self {
         match NonZero::<u8>::new(code) {

@@ -1,9 +1,10 @@
 use proc_macro::TokenStream;
 use quote::ToTokens;
-use syn::{DeriveInput, ImplItemFn, ItemImpl, Path, parse_macro_input};
+use syn::{DeriveInput, ImplItemFn, ItemEnum, ItemImpl, Path, parse_macro_input};
 
 mod attrib_system;
 mod attrib_system_module;
+mod derive_label;
 mod derive_system_data;
 mod utils;
 
@@ -27,8 +28,14 @@ pub fn into_system(input: TokenStream) -> TokenStream {
         .into()
 }
 
-#[proc_macro_derive(SystemData, attributes(system_data, __crate_path))]
+#[proc_macro_derive(SystemData, attributes(system_data))]
 pub fn system_data(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     derive_system_data::derive_system_data(input).into()
+}
+
+#[proc_macro_attribute]
+pub fn derive_label(attribute: TokenStream, input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as ItemEnum);
+    derive_label::derive_label(attribute.into(), input).into()
 }

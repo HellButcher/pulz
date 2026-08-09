@@ -1,32 +1,39 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::{
-    Data, DeriveInput, Error, Path, Result, meta::ParseNestedMeta, parse_quote_spanned,
+    Data, DeriveInput, Error, LitBool, Path, Result, meta::ParseNestedMeta, parse_quote_spanned,
     punctuated::Punctuated, spanned::Spanned,
 };
 
-use crate::utils::{self, Diagnostics, ParseAttributes, ReplaceSpecificLifetimes};
+use crate::utils::{
+    self, Diagnostics, ParseAttributes, ParseNestedMetaExt, ReplaceSpecificLifetimes,
+};
 
-mod kw {
-    syn::custom_keyword!(skip);
-    syn::custom_keyword!(unsend);
-}
-
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct SystemDataContainerParams {
-    pub unsend: Option<kw::unsend>,
+    pub unsend: LitBool,
 }
 
-#[derive(Default, Debug)]
+impl Default for SystemDataContainerParams {
+    fn default() -> Self {
+        let span = Span::call_site();
+        Self {
+            unsend: LitBool::new(false, span),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct SystemDataParams {
-    skip: Option<(kw::skip, Option<Path>)>,
+    skip: Option<Span>,
+    skip_default: Option<Path>,
 }
 
 impl ParseAttributes for SystemDataContainerParams {
     const IDENT: &'static str = "system_data";
     fn parse_nested_meta(&mut self, meta: ParseNestedMeta) -> Result<()> {
-        if meta.path.is_ident("unsend") {
-            self.unsend = Some(kw::unsend(meta.path.span()));
+        if meta.is_attr("unsend") {
+            self.unsend = meta.get_flag()?;
         } else {
             return Err(meta.error("Unknown attribute"));
         }
@@ -38,10 +45,9 @@ impl ParseAttributes for SystemDataParams {
     const IDENT: &'static str = "system_data";
     fn parse_nested_meta(&mut self, meta: ParseNestedMeta) -> Result<()> {
         if meta.path.is_ident("skip") {
-            if let Ok(path) = meta.value() {
-                self.skip = Some((kw::skip(meta.path.span()), Some(path.parse()?)));
-            } else {
-                self.skip = Some((kw::skip(meta.path.span()), None));
+            self.skip = Some(meta.path.span());
+            if !meta.input.is_empty() {
+                self.skip_default = Some(meta.value()?.parse()?);
             }
         } else {
             return Err(meta.error("Unknown attribute"));
@@ -50,8 +56,7 @@ impl ParseAttributes for SystemDataParams {
     }
 }
 
-pub fn derive_system_data(mut input: DeriveInput) -> TokenStream {
-    let crate_path = utils::CratePath::remove_from_attrs(&mut input.attrs).to_path();
+pub fn derive_system_data(input: DeriveInput) -> TokenStream {
     let mut diagnostics = Diagnostics::new();
     let mut params = SystemDataContainerParams::default();
     diagnostics.add_if_err(params.parse_attributes(&input.attrs));
@@ -122,14 +127,14 @@ pub fn derive_system_data(mut input: DeriveInput) -> TokenStream {
         if let Some(ident) = &field.ident {
             arg_idents.push(ident);
         }
-        if let Some((kw_skip, path)) = &field_params.skip {
-            let arg_get = if let Some(default) = path {
+        if let Some(skip_span) = field_params.skip {
+            let arg_get = if let Some(default) = field_params.skip_default.as_ref() {
                 quote_spanned! { default.span() => #default() }
             } else {
-                quote_spanned! { kw_skip.span() => ::std::default::Default::default() }
+                quote_spanned! { skip_span => ::std::default::Default::default() }
             };
             arg_gets.push(arg_get.clone());
-            if params.unsend.is_none() {
+            if !params.unsend.value {
                 arg_gets_send.push(arg_get);
             }
             continue;
@@ -148,14 +153,14 @@ pub fn derive_system_data(mut input: DeriveInput) -> TokenStream {
                 quote_spanned! { field.span() => &mut _data.#index },
             )
         };
-        arg_update_access.push(quote_spanned! { field.span() => <#static_type as __pulz_schedule::system::SystemData>::update_access(_resources, _access, #acces_data); });
-        arg_gets.push(quote_spanned! { field.span() => <#static_type as __pulz_schedule::system::SystemData>::get(_resources, #acces_data_mut) });
+        arg_update_access.push(quote_spanned! { field.span() => <#static_type as ::pulz_schedule::system::SystemData>::update_access(_resources, _access, #acces_data); });
+        arg_gets.push(quote_spanned! { field.span() => <#static_type as ::pulz_schedule::system::SystemData>::get(_resources, #acces_data_mut) });
 
-        if params.unsend.is_none() {
+        if !params.unsend.value {
             let replaced_lt_type = replace_with_new_replaced_lt.in_type(field.ty.clone());
-            arg_gets_send.push(quote_spanned! { field.span() => <#static_type as __pulz_schedule::system::SystemDataSend>::get_send(_resources, #acces_data_mut) });
+            arg_gets_send.push(quote_spanned! { field.span() => <#static_type as ::pulz_schedule::system::SystemDataSend>::get_send(_resources, #acces_data_mut) });
             send_wc.predicates.push(parse_quote_spanned!(
-                field.span() => #static_type: for<#replaced_lifetime> __pulz_schedule::system::SystemDataSend<Arg<#replaced_lifetime> = #replaced_lt_type>
+                field.span() => #static_type: for<#replaced_lifetime> ::pulz_schedule::system::SystemDataSend<Arg<#replaced_lifetime> = #replaced_lt_type>
             ));
         }
 
@@ -167,12 +172,12 @@ pub fn derive_system_data(mut input: DeriveInput) -> TokenStream {
             quote! {
                 #[doc(hidden)]
                 #vis struct __Data #generics_data {
-                    #(#data_idents: <#data_types as __pulz_schedule::system::SystemData>::Data,)*
+                    #(#data_idents: <#data_types as ::pulz_schedule::system::SystemData>::Data,)*
                 }
             },
             quote! {
                 __Data {
-                    #(#data_idents: <#data_types as __pulz_schedule::system::SystemData>::init(_resources),)*
+                    #(#data_idents: <#data_types as ::pulz_schedule::system::SystemData>::init(_resources),)*
                 }
             },
             quote! {
@@ -195,7 +200,7 @@ pub fn derive_system_data(mut input: DeriveInput) -> TokenStream {
             },
             quote! {
                 __Data(
-                    #(<#data_types as __pulz_schedule::system::SystemData>::init(_resources),)*
+                    #(<#data_types as ::pulz_schedule::system::SystemData>::init(_resources),)*
                 )
             },
             quote! {
@@ -226,12 +231,12 @@ pub fn derive_system_data(mut input: DeriveInput) -> TokenStream {
         ),
     };
 
-    let send_impl = if params.unsend.is_none() {
+    let send_impl = if !params.unsend.value {
         quote! {
-            impl #impl_generics __pulz_schedule::system::SystemDataSend for  #ident #type_generics
+            impl #impl_generics ::pulz_schedule::system::SystemDataSend for  #ident #type_generics
                 #send_where_clause
             {
-                fn get_send<#getter_lifetime>(_resources: &#getter_lifetime __pulz_schedule::resource::ResourcesSend, _data: &#getter_lifetime mut Self::Data) -> Self::Arg<#getter_lifetime> {
+                fn get_send<#getter_lifetime>(_resources: &#getter_lifetime ::pulz_schedule::resource::ResourcesSend, _data: &#getter_lifetime mut Self::Data) -> Self::Arg<#getter_lifetime> {
                     #arg_get_send
                 }
             }
@@ -245,23 +250,21 @@ pub fn derive_system_data(mut input: DeriveInput) -> TokenStream {
         #[doc(hidden)]
         #[allow(unused_qualifications)]
         const _: () = {
-            use #crate_path as __pulz_schedule;
-
             #data_impl
 
             #[automatically_derived]
-            impl #impl_generics __pulz_schedule::system::SystemData for  #ident #type_generics
+            impl #impl_generics ::pulz_schedule::system::SystemData for  #ident #type_generics
                 #where_clause
             {
                 type Data = __Data #type_generics_data;
                 type Arg<#replaced_lifetime> = #ident #type_generics_new_lifetime;
-                fn init(_resources: &mut __pulz_schedule::resource::Resources) -> Self::Data {
+                fn init(_resources: &mut ::pulz_schedule::resource::Resources) -> Self::Data {
                     #data_init
                 }
-                fn update_access(_resources: &__pulz_schedule::resource::Resources, _access: &mut __pulz_schedule::resource::ResourceAccess, _data: &Self::Data) {
+                fn update_access(_resources: &::pulz_schedule::resource::Resources, _access: &mut ::pulz_schedule::resource::ResourceAccess, _data: &Self::Data) {
                     #(#arg_update_access)*
                 }
-                fn get<#getter_lifetime>(_resources: &#getter_lifetime __pulz_schedule::resource::Resources, _data: &#getter_lifetime mut Self::Data) -> Self::Arg<#getter_lifetime> {
+                fn get<#getter_lifetime>(_resources: &#getter_lifetime ::pulz_schedule::resource::Resources, _data: &#getter_lifetime mut Self::Data) -> Self::Arg<#getter_lifetime> {
                     #arg_get
                 }
             }

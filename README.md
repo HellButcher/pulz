@@ -14,19 +14,6 @@ This project is in a _very early_ development stage.
 
 ## Crates
 
-* **[`pulz-arena`](crates/arena)** -
-  A _generational arena_ allocator with compact generational indices
-  <mark>DISCONTINUED</mark>
-
-  [![Crates.io](https://img.shields.io/crates/v/pulz-arena.svg?label=pulz-arena)](https://crates.io/crates/pulz-arena)
-  [![docs.rs](https://docs.rs/pulz-arena/badge.svg)](https://docs.rs/pulz-arena/)
-
-* **[`pulz-bitset`](crates/bitset)** -
-  A simple _bitset_ implementation
-
-  [![Crates.io](https://img.shields.io/crates/v/pulz-bitset.svg?label=pulz-bitset)](https://crates.io/crates/pulz-bitset)
-  [![docs.rs](https://docs.rs/pulz-bitset/badge.svg)](https://docs.rs/pulz-bitset/)
-
 * **[`pulz-schedule`](crates/schedule)** -
   For scheduling _systems_ and managing their resources
 

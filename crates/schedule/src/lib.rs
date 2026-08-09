@@ -1,3 +1,8 @@
+//! Resource management, parallel system scheduling, and module infrastructure.
+//!
+//! The central type is [`resource::Resources`]: a type-erased container for resources and
+//! component storages. Systems declared with `#[system]` are scheduled into a [`schedule::Schedule`]
+//! DAG and executed in dependency order, optionally in parallel via [`threadpool::ThreadPool`].
 #![warn(
     // missing_docs,
     // rustdoc::missing_doc_code_examples,
@@ -26,10 +31,12 @@
 #![doc = include_str!("../README.md")]
 
 #[doc(hidden)]
+/// Uninhabited type used as the default type parameter for untyped ids.
 pub enum Void {}
 
 mod atom;
 pub mod event;
+pub mod interned;
 pub mod label;
 pub mod local;
 pub mod meta;
@@ -40,6 +47,8 @@ pub mod system;
 #[cfg(not(target_os = "unknown"))]
 pub mod threadpool;
 mod util;
+
+extern crate self as pulz_schedule;
 
 pub mod prelude {
     pub use crate::{

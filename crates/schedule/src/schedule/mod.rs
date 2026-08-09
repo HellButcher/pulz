@@ -1,3 +1,5 @@
+//! Parallel system schedule: topological DAG ordering and resource-conflict detection.
+
 use std::collections::BTreeMap;
 
 use crate::{
@@ -23,6 +25,10 @@ mod schedule_impl;
 
 pub use self::schedule_impl::ScheduleNodeBuilder;
 
+/// A DAG of systems that executes them in dependency order, running independent systems in parallel.
+///
+/// Build a schedule by calling `add_system` / `add_system_exclusive`, then call `init` once
+/// before the first `run`. Use [`custom_schedule_type!`] to define newtype wrappers.
 pub struct Schedule {
     systems: Vec<BoxedSystem>,
     access: Vec<ResourceAccess>,
@@ -36,9 +42,11 @@ pub struct Schedule {
     version: DirtyVersion,
 }
 
+/// A `Schedule` newtype that implements `AsMut<SharedSchedule>` for use as a resource.
 #[repr(transparent)]
 pub struct SharedSchedule(Schedule);
 
+/// Errors that can occur when building or running a schedule.
 #[derive(thiserror::Error, Debug)]
 pub enum ScheduleError {
     #[error(transparent)]
@@ -48,11 +56,13 @@ pub enum ScheduleError {
     ResourceConflict(#[from] ResourceConflict),
 }
 
+/// An index identifying a system within a [`Schedule`].
 #[repr(transparent)]
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub struct SystemId(usize);
 
 impl SystemId {
+    /// Sentinel value representing an unassigned system id.
     pub const UNDEFINED: Self = Self(!0);
 
     #[inline]
@@ -127,6 +137,7 @@ macro_rules! custom_schedule_type {
         $v struct $name($crate::schedule::Schedule);
 
         impl $name {
+            /// Creates a new empty schedule.
             #[inline]
             pub fn new() -> Self {
                 Self($crate::schedule::Schedule::new())
@@ -249,13 +260,11 @@ mod tests {
         struct Data(usize);
 
         #[system]
-        #[__crate_path(crate)]
         fn update1(borrowed: &mut Data) {
             borrowed.0 += 7;
         }
 
         #[system]
-        #[__crate_path(crate)]
         fn update2(mut owned: ResMut<'_, Data>) {
             assert_eq!(owned.0, 10);
             owned.0 += 11;

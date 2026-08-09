@@ -65,16 +65,19 @@ impl From<AppState> for AppLifecycle {
 }
 
 impl AppLifecycle {
+    /// Returns `true` if the lifecycle is exactly [`Running`](AppLifecycle::Running).
     #[inline]
     pub fn is_running(self) -> bool {
         matches!(self, Self::Running)
     }
 
+    /// Returns `true` if the lifecycle is exactly [`Suspended`](AppLifecycle::Suspended).
     #[inline]
     pub fn is_suspended(self) -> bool {
         matches!(self, Self::Suspended)
     }
 
+    /// Returns `true` if startup has completed (any state after `Created`).
     #[inline]
     pub fn is_started(self) -> bool {
         matches!(
@@ -83,12 +86,17 @@ impl AppLifecycle {
         )
     }
 
+    /// Returns `true` if the lifecycle has reached [`Stopped`](AppLifecycle::Stopped).
     #[inline]
     pub fn is_stopped(self) -> bool {
         matches!(self, Self::Stopped(_))
     }
 }
 
+/// Drives the application lifecycle state machine and owns all schedule resource ids.
+///
+/// Obtained via [`FromResourcesMut`]; stores resource ids resolved at construction time
+/// to avoid repeated lookups during each `update` call.
 pub struct AppLifecycleController {
     state: AppState,
     lifecycle_id: ResourceId<AppLifecycle>,
@@ -121,15 +129,18 @@ impl FromResourcesMut for AppLifecycleController {
 }
 
 impl AppLifecycleController {
+    /// Returns the current lifecycle state as a public [`AppLifecycle`] enum value.
     pub fn lifecycle(&self) -> AppLifecycle {
         self.state.into()
     }
 
+    /// Returns `true` if the application is in the `Running` state.
     #[inline]
     pub fn is_running(&self) -> bool {
         matches!(self.state, AppState::Running)
     }
 
+    /// Returns `true` if the application has started (either running or suspended).
     #[inline]
     pub fn is_started(&self) -> bool {
         matches!(self.state, AppState::Running | AppState::Suspended)
@@ -144,6 +155,7 @@ impl AppLifecycleController {
         }
     }
 
+    /// Returns `Some(exit)` if the application should stop, either because it reached `Stopped` or an exit event was sent.
     pub fn should_exit(&self, res: &Resources) -> Option<AppExit> {
         if let AppState::Stopped(exit) = self.state {
             return Some(exit);
@@ -151,6 +163,7 @@ impl AppLifecycleController {
         res.borrow_res_id(self.exit_events_id)?.last().copied()
     }
 
+    /// Advances one tick: starts/resumes if needed, runs the appropriate schedules, and handles exit events.
     pub fn update(&mut self, res: &mut Resources) -> Option<AppExit> {
         if matches!(self.state, AppState::Created) {
             self.resume(res);
@@ -174,6 +187,8 @@ impl AppLifecycleController {
             .map(|app_exit| self.stop(res, app_exit))
     }
 
+    /// Transitions from `Created` to `Suspended` by running the startup schedule.
+    /// Returns `false` if the application is not in the `Created` state.
     pub fn start(&mut self, res: &mut Resources) -> bool {
         if matches!(self.state, AppState::Created) {
             self.change_lifecycle(AppLifecycle::Starting, res);
@@ -186,6 +201,8 @@ impl AppLifecycleController {
         }
     }
 
+    /// Transitions from `Suspended` to `Running` by running the resume schedule.
+    /// Returns `false` if the application cannot be resumed in its current state.
     pub fn resume(&mut self, res: &mut Resources) -> bool {
         if matches!(self.state, AppState::Created) {
             self.start(res);
@@ -201,6 +218,8 @@ impl AppLifecycleController {
         }
     }
 
+    /// Transitions from `Running` to `Suspended` by running the suspend schedule.
+    /// Returns `false` if the application is not `Running`.
     pub fn suspend(&mut self, res: &mut Resources) -> bool {
         if matches!(self.state, AppState::Running) {
             self.change_lifecycle(AppLifecycle::Suspending, res);
@@ -213,6 +232,7 @@ impl AppLifecycleController {
         }
     }
 
+    /// Suspends if running, then runs the stop schedule and transitions to `Stopped`.
     pub fn stop(&mut self, res: &mut Resources, app_exit: AppExit) -> AppExit {
         if matches!(self.state, AppState::Running) {
             self.suspend(res);

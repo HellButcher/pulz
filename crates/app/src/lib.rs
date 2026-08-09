@@ -1,3 +1,8 @@
+//! Application framework built on top of [`pulz_schedule`].
+//!
+//! [`App`] drives the lifecycle state machine and ticks all schedules.
+//! [`AppModule`] registers time resources and lifecycle schedules.
+//! Integrate by calling `App::new(resources)` and looping on `app.update()` until `app.should_exit()` is `Some`.
 #![warn(
     missing_docs,
     rustdoc::missing_doc_code_examples,
@@ -29,7 +34,9 @@ mod app_exit;
 mod graceful_exit;
 mod lifecycle;
 
+/// Built-in schedule types for each phase of the application lifecycle.
 pub mod schedules;
+/// Time tracking resources and the fixed-timestep schedule system.
 pub mod time;
 
 pub use app_exit::AppExit;
@@ -40,6 +47,10 @@ use pulz_schedule::{
     prelude::{FromResourcesMut, Resources},
 };
 
+/// The top-level application that owns all resources and drives the lifecycle state machine.
+///
+/// Create with [`App::new`], then call [`App::update`] each frame and exit when
+/// [`App::should_exit`] returns `Some`.
 pub struct App {
     resources: Resources,
     lifecycle: AppLifecycleController,
@@ -71,10 +82,12 @@ impl App {
         self.resources
     }
 
+    /// Returns `Some(exit)` if the application has been requested to stop.
     pub fn should_exit(&self) -> Option<AppExit> {
         self.lifecycle.should_exit(&self.resources)
     }
 
+    /// Advances the application by one tick, running the appropriate schedules for the current lifecycle state.
     pub fn update(&mut self) {
         self.lifecycle.update(&mut self.resources);
     }
@@ -108,6 +121,7 @@ impl From<App> for Resources {
     }
 }
 
+/// A [`Module`] that registers the application's time resources and lifecycle schedules.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct AppModule;
 
@@ -118,6 +132,7 @@ impl Module for AppModule {
     }
 }
 
+/// Initialises `tracing-subscriber` with sensible defaults (env-filter + span events).
 #[cfg(all(not(target_arch = "wasm32"), feature = "tracing-subscriber-init"))]
 pub fn init_tracing_subscriber_defaults() {
     use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
