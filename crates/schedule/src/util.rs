@@ -1,4 +1,8 @@
-use std::{cell::UnsafeCell, marker::PhantomData};
+use std::{
+    cell::UnsafeCell,
+    marker::PhantomData,
+    sync::atomic::{AtomicI32, Ordering},
+};
 
 use bit_set::BitSet;
 
@@ -82,6 +86,121 @@ impl DirtyVersion {
                 false
             }
         }
+    }
+}
+
+#[derive(Copy, Clone, Default, Debug, Eq, PartialEq, Hash)]
+#[repr(transparent)]
+pub struct Tick(i32);
+
+impl Tick {
+    #[inline]
+    pub const fn new(value: i32) -> Self {
+        Self(value)
+    }
+
+    #[inline]
+    pub const fn get(self) -> i32 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn next(self) -> Self {
+        Self(self.0 + 1)
+    }
+
+    /// Returns true if self is newer than other (i.e., has a greater tick value).
+    ///
+    /// allows for comparison of ticks that have wrapped around, assuming that the difference between the two ticks is less than i32::MAX (half of u32::MAX).
+    #[inline]
+    pub const fn is_newer_than(self, other: Self) -> bool {
+        let diff = self.0.wrapping_sub(other.0);
+        diff > 0
+    }
+}
+
+impl PartialOrd for Tick {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Tick {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.0 == other.0 {
+            std::cmp::Ordering::Equal
+        } else if self.is_newer_than(*other) {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Less
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+#[repr(transparent)]
+pub struct AtomicTick(AtomicI32);
+
+impl AtomicTick {
+    #[inline]
+    pub const fn new(tick: Tick) -> Self {
+        Self(AtomicI32::new(tick.0))
+    }
+
+    #[inline]
+    pub fn get(&self) -> Tick {
+        Tick(self.0.load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    pub fn set(&self, tick: Tick) {
+        self.0.store(tick.0, Ordering::Relaxed);
+    }
+
+    /// Updates the atomic tick to the provided tick if it is newer than the current value. (maximum)
+    #[inline]
+    pub fn update_newer(&self, tick: Tick) -> Tick {
+        let mut current = self.get();
+        while tick.is_newer_than(current) {
+            match self.0.compare_exchange_weak(
+                current.0,
+                tick.0,
+                Ordering::SeqCst,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return tick,                  // Successfully updated
+                Err(actual) => current = Tick(actual), // Update failed, retry with the new value
+            }
+        }
+        current
+    }
+
+    /// Updates the atomic tick to the provided tick if it is older than the current value.
+    /// (minimum)
+    #[inline]
+    pub fn update_older(&self, tick: Tick) -> Tick {
+        let mut current = self.get();
+        while current.is_newer_than(tick) {
+            match self.0.compare_exchange_weak(
+                current.0,
+                tick.0,
+                Ordering::SeqCst,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return tick,                  // Successfully updated
+                Err(actual) => current = Tick(actual), // Update failed, retry with the new value
+            }
+        }
+        current
+    }
+}
+
+impl From<Tick> for AtomicTick {
+    #[inline]
+    fn from(tick: Tick) -> Self {
+        Self::new(tick)
     }
 }
 
