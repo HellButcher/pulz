@@ -140,19 +140,47 @@ impl<'a, T: ?Sized> UnsafeRefCell<'a, T> {
         Self(UnsafeCell::new(value))
     }
 
+    /// Dereference the inner `&mut T`.
+    ///
+    /// # Safety
+    ///
+    /// Safe because we hold `&mut self`, which guarantees exclusive access to the
+    /// `UnsafeCell`. The inner `&'a mut T` therefore has a unique caller, so
+    /// dereferencing it produces a valid `&mut T`.
     #[inline]
     fn get_mut(&mut self) -> &mut T {
+        // Exclusive access via `&mut self` ensures the inner `&mut T` is uniquely held.
         unsafe { &mut *self.0.get() }
     }
 
+    /// Dereference the inner `&mut T` as a shared reference.
+    ///
+    /// # Safety
+    ///
+    /// Safe: any code path that produces an `UnsafeRefCell` (via `EntityMut`) also
+    /// provides access to the underlying `WorldInner`/`WorldMutInnerTemp` through
+    /// other channels (`self.res`, or the caller's own borrow). Thus every access
+    /// goes through exactly one of: a shared `&UnsafeRefCell` (here) or a mutable
+    /// `&mut UnsafeRefCell` (via `get_mut` / `get_mut_unchecked`), never both.
     #[inline]
     fn get(&self) -> &T {
         unsafe { &*self.0.get() }
     }
 
+    /// Dereference the inner `&mut T` as a mutable reference without taking `&mut self`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee exclusive access to `T`. In this crate this is
+    /// ensured by the `EntityMut` API: `get_mut_unchecked` is only called from
+    /// `EntityMut::flush()` and `EntityMut::despawn()`, both of which take `&self`
+    /// on an `EntityMut` that already owns exclusive mutable access to the world
+    /// through `&mut Resources`. No other code path can simultaneously hold a
+    /// mutable reference to the same inner value.
     #[inline]
     #[allow(clippy::mut_from_ref)]
     unsafe fn get_mut_unchecked(&self) -> &mut T {
+        // Caller guarantees exclusive access (see safety comment above).
         unsafe { &mut *self.0.get() }
     }
 }
@@ -320,7 +348,7 @@ impl<'w> EntityMut<'w> {
     }
 
     fn flush(&self) {
-        // SAFETY: mutable access only, when already has mutable access, throug get_mut(),
+        // SAFETY: mutable access only, when already has mutable access (throug get_mut()),
         // or only here
         let world_tmp = unsafe { self.world_tmp.get_mut_unchecked() };
         if world_tmp.tmp_removed.is_empty() && world_tmp.tmp_inserted.is_empty() {
@@ -343,7 +371,10 @@ impl<'w> EntityMut<'w> {
             let component = &world.components[component_id];
             let mut storage = component.borrow_mut_any_storage(self.res);
             if storage.swap_remove(self.entity, old.archetype_id, old.index()) {
-                if world.archetypes.is_archetype_component(component_id) {
+                if world
+                    .archetypes
+                    .is_archetype_defining_component(component_id)
+                {
                     needs_update_archetype = true;
                 }
                 return true;
@@ -356,8 +387,18 @@ impl<'w> EntityMut<'w> {
             let component = &world.components[component_id];
             let mut storage = component.borrow_mut_any_storage(self.res);
             if !storage.flush_replace(old.archetype_id, old.index()) {
-                if world.archetypes.is_archetype_component(component_id) {
+                // was not replaced (maybe because component is not part of old archetype)
+                if world
+                    .archetypes
+                    .is_archetype_defining_component(component_id)
+                {
                     needs_update_archetype = true;
+                } else {
+                    panic!(
+                        "component {:?}({}) was not replaced, but is not archetype defining",
+                        component_id,
+                        component.name()
+                    );
                 }
                 return true;
             }
@@ -365,6 +406,9 @@ impl<'w> EntityMut<'w> {
         });
 
         if !needs_update_archetype {
+            // assume that these are empty
+            debug_assert!(world_tmp.tmp_removed.is_empty());
+            debug_assert!(world_tmp.tmp_inserted.is_empty());
             world_tmp.tmp_removed.clear();
             world_tmp.tmp_inserted.clear();
             return;
@@ -425,21 +469,22 @@ impl<'w> EntityMut<'w> {
         world_tmp.tmp_removed.clear();
         world_tmp.tmp_inserted.clear();
 
-        // set new location
-        let new_location = EntityLocation {
-            archetype_id: new_archetype_id,
-            index: new_index as u32,
-        };
-        self.location.set(new_location);
-
         // move entity by swaping entity locations
         // remove from old
         if old.is_occupied() {
             old_archetype.entities.swap_remove(old.index());
             if let Some(old_swapped) = old_archetype.entities.get(old.index()).copied() {
-                *world.entities.get_mut(old_swapped).expect("swapped entity") = new_location;
+                *world.entities.get_mut(old_swapped).expect("swapped entity") = self.location.get();
             }
         }
+
+        // set new location
+        let new_location = EntityLocation {
+            archetype_id: new_archetype_id,
+            index: new_index as u32,
+        };
+
+        self.location.set(new_location);
         new_archetype.entities.push(self.entity);
         *world.entities.get_mut(self.entity).expect("entity") = new_location;
     }
@@ -508,5 +553,420 @@ impl WorldMut<'_> {
             entity,
             location,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pulz_schedule::prelude::Resources;
+
+    use crate::{
+        EcsModule, ResourcesExt, archetype::ArchetypeId, component::Component, entity::Entity,
+    };
+
+    #[derive(Component)]
+    struct Pos {
+        x: f32,
+        y: f32,
+    }
+
+    #[derive(Component)]
+    struct Vel {
+        dx: f32,
+        dy: f32,
+    }
+
+    // --- WorldMut::spawn ---
+
+    #[test]
+    fn world_mut_spawn_creates_entity() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let entity = world.spawn().id();
+        assert!(world.entity(entity).is_some());
+        let len = world.entities().len();
+        assert_eq!(len, 1);
+    }
+
+    #[test]
+    fn world_mut_spawn_multiple_entities() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let a = world.spawn().id();
+        let b = world.spawn().id();
+        assert_ne!(a, b);
+        let len = world.entities().len();
+        assert_eq!(len, 2);
+    }
+
+    // --- EntityMut::insert (checked within same scope) ---
+
+    #[test]
+    fn entity_mut_insert_component() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let mut em = world.spawn();
+        em.insert(Pos { x: 1.0, y: 2.0 });
+        assert!(em.contains::<Pos>());
+    }
+
+    #[test]
+    fn entity_mut_insert_component_entity_mut() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let id = world.spawn().id();
+        assert_eq!(world.entity(id).unwrap().archetype().id, ArchetypeId::EMPTY);
+        world.entity_mut(id).unwrap().insert(Pos { x: 1.0, y: 2.0 });
+        assert_ne!(world.entity(id).unwrap().archetype().id, ArchetypeId::EMPTY);
+
+        assert!(world.entity(id).unwrap().contains::<Pos>());
+    }
+
+    #[test]
+    fn entity_mut_insert_multiple_components() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let mut em = world.spawn();
+        em.insert(Pos { x: 1.0, y: 2.0 });
+        em.insert(Vel { dx: 0.5, dy: -0.3 });
+        assert!(em.contains::<Pos>());
+        assert!(em.contains::<Vel>());
+    }
+
+    // --- EntityMut::borrow / contains ---
+
+    #[test]
+    fn entity_mut_borrow_component() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let mut em = world.spawn();
+        em.insert(Pos { x: 3.0, y: 4.0 });
+        let pos = em.borrow::<Pos>().unwrap();
+        assert!((pos.x - 3.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn entity_mut_borrow_nonexistent_returns_none() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        let has_no_pos = {
+            let em = world.entity_mut(e).unwrap();
+            em.borrow::<Pos>().is_none()
+        };
+        assert!(has_no_pos);
+    }
+
+    #[test]
+    fn entity_mut_contains() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        let (has_pos, has_vel) = {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            (em.contains::<Pos>(), em.contains::<Vel>())
+        };
+        assert!(has_pos);
+        assert!(!has_vel);
+    }
+
+    // --- EntityMut::remove ---
+
+    #[test]
+    fn entity_mut_remove_component() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        let (has_pos_after, has_vel_after) = {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            em.insert(Vel { dx: 0.5, dy: -0.3 });
+            em.remove::<Vel>();
+            (em.contains::<Pos>(), em.contains::<Vel>())
+        };
+        assert!(has_pos_after);
+        assert!(!has_vel_after);
+    }
+
+    #[test]
+    fn entity_mut_remove_nonexistent_is_safe() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        let has_pos = {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            em.remove::<Vel>(); // Removing non-existent should not panic
+            em.contains::<Pos>()
+        };
+        assert!(has_pos);
+    }
+
+    // --- EntityMut::clear ---
+
+    #[test]
+    fn entity_mut_clear_components() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        let (has_pos, has_vel) = {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            em.insert(Vel { dx: 0.5, dy: -0.3 });
+            em.clear();
+            (em.contains::<Pos>(), em.contains::<Vel>())
+        };
+        assert!(!has_pos);
+        assert!(!has_vel);
+    }
+
+    // --- EntityMut::despawn ---
+
+    #[test]
+    fn entity_mut_despawn() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let entity = world.spawn().id();
+        assert!(world.entity(entity).is_some());
+
+        // Despawn via EntityMut
+        let entity_mut = world.entity_mut(entity).unwrap();
+        entity_mut.despawn();
+
+        assert!(world.entity(entity).is_none());
+        assert_eq!(world.entities().len(), 0);
+    }
+
+    #[test]
+    fn entity_mut_despawn_with_components() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        let despawned = {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            em.insert(Vel { dx: 0.5, dy: -0.3 });
+            // Despawn — should not panic even with components
+            let entity = em.id();
+            em.despawn();
+            world.entity(entity).is_none()
+        };
+        assert!(despawned);
+    }
+
+    #[test]
+    fn world_mut_despawn_and_respawn() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let entity1 = world.spawn().id();
+        {
+            let mut e1 = world.entity_mut(entity1).unwrap();
+            e1.insert(Pos { x: 1.0, y: 2.0 });
+            e1.despawn();
+        }
+
+        let entity2 = world.spawn().id();
+        assert!(world.entity(entity2).is_some());
+        assert_eq!(world.entities().len(), 1);
+    }
+
+    // --- World::entity returns None for nonexistent ---
+
+    #[test]
+    fn world_entity_nonexistent_returns_none() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world();
+        assert!(world.entity(Entity::default()).is_none());
+    }
+
+    // --- Archetype changes (checked within same scope) ---
+
+    #[test]
+    fn archetype_changes_on_component_add() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        {
+            let em = world.entity_mut(e).unwrap();
+            let initial_id = em.archetype().id;
+            drop(em);
+
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            // After insert, archetype should change (entity moves from empty to Pos archetype)
+            assert_ne!(initial_id, em.archetype().id);
+        }
+    }
+
+    #[test]
+    fn archetype_changes_on_component_remove() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            em.insert(Vel { dx: 0.5, dy: -0.3 });
+            let before_id = em.archetype().id;
+            em.remove::<Vel>();
+            assert_ne!(before_id, em.archetype().id);
+        }
+    }
+
+    // --- EntityMut::id ---
+
+    #[test]
+    fn entity_mut_id() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        let got_id = {
+            let em = world.entity_mut(e).unwrap();
+            em.id()
+        };
+        assert_eq!(e, got_id);
+    }
+
+    // --- EntityMut::insert registers component (check via Components registry) ---
+
+    #[test]
+    fn entity_mut_insert_registers_component() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            em.insert(Vel { dx: 0.5, dy: -0.3 });
+        }
+        // After insert, component should be registered in the world
+        assert_eq!(world.components().len(), 2);
+    }
+
+    #[test]
+    fn entity_mut_insert_single_component() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+        }
+        assert_eq!(world.components().len(), 1);
+    }
+
+    // --- EntityMut::remove (check via Components registry) ---
+
+    #[test]
+    fn entity_mut_remove_no_panic() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 });
+            em.remove::<Vel>(); // Removing non-existent should not panic
+        }
+    }
+
+    // --- EntityMut::insert returns &mut Self (builder pattern) ---
+
+    #[test]
+    fn entity_mut_insert_builder_pattern() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            // Chained inserts should work
+            em.insert(Pos { x: 1.0, y: 2.0 })
+                .insert(Vel { dx: 0.5, dy: -0.3 });
+        }
+        assert_eq!(world.components().len(), 2);
+    }
+
+    // --- EntityMut::insert_by_id ---
+
+    #[test]
+    fn entity_mut_insert_by_id() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Pos { x: 1.0, y: 2.0 }); // registers Pos
+        }
+        let pos_id = world.components().expect_id::<Pos>();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert_by_id(pos_id, Pos { x: 42.0, y: 43.0 });
+        }
+    }
+
+    // --- EntityMut::remove_by_id ---
+
+    #[test]
+    fn entity_mut_remove_by_id() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Vel { dx: 0.5, dy: -0.3 }); // registers Vel
+        }
+        let vel_id = world.components().expect_id::<Vel>();
+        {
+            let mut em = world.entity_mut(e).unwrap();
+            em.insert(Vel { dx: 0.5, dy: -0.3 });
+            em.remove_by_id(vel_id);
+        }
+    }
+
+    // --- EntityRef::archetype ---
+
+    #[test]
+    fn entity_ref_archetype() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let e = world.spawn().id();
+        let arch_id = {
+            let em = world.entity_mut(e).unwrap();
+            em.archetype().id
+        };
+        // Empty entity is in the empty archetype
+        assert_eq!(
+            arch_id,
+            world
+                .archetypes()
+                .get(crate::archetype::ArchetypeId::EMPTY)
+                .unwrap()
+                .id
+        );
     }
 }

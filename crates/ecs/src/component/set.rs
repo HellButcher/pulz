@@ -117,6 +117,9 @@ impl ComponentSet {
                 .unwrap(),
         )
     }
+
+    // TODO: provide a `ratain` method that takes a predicate and removes all ids for which the predicate returns false.
+    // can be used in EntityMut::flush
 }
 
 impl Extend<ComponentId> for ComponentSet {

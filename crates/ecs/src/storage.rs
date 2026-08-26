@@ -213,15 +213,15 @@ where
     }
 
     fn flush_replace(&mut self, archetype_id: ArchetypeId, index: usize) -> bool {
-        let Some(value) = self.tmp.take() else {
-            return false; // TODO: error: no value inserted
-        };
         let Some(cell) = self
             .data
             .get_mut(archetype_id)
             .and_then(|col| col.get_mut(index))
         else {
-            return false; // TODO: error: archetype and index not present
+            return false; // archetype and index not present — tmp still has the value for flush_push
+        };
+        let Some(value) = self.tmp.take() else {
+            return false;
         };
         *cell = value;
         true

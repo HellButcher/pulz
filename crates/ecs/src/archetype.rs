@@ -194,8 +194,15 @@ impl Archetypes {
 
     /// Returns `true` if the component is tracked as an archetype-influencing component.
     #[inline]
-    pub fn is_archetype_component<X>(&self, id: ComponentId<X>) -> bool {
+    pub fn is_archetype_defining_component<X>(&self, id: ComponentId<X>) -> bool {
         self.archetype_components.contains(id)
+    }
+
+    /// Registers a component as affecting archetype membership.
+    /// Called when a non-sparse (dense/ArchetypeStorage) component is first registered.
+    #[inline]
+    pub(crate) fn register_archetype_component<X>(&mut self, id: ComponentId<X>) {
+        self.archetype_components.insert(id);
     }
 
     #[inline]

@@ -5,7 +5,7 @@ use crate::{
     component::{ComponentData, ComponentId},
     entity::Entity,
     prelude::Component,
-    storage::AnyStorage,
+    storage::{AnyStorage, Storage},
 };
 
 impl WorldInner {
@@ -76,6 +76,13 @@ impl WorldInner {
             let storage_id = res.init::<T::Storage>();
             let id = self.components.try_init::<T>(storage_id)?;
             res.init_meta_id::<dyn AnyStorage, T::Storage>(storage_id);
+
+            // Non-sparse components affect archetype membership — register them so that
+            // `is_archetype_component` returns true during flush.
+            if !T::Storage::SPARSE {
+                self.archetypes.register_archetype_component(id);
+            }
+
             Ok(id)
         }
     }
