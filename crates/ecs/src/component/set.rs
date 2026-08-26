@@ -90,6 +90,11 @@ impl ComponentSet {
         self.0.is_empty()
     }
 
+    /// Returns number of distinct component ids in the set.
+    pub fn len(&self) -> usize {
+        self.0.len() as usize
+    }
+
     /// Returns an iterator over all component ids in the set.
     #[inline]
     pub fn iter(&self) -> Iter<'_> {
@@ -159,5 +164,88 @@ impl<'a> IntoIterator for &'a ComponentSet {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         Iter(self.0.iter())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::component::ComponentId;
+
+    #[test]
+    fn component_set_new_is_empty_then_filled_then_cleared() {
+        let mut s = ComponentSet::new();
+        assert!(s.is_empty());
+        assert_eq!(s.len(), 0);
+        // insert c1
+        let c1 = ComponentId::<u8>::new(1);
+        s.insert(c1);
+        assert!(!s.is_empty());
+        assert_eq!(s.len(), 1);
+        // insert c2
+        let c2 = ComponentId::<u16>::new(2);
+        assert!(s.insert(c2));
+        assert_eq!(s.len(), 2);
+        // insert c1 again
+        assert!(!s.insert(c1));
+        assert_eq!(s.len(), 2);
+        // remove c1
+        assert!(s.remove(c1));
+        assert_eq!(s.len(), 1);
+        // remove c1 again
+        assert!(!s.remove(c1));
+        assert_eq!(s.len(), 1);
+        // clear
+        s.clear();
+        assert!(s.is_empty());
+        assert_eq!(s.len(), 0);
+    }
+
+    #[test]
+    fn component_set_clone() {
+        let s1 = ComponentSet::new();
+        let s2 = s1.clone();
+        assert_eq!(s1, s2);
+
+        let mut s3 = ComponentSet::new();
+        let c1 = ComponentId::<u8>::new(1);
+        s3.insert(c1);
+        let s4 = s3.clone();
+        assert_eq!(s3, s4);
+    }
+
+    #[test]
+    fn component_set_iter() {
+        let mut s = ComponentSet::new();
+        let mut iter = s.iter();
+        assert!(iter.next().is_none());
+        let c1 = ComponentId::<u8>::new(1);
+        s.insert(c1);
+        let mut iter = s.iter();
+        assert_eq!(iter.next(), Some(c1.untyped()));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn component_set_into_iter() {
+        let mut s = ComponentSet::new();
+        let c1 = ComponentId::<u8>::new(1);
+        s.insert(c1);
+        let mut iter = s.into_iter();
+        assert_eq!(iter.next(), Some(c1.untyped()));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn component_set_operations() {
+        let mut s1 = ComponentSet::new();
+        let s2 = ComponentSet::new();
+        assert!(s1.is_disjoint(&s2));
+        s1.union_with(&s2);
+        assert!(s1.is_empty());
+        s1.difference_with(&s2);
+        assert!(s1.is_empty());
+        s1.intersect_with(&s2);
+        assert!(s1.is_empty());
     }
 }

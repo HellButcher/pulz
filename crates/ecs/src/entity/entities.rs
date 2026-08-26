@@ -88,3 +88,126 @@ impl std::ops::IndexMut<Entity> for Entities {
         &mut self.0[entity]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entities_new_is_empty() {
+        let e = Entities::new();
+        assert!(e.is_empty());
+        assert_eq!(e.len(), 0);
+    }
+
+    #[test]
+    fn entities_create() {
+        let mut e = Entities::new();
+        let entity = e.create();
+        assert!(e.contains(entity));
+        assert_eq!(e.len(), 1);
+    }
+
+    #[test]
+    fn entities_multiple_creates() {
+        let mut e = Entities::new();
+        let a = e.create();
+        let b = e.create();
+        assert_ne!(a, b);
+        assert_eq!(e.len(), 2);
+        assert!(e.contains(a));
+        assert!(e.contains(b));
+    }
+
+    #[test]
+    fn entities_remove() {
+        let mut e = Entities::new();
+        let entity = e.create();
+        assert!(e.contains(entity));
+        assert!(e.remove(entity).is_some());
+        assert!(!e.contains(entity));
+        assert_eq!(e.len(), 0);
+    }
+
+    #[test]
+    fn entities_remove_nonexistent() {
+        let mut e = Entities::new();
+        let fake = Entity::default();
+        assert!(!e.contains(fake));
+        assert!(e.remove(fake).is_none());
+    }
+
+    #[test]
+    fn entities_contains() {
+        let mut e = Entities::new();
+        let entity = e.create();
+        assert!(e.contains(entity));
+        e.remove(entity);
+        assert!(!e.contains(entity));
+    }
+
+    #[test]
+    fn entities_get() {
+        let mut e = Entities::new();
+        let entity = e.create();
+        let loc = e.get(entity).unwrap();
+        // After create(), the entity is in a vacant state (not yet placed in an archetype)
+        assert!(loc.is_vacant());
+    }
+
+    #[test]
+    fn entities_get_mut() {
+        let mut e = Entities::new();
+        let entity = e.create();
+        let loc = e.get_mut(entity).unwrap();
+        // Should be able to mutate
+        let _ = loc;
+    }
+
+    #[test]
+    fn entities_clear() {
+        let mut e = Entities::new();
+        let _ = e.create();
+        let _ = e.create();
+        assert_eq!(e.len(), 2);
+        e.clear();
+        assert!(e.is_empty());
+    }
+
+    #[test]
+    fn entities_reserve() {
+        let mut e = Entities::new();
+        e.reserve(100);
+        // Just verify it doesn't panic
+        for _ in 0..100 {
+            e.create();
+        }
+        assert_eq!(e.len(), 100);
+    }
+
+    #[test]
+    fn entities_index_operator() {
+        let mut e = Entities::new();
+        let entity = e.create();
+        // Should not panic
+        let _loc = e[entity];
+    }
+
+    #[test]
+    fn entities_get_stale_entity() {
+        let mut e = Entities::new();
+        let entity = e.create();
+        e.remove(entity);
+        assert!(e.get(entity).is_none());
+        assert!(e.get_mut(entity).is_none());
+    }
+
+    #[test]
+    fn entities_location_is_vacant_after_create() {
+        let mut e = Entities::new();
+        let entity = e.create();
+        let loc = e.get(entity).unwrap();
+        // After create(), the entity is vacant (not yet placed in an archetype)
+        assert!(loc.is_vacant());
+    }
+}

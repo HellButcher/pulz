@@ -9,10 +9,10 @@ use pulz_schedule::{
 };
 
 use crate::{
+    ResourcesExt, WorldInner, WorldMutInnerTemp,
     archetype::Archetypes,
     component::{Component, ComponentId, Components},
     entity::{Entities, Entity},
-    ResourcesExt, WorldInner, WorldMutInnerTemp,
 };
 
 mod inner;
@@ -29,7 +29,9 @@ pub struct World<'a> {
 impl<'a> World<'a> {
     #[inline]
     pub(super) fn from_resources(res: &'a Resources) -> Self {
-        let world = res.borrow_res::<WorldInner>().unwrap();
+        let world = res
+            .borrow_res::<WorldInner>()
+            .expect("EcsModule not initialized");
         World { res, world }
     }
 
@@ -180,5 +182,64 @@ impl ResourcesExt for Resources {
     #[inline]
     fn world_mut(&mut self) -> WorldMut<'_> {
         WorldMut::from_resources_mut(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pulz_schedule::prelude::Resources;
+
+    use crate::{EcsModule, ResourcesExt};
+
+    // --- World ---
+
+    #[test]
+    fn world_archetypes_len() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world_mut();
+        assert_eq!(world.archetypes().len(), 1);
+    }
+
+    #[test]
+    fn world_components_empty() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world_mut();
+        assert!(world.components().is_empty());
+    }
+
+    #[test]
+    fn world_entities_empty() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world();
+        assert!(world.entities().is_empty());
+    }
+
+    // --- WorldMut ---
+
+    #[test]
+    fn world_mut_archetypes_len() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world_mut();
+        assert_eq!(world.archetypes().len(), 1);
+    }
+
+    #[test]
+    fn world_mut_components_empty() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world_mut();
+        assert!(world.components().is_empty());
+    }
+
+    #[test]
+    fn world_mut_entities_empty() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world_mut();
+        assert!(world.entities().is_empty());
     }
 }

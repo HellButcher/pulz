@@ -440,6 +440,24 @@ impl ScheduleNodeBuilder<'_> {
     pub fn as_label(&self) -> SystemSetId {
         self.label
     }
+
+    #[cfg(test)]
+    pub(crate) fn get_boxed_system_for_test(&self) -> &BoxedSystem {
+        let system_id = self.schedule.graph[self.node_id].system;
+        &self.schedule.systems[system_id.0]
+    }
+}
+
+impl SystemSet for ScheduleNodeBuilder<'_> {
+    #[inline]
+    fn as_label(&self) -> SystemSetId {
+        self.label
+    }
+
+    #[inline]
+    fn as_str(&self) -> &'static str {
+        self.label.as_str()
+    }
 }
 
 fn shift_values(entries: &mut [Layer], in_range: impl RangeBounds<usize>, shift: isize) {

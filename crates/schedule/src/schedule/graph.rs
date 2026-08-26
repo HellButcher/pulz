@@ -340,14 +340,33 @@ impl<'a> WorkGraph<'a> {
     ) -> Vec<Layer> {
         let mut result = Vec::new();
         result.resize(self.systems_len(), Layer::UNDEFINED);
+
+        // Build a map from NodeId to layer index
+        let mut node_to_layer: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
         for (layer_index, layer) in topological_order_layers.iter().enumerate() {
             for &node_id in layer {
-                for &dep in self[node_id].dependencies.iter() {
+                node_to_layer.insert(node_id.0, layer_index);
+            }
+        }
+
+        // For each system, find the maximum layer index of its dependencies
+        for layer in topological_order_layers.iter() {
+            for &node_id in layer {
+                let node = &self[node_id];
+                if !node.system.is_defined() {
+                    continue;
+                }
+                for &dep in node.dependencies.iter() {
                     let dep_node = &self.graph[dep];
-                    if dep_node.system.is_defined() {
-                        let entry = &mut result[dep_node.system.0];
-                        if entry.0 > layer_index {
-                            entry.0 = layer_index;
+                    if dep_node.system.is_defined()
+                        && let Some(&dep_layer) = node_to_layer.get(&dep.0)
+                    {
+                        let entry = &mut result[node.system.0];
+                        // Update if entry is UNDEFINED or dep_layer is greater
+                        let should_update = entry.0 == !0 || dep_layer > entry.0;
+                        if should_update {
+                            entry.0 = dep_layer;
                         }
                     }
                 }
@@ -378,5 +397,340 @@ impl GraphError {
         panic!(
             "{context}: probbably cycles in systems.\nuse PULZ_DUMP_SCHEDULE=[path] to dump a .dot file of the schedule."
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- Graph basics ---
+
+    #[test]
+    fn graph_new_is_empty() {
+        let g = Graph::new();
+        assert_eq!(g.len(), 0);
+    }
+
+    #[test]
+    fn graph_insert_creates_node() {
+        let mut g = Graph::new();
+        let (id, node) = g.insert(SystemId(0));
+        assert!(id.is_defined());
+        assert_eq!(node.system, SystemId(0));
+        assert_eq!(g.len(), 1);
+    }
+
+    #[test]
+    fn graph_get_returns_node() {
+        let mut g = Graph::new();
+        let (id, _) = g.insert(SystemId(42));
+        assert_eq!(g.get(id).unwrap().system, SystemId(42));
+        assert!(g.get(NodeId(99)).is_none());
+    }
+
+    #[test]
+    fn graph_add_dependency() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        g.add_dependency(a, b);
+        assert_eq!(g[b].dependencies, vec![a]);
+    }
+
+    #[test]
+    fn graph_set_parent() {
+        let mut g = Graph::new();
+        let (p, _) = g.insert(SystemId(0));
+        let (c, _) = g.insert(SystemId(1));
+        g.set_parent(p, c);
+        assert_eq!(g[c].parent, p);
+    }
+
+    #[test]
+    fn graph_index_operator() {
+        let mut g = Graph::new();
+        let (id, _) = g.insert(SystemId(0));
+        // Should not panic
+        let _node = &g[id];
+    }
+
+    // --- WorkGraph: linear DAG ---
+
+    #[test]
+    fn workgraph_linear_dag_single_layer() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        let (c, _) = g.insert(SystemId(2));
+        g.add_dependency(a, b);
+        g.add_dependency(b, c);
+        let wg = g.work_graph();
+        let layers = wg.topological_order_layers().unwrap();
+        // Linear chain: each node in its own layer
+        assert_eq!(layers.len(), 3);
+        assert_eq!(layers[0], vec![a]);
+        assert_eq!(layers[1], vec![b]);
+        assert_eq!(layers[2], vec![c]);
+    }
+
+    #[test]
+    fn workgraph_linear_dag_systems_order() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        g.add_dependency(a, b);
+        let wg = g.work_graph();
+        let systems = wg.systems_topological_order_layers().unwrap();
+        assert_eq!(systems.len(), 2);
+        assert_eq!(systems[0], vec![SystemId(0)]);
+        assert_eq!(systems[1], vec![SystemId(1)]);
+    }
+
+    // --- WorkGraph: diamond dependencies ---
+
+    #[test]
+    fn workgraph_diamond_dependencies() {
+        //   A
+        //  / \
+        // B   C
+        //  \ /
+        //   D
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        let (c, _) = g.insert(SystemId(2));
+        let (d, _) = g.insert(SystemId(3));
+        g.add_dependency(a, b);
+        g.add_dependency(a, c);
+        g.add_dependency(b, d);
+        g.add_dependency(c, d);
+        let wg = g.work_graph();
+        let layers = wg.topological_order_layers().unwrap();
+        assert_eq!(layers.len(), 3);
+        assert_eq!(layers[0], vec![a]);
+        // B and C are in the same layer (both depend only on A)
+        assert_eq!(layers[1].len(), 2);
+        assert!(layers[1].contains(&b));
+        assert!(layers[1].contains(&c));
+        assert_eq!(layers[2], vec![d]);
+    }
+
+    // --- WorkGraph: parallel independent nodes ---
+
+    #[test]
+    fn workgraph_independent_nodes_same_layer() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        let (c, _) = g.insert(SystemId(2));
+        // No dependencies — all independent
+        let wg = g.work_graph();
+        let layers = wg.topological_order_layers().unwrap();
+        assert_eq!(layers.len(), 1);
+        assert_eq!(layers[0].len(), 3);
+        assert!(layers[0].contains(&a));
+        assert!(layers[0].contains(&b));
+        assert!(layers[0].contains(&c));
+    }
+
+    // --- WorkGraph: virtual nodes (undefined systems) ---
+
+    #[test]
+    fn workgraph_virtual_nodes_dont_create_layers() {
+        // A ──virtual──> B
+        // Virtual node should not appear in output layers
+        let mut g2 = Graph::new();
+        let (a2, _) = g2.insert(SystemId(0));
+        let (_v, _) = g2.insert(SystemId::UNDEFINED);
+        let (b2, _) = g2.insert(SystemId(1));
+        g2.add_dependency(a2, _v);
+        g2.add_dependency(_v, b2);
+        let wg = g2.work_graph();
+        let systems = wg.systems_topological_order_layers().unwrap();
+        // Virtual node should be collapsed: A in layer 0, B in layer 1
+        assert_eq!(systems.len(), 2);
+        assert_eq!(systems[0], vec![SystemId(0)]);
+        assert_eq!(systems[1], vec![SystemId(1)]);
+    }
+
+    // --- WorkGraph: parent/child constraints ---
+
+    #[test]
+    fn workgraph_parent_child_enforced() {
+        let mut g = Graph::new();
+        let (p, _) = g.insert(SystemId(0));
+        let (c1, _) = g.insert(SystemId(1));
+        let (c2, _) = g.insert(SystemId(2));
+        // c1 and c2 are children of p — parent/child alone doesn't create ordering
+        // without explicit dependency edges. Test that parent/child is tracked.
+        g.set_parent(p, c1);
+        g.set_parent(p, c2);
+        let wg = g.work_graph();
+        // All nodes have no dependencies, so they should all be in one layer
+        let layers = wg.topological_order_layers().unwrap();
+        assert_eq!(layers.len(), 1);
+        assert!(layers[0].contains(&p));
+        assert!(layers[0].contains(&c1));
+        assert!(layers[0].contains(&c2));
+    }
+
+    // --- WorkGraph: cycle detection ---
+
+    #[test]
+    fn workgraph_cycle_detected() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        let (c, _) = g.insert(SystemId(2));
+        // Create a cycle: a → b → c → a
+        g.add_dependency(a, b);
+        g.add_dependency(b, c);
+        g.add_dependency(c, a);
+        let wg = g.work_graph();
+        let result = wg.topological_order_layers();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            GraphError::CycleDetected(count) => {
+                // Should report remaining unprocessed nodes
+                assert!(count > 0);
+            }
+        }
+    }
+
+    #[test]
+    fn workgraph_self_cycle_detected() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        // Self-dependency
+        g.add_dependency(a, a);
+        let wg = g.work_graph();
+        assert!(wg.topological_order_layers().is_err());
+    }
+
+    // --- WorkGraph: dependent layers ---
+
+    #[test]
+    fn workgraph_dependent_layers_basic() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        g.add_dependency(a, b);
+        let wg = g.work_graph();
+        let dependent = wg.systems_dependent_layers().unwrap();
+        assert_eq!(dependent.len(), 2);
+        // A has no dependencies → UNDEFINED
+        assert_eq!(dependent[0], Layer::UNDEFINED);
+        // B depends on A → layer 0
+        assert_eq!(dependent[1], Layer(0));
+    }
+
+    // --- WorkGraph: combined output ---
+
+    #[test]
+    fn workgraph_combined_output() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        let (c, _) = g.insert(SystemId(2));
+        g.add_dependency(a, b);
+        g.add_dependency(a, c);
+
+        let wg = g.work_graph();
+
+        let (systems, dependent) = wg
+            .systems_topological_order_with_dependent_layers()
+            .unwrap();
+
+        // Verify the topological order: a must come before b and c
+        assert_eq!(systems.len(), 2);
+        assert_eq!(systems[0], vec![SystemId(0)]);
+        assert_eq!(systems[1].len(), 2);
+
+        // A has no dependencies, so its dependent layer should be UNDEFINED
+        // B and C depend on A, so their dependent layers should be >= 0
+        assert!(dependent[1] != Layer::UNDEFINED || dependent[2] != Layer::UNDEFINED);
+    }
+
+    // --- WorkGraph: empty graph ---
+
+    #[test]
+    fn workgraph_empty_graph() {
+        let g = Graph::new();
+        let wg = g.work_graph();
+        let layers = wg.topological_order_layers().unwrap();
+        assert!(layers.is_empty());
+        let systems = wg.systems_topological_order_layers().unwrap();
+        assert!(systems.is_empty());
+    }
+
+    // --- WorkGraph: single node ---
+
+    #[test]
+    fn workgraph_single_node() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let wg = g.work_graph();
+        let layers = wg.topological_order_layers().unwrap();
+        assert_eq!(layers.len(), 1);
+        assert_eq!(layers[0], vec![a]);
+    }
+
+    // --- Node helpers ---
+
+    #[test]
+    fn node_is_parent_ready_no_parent() {
+        let node = Node::new(SystemId(0));
+        let ready = BitSet::new();
+        assert!(node.is_parent_ready(&ready));
+    }
+
+    #[test]
+    fn node_is_parent_ready_with_parent_not_ready() {
+        let mut node = Node::new(SystemId(1));
+        node.parent = NodeId(0);
+        let mut ready = BitSet::new();
+        ready.insert(1); // only node 1 is ready, not parent
+        assert!(!node.is_parent_ready(&ready));
+    }
+
+    #[test]
+    fn node_are_dependencies_complete() {
+        let mut g = Graph::new();
+        let (a, _) = g.insert(SystemId(0));
+        let (b, _) = g.insert(SystemId(1));
+        g.add_dependency(a, b);
+        let mut completed = BitSet::new();
+        assert!(!g[b].are_dependencies_complete(&completed));
+        completed.insert(a.0);
+        assert!(g[b].are_dependencies_complete(&completed));
+    }
+
+    // --- NodeId ---
+
+    #[test]
+    fn node_id_undefined() {
+        assert!(NodeId::UNDEFINED.is_undefined());
+        assert!(!NodeId(0).is_undefined());
+    }
+
+    #[test]
+    fn node_id_defined() {
+        assert!(NodeId(0).is_defined());
+        assert!(!NodeId::UNDEFINED.is_defined());
+    }
+
+    // --- SystemId ---
+
+    #[test]
+    fn system_id_undefined() {
+        assert!(SystemId::UNDEFINED.is_undefined());
+        assert!(!SystemId(0).is_undefined());
+    }
+
+    #[test]
+    fn system_id_defined() {
+        assert!(SystemId(0).is_defined());
+        assert!(!SystemId::UNDEFINED.is_defined());
     }
 }

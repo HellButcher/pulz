@@ -219,10 +219,14 @@ macro_rules! dump_schedule_dot {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, atomic::AtomicUsize};
+    use std::{
+        assert_matches,
+        sync::{Arc, atomic::AtomicUsize},
+    };
 
     use super::*;
     use crate::{
+        label::{CoreSystemSet, LabelId},
         resource::{ResMut, ResourceAccess, ResourcesSend},
         system::{ExclusiveSystem, SendSystem, System, SystemInit, system},
     };
@@ -289,5 +293,143 @@ mod tests {
         assert_eq!(1, counter.load(std::sync::atomic::Ordering::Acquire));
         assert!(resources.get_mut::<A>().is_some());
         assert_eq!(resources.get_mut::<Data>().unwrap().0, 21);
+    }
+
+    // --- Schedule construction tests ---
+
+    #[test]
+    fn schedule_new_is_empty() {
+        let s = Schedule::new();
+        assert!(s.systems.is_empty());
+    }
+
+    #[test]
+    fn schedule_add_system_creates_node() {
+        struct A;
+        struct Sys(Arc<AtomicUsize>);
+        impl SystemInit for Sys {
+            fn init(&mut self, _resources: &mut Resources) {}
+        }
+        impl System for Sys {
+            fn run(&mut self, _resources: &Resources) {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            }
+            fn update_access(&self, _resources: &Resources, _access: &mut ResourceAccess) {}
+        }
+        impl SendSystem for Sys {
+            fn run_send(&mut self, _resources: &ResourcesSend) {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            }
+        }
+
+        let mut schedule = Schedule::new();
+        let builder = schedule.add_system(Sys(Arc::new(AtomicUsize::new(0))));
+        let _label = builder.as_label();
+        // Label should be a valid SystemSetId
+    }
+
+    #[test]
+    fn schedule_add_system_unsend() {
+        struct SysUnsend;
+        impl SystemInit for SysUnsend {
+            fn init(&mut self, _resources: &mut Resources) {}
+        }
+        impl System for SysUnsend {
+            fn run(&mut self, _resources: &Resources) {}
+            fn update_access(&self, _resources: &Resources, _access: &mut ResourceAccess) {}
+        }
+
+        let mut schedule = Schedule::new();
+        let node = schedule.add_system_unsend(SysUnsend);
+        assert_matches!(node.get_boxed_system_for_test(), BoxedSystem::Unsend(_));
+    }
+
+    #[test]
+    fn schedule_add_system_exclusive() {
+        struct SysExcl;
+        impl SystemInit for SysExcl {
+            fn init(&mut self, _resources: &mut Resources) {}
+        }
+        impl ExclusiveSystem for SysExcl {
+            fn run_exclusive(&mut self, _res: &mut Resources) {}
+        }
+
+        let mut schedule = Schedule::new();
+        let node = schedule.add_system_exclusive(SysExcl);
+        assert_matches!(node.get_boxed_system_for_test(), BoxedSystem::Exclusive(_));
+    }
+
+    // --- Dependency tests ---
+
+    #[test]
+    fn schedule_after_dependency() {
+        struct Data(usize);
+        #[system]
+        fn sys_a(borrowed: &mut Data) {
+            borrowed.0 += 3;
+        }
+        #[system]
+        fn sys_b(borrowed: &mut Data) {
+            borrowed.0 *= 2;
+        }
+
+        let mut resources = Resources::new();
+        resources.insert(Data(0));
+        let mut schedule = Schedule::new();
+        let a_label = schedule.add_system(System![sys_a]).as_label();
+        schedule.add_system(System![sys_b]).after(a_label);
+        schedule.init(&mut resources);
+        schedule.run_local(&mut resources);
+        assert_eq!(resources.get_mut::<Data>().unwrap().0, 6);
+    }
+
+    #[test]
+    fn schedule_before_dependency() {
+        struct Data(usize);
+        #[system]
+        fn sys_a(borrowed: &mut Data) {
+            borrowed.0 += 3;
+        }
+        #[system]
+        fn sys_b(borrowed: &mut Data) {
+            borrowed.0 *= 2;
+        }
+
+        let mut resources = Resources::new();
+        resources.insert(Data(0));
+        let mut schedule = Schedule::new();
+        let b_label = schedule.add_system(System![sys_b]).as_label();
+        schedule.add_system(System![sys_a]).before(b_label);
+        schedule.init(&mut resources);
+        schedule.run_local(&mut resources);
+        assert_eq!(resources.get_mut::<Data>().unwrap().0, 6);
+    }
+
+    #[test]
+    fn schedule_multiple_runs() {
+        struct Data(usize);
+        #[system]
+        fn increment(borrowed: &mut Data) {
+            borrowed.0 += 1;
+        }
+
+        let mut resources = Resources::new();
+        resources.insert(Data(0));
+        let mut schedule = Schedule::new();
+        schedule.add_system(System![increment]);
+        schedule.init(&mut resources);
+
+        for _ in 0..5 {
+            schedule.run_local(&mut resources);
+        }
+        assert_eq!(resources.get_mut::<Data>().unwrap().0, 5);
+    }
+
+    // --- SharedSchedule tests ---
+
+    #[test]
+    fn shared_schedule_new() {
+        let s = SharedSchedule::new();
+        assert!(s.systems.is_empty());
     }
 }

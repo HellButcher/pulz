@@ -16,6 +16,16 @@ impl<T> ComponentMap<T> {
         self.0.clear()
     }
 
+    /// Returns `true` if the map contains no entries.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Returns the number of entries in the map.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
     #[inline]
     fn search<X>(&self, id: ComponentId<X>) -> Result<usize, usize> {
         self.0.binary_search_by(|(item_id, _)| item_id.0.cmp(&id.0))
@@ -143,5 +153,214 @@ impl<T> Default for ComponentMap<T> {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::component::ComponentId;
+
+    #[test]
+    fn component_map_new_is_empty() {
+        let map: ComponentMap<i32> = ComponentMap::new();
+        assert!(map.get(ComponentId::<u8>::new(0)).is_none());
+    }
+
+    #[test]
+    fn component_map_default_is_empty() {
+        let map: ComponentMap<i32> = ComponentMap::default();
+        assert!(map.is_empty());
+        assert_eq!(map.len(), 0);
+    }
+
+    #[test]
+    fn component_map_insert_and_get() {
+        let mut map = ComponentMap::new();
+        let id = ComponentId::<u8>::new(42);
+        map.insert(id, 100);
+        assert_eq!(map.get(id), Some(&100));
+    }
+
+    #[test]
+    fn component_map_insert_returns_mutable_ref() {
+        let mut map = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        let val = map.insert(id, 10);
+        *val = 20;
+        assert_eq!(map.get(id), Some(&20));
+    }
+
+    #[test]
+    fn component_map_insert_replaces_existing() {
+        let mut map = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        map.insert(id, 1);
+        map.insert(id, 2);
+        assert_eq!(map.get(id), Some(&2));
+    }
+
+    #[test]
+    fn component_map_get_mut() {
+        let mut map = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        map.insert(id, 42);
+        if let Some(val) = map.get_mut(id) {
+            *val = 99;
+        }
+        assert_eq!(map.get(id), Some(&99));
+    }
+
+    #[test]
+    fn component_map_get_nonexistent() {
+        let map: ComponentMap<i32> = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        assert!(map.get(id).is_none());
+    }
+
+    #[test]
+    fn component_map_contains() {
+        let mut map = ComponentMap::new();
+        let id1 = ComponentId::<u8>::new(1);
+        let id2 = ComponentId::<u16>::new(2);
+        assert!(!map.contains(id1));
+        map.insert(id1, "hello");
+        assert!(map.contains(id1));
+        assert!(!map.contains(id2));
+    }
+
+    #[test]
+    fn component_map_remove() {
+        let mut map = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        map.insert(id, "value");
+        assert_eq!(map.remove(id), Some("value"));
+        assert!(map.get(id).is_none());
+    }
+
+    #[test]
+    fn component_map_remove_nonexistent() {
+        let mut map: ComponentMap<&'static str> = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        assert!(map.remove(id).is_none());
+    }
+
+    #[test]
+    fn component_map_clear() {
+        let mut map = ComponentMap::new();
+        map.insert(ComponentId::<u8>::new(1), "a");
+        map.insert(ComponentId::<u16>::new(2), "b");
+        map.clear();
+        assert!(map.is_empty());
+        assert_eq!(map.len(), 0);
+    }
+
+    #[test]
+    fn component_map_get_or_insert_with_existing() {
+        let mut map = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        map.insert(id, 50);
+        let val = map.get_or_insert_with(id, || 99);
+        assert_eq!(*val, 50); // should return existing, not call closure
+    }
+
+    #[test]
+    fn component_map_get_or_insert_with_new() {
+        let mut map: ComponentMap<i32> = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        let val = map.get_or_insert_with(id, || 42);
+        assert_eq!(*val, 42);
+        assert_eq!(map.get(id), Some(&42));
+    }
+
+    #[test]
+    fn component_map_get_or_insert_default() {
+        let mut map = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        let val = map.get_or_insert_default(id.untyped());
+        assert_eq!(*val, 0);
+        assert_eq!(map.get(id), Some(&0));
+    }
+
+    #[test]
+    fn component_map_keys() {
+        let mut map = ComponentMap::new();
+        let id1 = ComponentId::<u8>::new(3);
+        let id2 = ComponentId::<u16>::new(7);
+        map.insert(id1, "a");
+        map.insert(id2, "b");
+        let keys: Vec<_> = map.keys().collect();
+        assert_eq!(keys.len(), 2);
+        // Keys are untyped ComponentId — compare via .untyped()
+        assert!(keys.iter().any(|k| k.untyped() == id1.untyped()));
+        assert!(keys.iter().any(|k| k.untyped() == id2.untyped()));
+    }
+
+    #[test]
+    fn component_map_into_entries() {
+        let mut map = ComponentMap::new();
+        let id = ComponentId::<u8>::new(1);
+        map.insert(id, "hello");
+        let entries: Vec<_> = map.into_entries().collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0.untyped(), id.untyped());
+        assert_eq!(entries[0].1, "hello");
+    }
+
+    #[test]
+    fn component_map_key_set() {
+        let mut map = ComponentMap::new();
+        let id1 = ComponentId::<u8>::new(1);
+        let id2 = ComponentId::<u8>::new(3);
+        map.insert(id1, "a");
+        map.insert(id2, "b");
+        let set = map.key_set();
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(id1.untyped()));
+        assert!(set.contains(id2.untyped()));
+    }
+
+    #[test]
+    fn component_map_key_set_empty() {
+        let map: ComponentMap<i32> = ComponentMap::new();
+        let set = map.key_set();
+        assert_eq!(set.len(), 0);
+    }
+
+    #[test]
+    fn component_map_multiple_insert_ordered() {
+        let mut map: ComponentMap<&'static str> = ComponentMap::new();
+        // Insert in non-sorted order to verify binary search works
+        let id3 = ComponentId::<u8>::new(3);
+        let id1 = ComponentId::<u8>::new(1);
+        let id2 = ComponentId::<u8>::new(2);
+
+        map.insert(id3, "c");
+        map.insert(id1, "a");
+        map.insert(id2, "b");
+
+        assert_eq!(map.get(id1), Some(&"a"));
+        assert_eq!(map.get(id2), Some(&"b"));
+        assert_eq!(map.get(id3), Some(&"c"));
+    }
+
+    #[test]
+    fn component_map_remove_preserves_order() {
+        let mut map = ComponentMap::new();
+        let id1 = ComponentId::<u8>::new(1);
+        let id2 = ComponentId::<u8>::new(2);
+        let id3 = ComponentId::<u8>::new(3);
+
+        map.insert(id1, "a");
+        map.insert(id2, "b");
+        map.insert(id3, "c");
+
+        // Remove middle element
+        map.remove(id2);
+
+        assert_eq!(map.get(id1), Some(&"a"));
+        assert!(map.get(id2).is_none());
+        assert_eq!(map.get(id3), Some(&"c"));
+        assert_eq!(map.keys().count(), 2);
     }
 }

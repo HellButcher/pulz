@@ -217,3 +217,60 @@ impl Resources {
         Events::<T>::install_into(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- new / is_empty ---
+
+    #[test]
+    fn events_new_is_empty() {
+        let events: Events<i32> = Events::new();
+        assert!(events.is_empty());
+    }
+
+    // --- send / send_batch ---
+
+    #[test]
+    fn events_send_single() {
+        let mut events = Events::new();
+        events.send(42);
+        assert!(!events.is_empty());
+        assert_eq!(events.last(), Some(&42));
+    }
+
+    #[test]
+    fn events_send_batch() {
+        let mut events = Events::new();
+        events.send_batch([1, 2, 3].into_iter());
+        assert_eq!(events.last(), Some(&3));
+    }
+
+    #[test]
+    fn events_last_empty() {
+        let events: Events<i32> = Events::new();
+        assert!(events.last().is_none());
+    }
+
+    // --- clear ---
+
+    #[test]
+    fn events_clear() {
+        let mut events = Events::new();
+        events.send(1);
+        events.send(2);
+        events.clear();
+        assert!(events.is_empty());
+        assert!(events.last().is_none());
+    }
+
+    // --- Extend ---
+
+    #[test]
+    fn events_extend() {
+        let mut events = Events::new();
+        events.extend([10, 20, 30]);
+        assert_eq!(events.last(), Some(&30));
+    }
+}

@@ -1,11 +1,11 @@
 use proc_macro2::{Ident, Span, TokenStream};
-use quote::{quote, ToTokens, TokenStreamExt};
+use quote::{ToTokens, TokenStreamExt, quote};
 use syn::{
+    ItemImpl, LitBool, Path, Result, Visibility,
     meta::ParseNestedMeta,
     parse::{Parse, Parser},
     parse_quote,
     spanned::Spanned,
-    ItemImpl, LitBool, Path, Result, Visibility,
 };
 
 use crate::{

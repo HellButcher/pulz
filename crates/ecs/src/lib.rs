@@ -29,7 +29,9 @@
 #![doc(html_no_source)]
 #![doc = include_str!("../README.md")]
 
-// Allows macro-generated code to resolve to this crate when used internally (tests, doctests).
+// Allows macro-generated code to resolve `::pulz_ecs::...` paths in tests and doctests.
+#[cfg(test)]
+extern crate self as pulz_ecs;
 
 pub mod archetype;
 pub mod component;
@@ -39,7 +41,8 @@ pub mod storage;
 mod world;
 
 #[doc(hidden)]
-use pulz_schedule::Void;
+pub use pulz_schedule::Void;
+use pulz_schedule::{module::Module, resource::Resources};
 
 pub use crate::world::{World, WorldMut};
 
@@ -63,6 +66,16 @@ pub trait ResourcesExt {
     fn world(&self) -> World<'_>;
     /// Returns an exclusive view of the ECS world stored in these resources.
     fn world_mut(&mut self) -> WorldMut<'_>;
+}
+
+/// Registers the ECS world resources.
+pub struct EcsModule;
+
+impl Module for EcsModule {
+    fn init(self, resources: &mut Resources) {
+        resources.init::<WorldInner>();
+        resources.init::<WorldMutInnerTemp>();
+    }
 }
 
 /// Convenience re-exports for common ECS types.

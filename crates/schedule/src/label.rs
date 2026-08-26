@@ -60,7 +60,7 @@ macro_rules! define_label_type {
         }
 
         $(#[$label_attr])*
-        pub trait $label_name: 'static {
+        pub trait $label_name {
             /// Converts this type into an opaque, strongly-typed label.
             fn as_label(&self) -> $id_name {
                 $id_name($crate::interned::InternedStr::from_static(self.as_str()))

@@ -34,3 +34,18 @@ impl EntityLocation {
         self.index != u32::MAX
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::entity::EntityLocation;
+
+    // --- EntityLocation ---
+
+    #[test]
+    fn entity_location_index_vacant() {
+        let loc = EntityLocation::VACANT;
+        assert!(loc.is_vacant());
+        assert_eq!(loc.index(), u32::MAX as usize);
+    }
+}

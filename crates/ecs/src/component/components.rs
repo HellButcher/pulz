@@ -207,3 +207,150 @@ impl Index<ComponentId> for Components {
         &self.components[index.0 as usize]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use pulz_schedule::prelude::Resources;
+
+    use super::*;
+    use crate::{EcsModule, ResourcesExt, component::Component};
+
+    #[derive(Component)]
+    struct TestPos {
+        x: f32,
+        y: f32,
+    }
+
+    #[derive(Component)]
+    struct TestVel {
+        dx: f32,
+        dy: f32,
+    }
+
+    #[test]
+    fn components_new_is_empty() {
+        let components = Components::new();
+        assert!(components.is_empty());
+        assert_eq!(components.len(), 0);
+    }
+
+    #[test]
+    fn components_try_init_new_component() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let id = world.init::<TestPos>();
+        assert_eq!(id, world.components().expect_id::<TestPos>());
+    }
+
+    #[test]
+    fn components_try_init_duplicate_returns_err() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let first = world.init::<TestPos>();
+        drop(world);
+
+        // Second init with a fresh storage id for the same component type
+        let mut world = resources.world_mut();
+        let second = world.try_init::<TestPos>();
+        assert!(second.is_err());
+        assert_eq!(second.unwrap_err(), first);
+    }
+
+    #[test]
+    fn components_id_lookup_before_and_after() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        // Before init, id returns None
+        assert!(resources.world().components().id::<TestPos>().is_none());
+
+        let mut world = resources.world_mut();
+        let id = world.init::<TestPos>();
+        // After init, id returns Some
+        assert_eq!(world.components().id::<TestPos>(), Some(id));
+    }
+
+    #[test]
+    #[should_panic]
+    fn components_expect_id_panics_when_not_registered() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world();
+        // Should panic because TestPos is not registered
+        world.components().expect_id::<TestPos>();
+    }
+
+    #[test]
+    fn components_len_incremental() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+
+        assert_eq!(world.components().len(), 0);
+
+        world.init::<TestPos>();
+        assert_eq!(world.components().len(), 1);
+
+        world.init::<TestVel>();
+        assert_eq!(world.components().len(), 2);
+    }
+
+    #[test]
+    fn components_get_metadata() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let id = world.init::<TestPos>();
+
+        let meta = world.components().get(id).expect("metadata should exist");
+        assert_eq!(meta.type_id(), TypeId::of::<TestPos>());
+        assert!(meta.name().contains("TestPos"));
+    }
+
+    #[test]
+    fn components_get_returns_none_for_invalid_index() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let world = resources.world();
+        // Use a ComponentId with an index that doesn't exist
+        let fake_id = ComponentId::<u8>::new(999);
+        assert!(world.components().get(fake_id).is_none());
+    }
+
+    #[test]
+    fn components_archetype_variant_for_dense_storage() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let id = world.init::<TestPos>();
+
+        let meta = world.components().get(id).expect("metadata");
+        // ArchetypeStorage is not sparse, so variant should be Archetype
+        assert!(matches!(meta.variant, ComponentVariant::Archetype));
+    }
+
+    #[test]
+    fn components_index_operator() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+        let id = world.init::<TestPos>();
+
+        // Should not panic — index uses untyped ComponentId
+        let _meta = &world.components()[id.untyped()];
+    }
+
+    #[test]
+    fn components_different_types_get_different_ids() {
+        let mut resources = Resources::new();
+        resources.install(EcsModule);
+        let mut world = resources.world_mut();
+
+        let id1 = world.init::<TestPos>();
+        let id2 = world.init::<TestVel>();
+
+        // Different component types should get different ComponentId values
+        assert_ne!(id1.untyped(), id2.untyped());
+    }
+}

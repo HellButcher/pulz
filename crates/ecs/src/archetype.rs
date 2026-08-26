@@ -212,7 +212,7 @@ impl Archetypes {
         self.archetypes.get_disjoint_mut(indices)
     }
 
-    pub(crate) fn get_or_insert(&mut self, mut ids: ComponentSet) -> ArchetypeId {
+    pub(crate) fn get_or_insert_by_components(&mut self, mut ids: ComponentSet) -> ArchetypeId {
         ids.intersect_with(&self.archetype_components);
         ids.optimize();
 
@@ -273,6 +273,16 @@ impl ArchetypeSet {
     #[inline]
     pub fn clear(&mut self) {
         self.0.clear()
+    }
+
+    /// Returns the number of distinct archetypes in the set.
+    pub fn len(&self) -> usize {
+        self.0.len() as usize
+    }
+
+    /// Returns `true` if the set contains no archetypes.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Returns `true` if the set contains `id`.
@@ -441,13 +451,196 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_archetype_should_have_empty_id() {
+    fn archetypes_contains_empty_initially() {
         let mut archetypes = Archetypes::new();
+        let empty = archetypes.get(ArchetypeId::EMPTY).unwrap();
+        assert!(empty.is_empty());
+        assert_eq!(empty.len(), 0);
+        assert_eq!(ArchetypeId::EMPTY, empty.id);
+
+        assert_eq!(&raw const *empty, &raw const *archetypes.empty());
+
         assert_eq!(
             ArchetypeId::EMPTY,
-            archetypes.get_or_insert(ComponentSet::new())
+            archetypes.get_or_insert_by_components(ComponentSet::new())
         );
         assert_eq!(1, archetypes.len());
-        assert_eq!(ArchetypeId::EMPTY, archetypes[ArchetypeId::EMPTY].id);
+    }
+
+    #[test]
+    fn archetype_id_empty_is_zero() {
+        let id1 = ArchetypeId::EMPTY;
+        let id2 = ArchetypeId(0);
+        assert_eq!(id1, id2);
+        assert_eq!(id1.0, 0);
+    }
+
+    #[test]
+    fn archetypes_get_by_id() {
+        let a = Archetypes::new();
+        assert!(a.get(ArchetypeId::EMPTY).is_some());
+        assert!(a.get(ArchetypeId(99)).is_none());
+    }
+
+    #[test]
+    fn archetypes_index_operator() {
+        let a = Archetypes::new();
+        let empty = &a[ArchetypeId::EMPTY];
+        assert_eq!(empty.len(), 0);
+        assert_eq!(empty.id, ArchetypeId::EMPTY);
+    }
+
+    #[test]
+    fn archetypes_index_mut() {
+        let mut a = Archetypes::new();
+        let empty = &mut a[ArchetypeId::EMPTY];
+        assert_eq!(empty.len(), 0);
+        assert_eq!(empty.id, ArchetypeId::EMPTY);
+    }
+
+    // --- ArchetypeSet tests ---
+
+    #[test]
+    fn archetype_set_new_empty() {
+        let s = ArchetypeSet::new();
+        assert!(!s.contains(ArchetypeId(0)));
+        assert!(s.is_empty());
+        assert_eq!(s.len(), 0);
+    }
+
+    #[test]
+    fn archetype_set_insert() {
+        let mut s = ArchetypeSet::new();
+        assert_eq!(s.len(), 0);
+        let id = ArchetypeId(5);
+        assert!(s.insert(id));
+        assert_eq!(s.len(), 1);
+        assert!(s.contains(id));
+        assert!(!s.insert(id)); // duplicate
+        assert_eq!(s.len(), 1);
+        assert!(s.contains(id));
+    }
+
+    #[test]
+    fn archetype_set_remove() {
+        let mut s = ArchetypeSet::new();
+        let id = ArchetypeId(3);
+        s.insert(id);
+        assert!(s.remove(id));
+        assert!(!s.remove(id)); // already removed
+    }
+
+    #[test]
+    fn archetype_set_clear() {
+        let mut s = ArchetypeSet::new();
+        assert_eq!(s.len(), 0);
+        s.insert(ArchetypeId(1));
+        s.insert(ArchetypeId(2));
+        assert_eq!(s.len(), 2);
+        s.clear();
+        assert_eq!(s.len(), 0);
+        assert!(!s.contains(ArchetypeId(1)));
+        assert!(!s.contains(ArchetypeId(2)));
+    }
+
+    #[test]
+    fn archetype_set_iter_collect() {
+        let mut s = ArchetypeSet::new();
+        s.insert(ArchetypeId(1));
+        s.insert(ArchetypeId(3));
+        s.insert(ArchetypeId(2));
+        let collected: Vec<_> = s.iter().collect();
+        assert_eq!(collected.len(), 3);
+        // Iteration order should be sorted (RoaringBitmap)
+        assert_eq!(
+            collected,
+            vec![ArchetypeId(1), ArchetypeId(2), ArchetypeId(3)]
+        );
+    }
+
+    #[test]
+    fn archetype_set_into_iter_collect() {
+        let mut s = ArchetypeSet::new();
+        s.insert(ArchetypeId(1));
+        s.insert(ArchetypeId(2));
+        let collected: Vec<_> = s.into_iter().collect();
+        assert_eq!(collected.len(), 2);
+    }
+
+    #[test]
+    fn archetype_set_default() {
+        let s = ArchetypeSet::default();
+        assert!(!s.contains(ArchetypeId(0)));
+    }
+
+    #[test]
+    fn archetype_set_extend() {
+        let mut s = ArchetypeSet::new();
+        s.extend([ArchetypeId(1), ArchetypeId(2)]);
+        assert!(s.contains(ArchetypeId(1)));
+        assert!(s.contains(ArchetypeId(2)));
+    }
+
+    #[test]
+    fn archetype_set_from_iterator() {
+        let s: ArchetypeSet = vec![ArchetypeId(1), ArchetypeId(2)].into_iter().collect();
+        assert!(s.contains(ArchetypeId(1)));
+    }
+
+    // --- ArchetypeMap tests ---
+
+    #[test]
+    fn archetype_map_new() {
+        let m: ArchetypeMap<String> = ArchetypeMap::new();
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn archetype_map_get_or_insert_default() {
+        let mut m: ArchetypeMap<i32> = ArchetypeMap::new();
+        let val = m.get_or_insert_default(ArchetypeId(0));
+        assert_eq!(*val, 0);
+        *val = 42;
+        assert_eq!(m[ArchetypeId(0)], 42);
+    }
+
+    #[test]
+    fn archetype_map_get_nonexistent() {
+        let m: ArchetypeMap<i32> = ArchetypeMap::new();
+        assert!(m.get(ArchetypeId(0)).is_none());
+    }
+
+    #[test]
+    fn archetype_map_get_mut_existing() {
+        let mut m: ArchetypeMap<i32> = ArchetypeMap::new();
+        let val = m.get_or_insert_default(ArchetypeId(0));
+        *val = 10;
+        if let Some(v) = m.get_mut(ArchetypeId(0)) {
+            assert_eq!(*v, 10);
+        } else {
+            panic!("expected value");
+        }
+    }
+
+    #[test]
+    fn archetype_map_clear() {
+        let mut m: ArchetypeMap<i32> = ArchetypeMap::new();
+        m.get_or_insert_default(ArchetypeId(0));
+        m.clear();
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn archetype_map_index_existing() {
+        let mut m: ArchetypeMap<i32> = ArchetypeMap::new();
+        m.get_or_insert_default(ArchetypeId(0));
+        m[ArchetypeId(0)] = 99;
+        assert_eq!(m[ArchetypeId(0)], 99);
+    }
+
+    #[test]
+    fn archetype_map_default() {
+        let m: ArchetypeMap<f64> = ArchetypeMap::default();
+        assert!(m.is_empty());
     }
 }

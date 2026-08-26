@@ -82,8 +82,9 @@ impl ResourceMutTracker {
             })
         } else {
             for s in entry.systems.iter().copied() {
-                if system_dependent_layers[s.0] > current_layer {
-                    system_dependent_layers[s.0] = current_layer;
+                let dep_layer = &mut system_dependent_layers[s.0];
+                if *dep_layer == Layer::UNDEFINED || current_layer.0 < dep_layer.0 {
+                    *dep_layer = current_layer;
                 }
             }
             entry.last_exclusive = current_layer;
@@ -108,15 +109,20 @@ impl ResourceMutTracker {
                 system_shared: vec![current_system],
                 layer: current_layer.0,
             })
-        } else if entry.last_exclusive > entry.last_shared {
+        } else if entry.last_exclusive != Layer::UNDEFINED
+            && entry.last_exclusive > entry.last_shared
+        {
+            // An exclusive access happened after the last shared access — invalidate previous shared systems
             entry.last_shared = current_layer;
             entry.systems.clear();
             entry.systems.push(current_system);
             Ok(())
         } else {
             for s in entry.systems.iter().copied() {
-                if system_dependent_layers[s.0] > current_layer {
-                    system_dependent_layers[s.0] = current_layer;
+                // Update dependent layer if it's UNDEFINED or current_layer is less
+                let dep_layer = &mut system_dependent_layers[s.0];
+                if *dep_layer == Layer::UNDEFINED || current_layer.0 < dep_layer.0 {
+                    *dep_layer = current_layer;
                 }
             }
             entry.last_shared = current_layer;
@@ -148,5 +154,300 @@ impl ResourceMutTracker {
             )?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_shared_access(resource_idx: usize) -> ResourceAccess {
+        let mut access = ResourceAccess::new();
+        // We need to manually insert into the shared BitSet
+        // Since ResourceAccess::shared is pub(crate), we can access it
+        access.shared.insert(resource_idx);
+        access
+    }
+
+    fn make_exclusive_access(resource_idx: usize) -> ResourceAccess {
+        let mut access = ResourceAccess::new();
+        access.exclusive.insert(resource_idx);
+        access
+    }
+
+    // --- Exclusive-exclusive conflict ---
+
+    #[test]
+    fn tracker_no_conflict_sequential_layers() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: exclusive on resource 0
+        tracker
+            .mark_access(
+                &make_exclusive_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 1: exclusive on resource 0 — OK, different layer
+        tracker
+            .mark_access(
+                &make_exclusive_access(0),
+                Layer(1),
+                SystemId(1),
+                &mut dependent,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn tracker_exclusive_exclusive_same_layer_conflict() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: exclusive on resource 0 by system 0
+        tracker
+            .mark_access(
+                &make_exclusive_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 0: exclusive on resource 0 by system 1 — CONFLICT
+        let result = tracker.mark_access(
+            &make_exclusive_access(0),
+            Layer(0),
+            SystemId(1),
+            &mut dependent,
+        );
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ResourceConflict::ExclusiveExclusive {
+                resource: 0,
+                system_a: SystemId(0),
+                system_b: SystemId(1),
+                layer: 0,
+            } => {}
+            other => panic!("unexpected conflict: {other:?}"),
+        }
+    }
+
+    // --- Shared-exclusive conflict ---
+
+    #[test]
+    fn tracker_shared_exclusive_same_layer_conflict() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: shared on resource 0 by system 0
+        tracker
+            .mark_access(
+                &make_shared_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 0: exclusive on resource 0 by system 1 — CONFLICT
+        let result = tracker.mark_access(
+            &make_exclusive_access(0),
+            Layer(0),
+            SystemId(1),
+            &mut dependent,
+        );
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ResourceConflict::SharedExclusive {
+                resource: 0,
+                system_shared,
+                system_exclusive: SystemId(1),
+                layer: 0,
+            } => {
+                assert_eq!(system_shared, vec![SystemId(0)]);
+            }
+            other => panic!("unexpected conflict: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tracker_exclusive_shared_same_layer_conflict() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: exclusive on resource 0 by system 0
+        tracker
+            .mark_access(
+                &make_exclusive_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 0: shared on resource 0 by system 1 — CONFLICT
+        let result = tracker.mark_access(
+            &make_shared_access(0),
+            Layer(0),
+            SystemId(1),
+            &mut dependent,
+        );
+        assert!(result.is_err());
+    }
+
+    // --- Safe patterns ---
+
+    #[test]
+    fn tracker_exclusive_then_shared_next_layer_ok() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: exclusive on resource 0
+        tracker
+            .mark_access(
+                &make_exclusive_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 1: shared on resource 0 — OK
+        tracker
+            .mark_access(
+                &make_shared_access(0),
+                Layer(1),
+                SystemId(1),
+                &mut dependent,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn tracker_shared_then_exclusive_next_layer_ok() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: shared on resource 0
+        tracker
+            .mark_access(
+                &make_shared_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 1: exclusive on resource 0 — OK
+        tracker
+            .mark_access(
+                &make_exclusive_access(0),
+                Layer(1),
+                SystemId(1),
+                &mut dependent,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn tracker_multiple_shared_same_layer_ok() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 3];
+        // Layer 0: shared on resource 0 by systems 0 and 1
+        tracker
+            .mark_access(
+                &make_shared_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        tracker
+            .mark_access(
+                &make_shared_access(0),
+                Layer(0),
+                SystemId(1),
+                &mut dependent,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn tracker_different_resources_no_conflict() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: exclusive on resource 0 by system 0
+        tracker
+            .mark_access(
+                &make_exclusive_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 0: exclusive on resource 1 by system 1 — OK, different resource
+        tracker
+            .mark_access(
+                &make_exclusive_access(1),
+                Layer(0),
+                SystemId(1),
+                &mut dependent,
+            )
+            .unwrap();
+    }
+
+    // --- Dependent layer tracking ---
+
+    #[test]
+    fn tracker_shared_dependent_layer_updated() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: shared on resource 0 by system 0
+        tracker
+            .mark_access(
+                &make_shared_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 1: shared on resource 0 by system 1
+        tracker
+            .mark_access(
+                &make_shared_access(0),
+                Layer(1),
+                SystemId(1),
+                &mut dependent,
+            )
+            .unwrap();
+        // System 0's dependent layer should be updated to 1
+        assert_eq!(dependent[0], Layer(1));
+    }
+
+    // --- Resource tracking entries ---
+
+    #[test]
+    fn tracker_exclusive_cleans_shared_systems() {
+        let mut tracker = ResourceMutTracker::new();
+        let mut dependent = vec![Layer::UNDEFINED; 2];
+        // Layer 0: shared on resource 0 by system 0
+        tracker
+            .mark_access(
+                &make_shared_access(0),
+                Layer(0),
+                SystemId(0),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 1: exclusive on resource 0 by system 1 — should replace shared tracking
+        tracker
+            .mark_access(
+                &make_exclusive_access(0),
+                Layer(1),
+                SystemId(1),
+                &mut dependent,
+            )
+            .unwrap();
+        // Layer 2: shared on resource 0 by system 2 — should conflict with exclusive
+        let result = tracker.mark_access(
+            &make_shared_access(0),
+            Layer(1),
+            SystemId(2),
+            &mut dependent,
+        );
+        assert!(result.is_err());
     }
 }

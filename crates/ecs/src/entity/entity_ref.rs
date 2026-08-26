@@ -374,7 +374,7 @@ impl<'w> EntityMut<'w> {
         let mut new_components = old_archetype.components().clone();
         new_components.difference_with(&world_tmp.tmp_removed);
         new_components.union_with(&world_tmp.tmp_inserted);
-        let new_archetype_id = world.archetypes.get_or_insert(new_components);
+        let new_archetype_id = world.archetypes.get_or_insert_by_components(new_components);
         debug_assert_ne!(old.archetype_id, new_archetype_id);
 
         let [old_archetype, new_archetype] = world
@@ -461,6 +461,7 @@ impl World<'_> {
             .map(|location| EntityRef::new(self.res, &self.world, entity, location))
     }
 }
+
 impl WorldMut<'_> {
     /// Returns a shared reference ([`EntityRef`]) to the entity with the given
     /// id.
