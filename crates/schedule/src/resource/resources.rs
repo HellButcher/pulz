@@ -1,7 +1,7 @@
 use std::{
     any::{Any, TypeId},
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, btree_map::Entry},
+    collections::{BTreeSet, hash_map::Entry},
     marker::PhantomData,
     ops::{Deref, DerefMut},
     ptr::NonNull,
@@ -13,7 +13,7 @@ use super::{FromResourcesMut, Res, ResMut, ResourceId, Taken};
 use crate::{
     atom::Atom,
     meta::{Meta, MetaMap},
-    util::DirtyVersion,
+    util::{DirtyVersion, TypeIdMap},
 };
 
 struct ResourceData {
@@ -100,7 +100,7 @@ impl ResourceData {
 
 pub struct ResourcesSend {
     resources: Vec<ResourceData>,
-    by_type_id: BTreeMap<TypeId, ResourceId>,
+    by_type_id: TypeIdMap<ResourceId>,
     meta_by_type_id: MetaMap,
     modules: BTreeSet<TypeId>,
     atom: Atom,
@@ -271,8 +271,8 @@ impl Resources {
         let mut res = Self(
             ResourcesSend {
                 resources: Vec::new(),
-                by_type_id: BTreeMap::new(),
-                meta_by_type_id: BTreeMap::new(),
+                by_type_id: TypeIdMap::default(),
+                meta_by_type_id: MetaMap::default(),
                 modules: BTreeSet::new(),
                 atom: Atom::new(),
                 version: DirtyVersion::new(),

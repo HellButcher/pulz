@@ -1,5 +1,7 @@
 use std::{
     cell::UnsafeCell,
+    collections::HashMap,
+    hash::{BuildHasher, BuildHasherDefault, Hasher},
     marker::PhantomData,
     sync::atomic::{AtomicI32, Ordering},
 };
@@ -38,6 +40,36 @@ impl<'a, T> DisjointSliceHelper<'a, T> {
         }
     }
 }
+
+/// optimized Hasher for type-ids
+#[derive(Default)]
+pub struct TypeIdHasher(u64);
+
+impl Hasher for TypeIdHasher {
+    fn write_u64(&mut self, n: u64) {
+        debug_assert_eq!(self.0, 0);
+        self.0 = n;
+    }
+
+    // Tolerate TypeId being either u64 or u128.
+    fn write_u128(&mut self, n: u128) {
+        debug_assert_eq!(self.0, 0);
+        self.0 = n as u64;
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        panic!(
+            "TypeIdHasher only supports u64 and u128, but got bytes: {:?}",
+            bytes
+        );
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+pub type TypeIdMap<T> = HashMap<std::any::TypeId, T, BuildHasherDefault<TypeIdHasher>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(transparent)]

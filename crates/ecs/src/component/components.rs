@@ -1,13 +1,9 @@
 //! Component registry that maps types to their metadata and storage resources.
 
-use std::{
-    any::TypeId,
-    borrow::Cow,
-    collections::{BTreeMap, btree_map::Entry},
-    ops::Index,
-};
+use std::{any::TypeId, borrow::Cow, collections::hash_map::Entry, ops::Index};
 
 use pulz_schedule::{
+    TypeIdMap,
     prelude::{Res, Resources},
     resource::{ResMut, ResourceId},
 };
@@ -102,7 +98,7 @@ impl ComponentData {
 /// Registry of all component types known to the world, indexed by [`ComponentId`].
 pub struct Components {
     pub(crate) components: Vec<ComponentData>,
-    by_type_id: BTreeMap<TypeId, ComponentId>,
+    by_type_id: TypeIdMap<ComponentId>,
 }
 
 impl Default for Components {
@@ -116,7 +112,7 @@ impl Components {
     pub(crate) fn new() -> Self {
         Self {
             components: Vec::new(),
-            by_type_id: BTreeMap::new(),
+            by_type_id: TypeIdMap::default(),
         }
     }
 

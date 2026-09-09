@@ -50,7 +50,7 @@ mod util;
 
 extern crate self as pulz_schedule;
 
-pub use util::{AtomicTick, Tick};
+pub use util::{AtomicTick, Tick, TypeIdMap};
 
 pub mod prelude {
     pub use crate::{

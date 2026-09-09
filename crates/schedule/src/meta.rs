@@ -1,6 +1,5 @@
 use std::{
     any::{Any, TypeId, type_name},
-    collections::BTreeMap,
     ops::{Deref, DerefMut},
 };
 
@@ -9,9 +8,10 @@ use fnv::{FnvHashMap, FnvHashSet};
 use crate::{
     resource::{Res, ResMut, ResourceAccess, ResourceId, Resources},
     system::SystemData,
+    util::TypeIdMap,
 };
 
-pub(crate) type MetaMap = BTreeMap<TypeId, Box<dyn Any + Send + Sync>>;
+pub(crate) type MetaMap = TypeIdMap<Box<dyn Any + Send + Sync>>;
 
 pub trait AnyCast<T> {
     fn any_cast(from: &T) -> &Self;
