@@ -5,11 +5,12 @@
 
 use std::{
     collections::HashMap,
-    hash::{Hash, Hasher},
+    hash::{BuildHasherDefault, Hash, Hasher},
     ops::{Deref, Index, IndexMut},
     pin::Pin,
 };
 
+use pulz_schedule::PreHashedHasher;
 use roaring::RoaringBitmap;
 
 use crate::{
@@ -28,10 +29,20 @@ use crate::{
 /// THis is an unsafe pointer wrapper because the [`ComponentSet`] must never move in memory, and the
 /// pointer must always point to a valid ]`ComponentSet`]. This is usually guaranteed by [`Archetypes`].
 #[derive(Eq)]
-struct ComponentSetKey(*const ComponentSet);
+struct ComponentSetKey(*const ComponentSet, u64);
 
 unsafe impl Send for ComponentSetKey {}
 unsafe impl Sync for ComponentSetKey {}
+
+impl ComponentSetKey {
+    /// SAFETY: Reference must stay valid fot the entire lifetime (Pinned)
+    unsafe fn new(set: &ComponentSet) -> Self {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        set.hash(&mut hasher);
+        let hash = hasher.finish();
+        Self(set, hash)
+    }
+}
 
 impl PartialEq for ComponentSetKey {
     fn eq(&self, other: &Self) -> bool {
@@ -43,11 +54,8 @@ impl PartialEq for ComponentSetKey {
 
 impl Hash for ComponentSetKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // SAFETY: pointer is valid and points to a live `ComponentSet`.
-        // This is guaranteed by the `Archetypes` struct, which owns the `ComponentSet` values in pinned boxes.
-        unsafe {
-            (*self.0).hash(state);
-        }
+        // use the precomputed hash
+        self.1.hash(state);
     }
 }
 
@@ -97,12 +105,6 @@ impl Archetype {
         self.components.contains(component_id)
     }
 
-    /// Returns a pointer to the owned [`ComponentSet`] for use in dedup lookup keys.
-    #[inline]
-    pub(crate) fn components_ptr(&self) -> *const ComponentSet {
-        &raw const *self.components
-    }
-
     /// Returns the set of component ids that define this archetype.
     #[inline]
     pub fn components(&self) -> &ComponentSet {
@@ -134,7 +136,7 @@ impl Archetype {
 /// [`ArchetypeId::EMPTY`] is always present at index 0.
 pub struct Archetypes {
     archetypes: Vec<Archetype>,
-    archetype_ids: HashMap<ComponentSetKey, ArchetypeId>,
+    archetype_ids: HashMap<ComponentSetKey, ArchetypeId, BuildHasherDefault<PreHashedHasher>>,
     archetype_components: ComponentSet,
 }
 
@@ -144,20 +146,18 @@ impl Archetypes {
     pub fn new() -> Self {
         let mut archetypes = Self {
             archetypes: Vec::new(),
-            archetype_ids: HashMap::new(),
+            archetype_ids: HashMap::default(),
             archetype_components: ComponentSet::new(),
         };
 
         // always add the EMPTY archetype at index 0
         let empty_components = ComponentSet::new();
         let a = Archetype::new(ArchetypeId::EMPTY, empty_components);
-        let ptr = a.components_ptr();
-        archetypes.archetypes.push(a);
         // SAFETY:(for ComponentSetKey) we just pushed `a` into `archetypes`, and we won't remove it again;
         // so its lifetime is tied to `archetypes`. Its components field is pinned and won't move.
-        archetypes
-            .archetype_ids
-            .insert(ComponentSetKey(ptr), ArchetypeId::EMPTY);
+        let key = unsafe { ComponentSetKey::new(a.components()) };
+        archetypes.archetypes.push(a);
+        archetypes.archetype_ids.insert(key, ArchetypeId::EMPTY);
         archetypes
     }
 
@@ -224,20 +224,24 @@ impl Archetypes {
         ids.optimize();
 
         // Build a temporary key to look up by content (hash + eq delegate to &ComponentSet).
-        if let Some(&id) = self.archetype_ids.get(&ComponentSetKey(&raw const ids)) {
-            return id;
-        }
+        let hash = {
+            let key = unsafe { ComponentSetKey::new(&ids) };
+            if let Some(&id) = self.archetype_ids.get(&key) {
+                return id;
+            }
+            key.1
+        };
 
         // Not found — create a new archetype with the owned ComponentSet.
 
         let new_id = ArchetypeId(self.archetypes.len() as u32);
         let a = Archetype::new(new_id, ids);
-        let ptr = a.components_ptr();
-        self.archetypes.push(a);
         // Insert the key pointing to the newly added archetype's pinned component set.
         // SAFETY:(for ComponentSetKey) we just pushed `a` into `archetypes`, and we won't remove it again;
         // so its lifetime is tied to `archetypes`. Its components field is pinned and won't move.
-        self.archetype_ids.insert(ComponentSetKey(ptr), new_id);
+        let key = ComponentSetKey(a.components(), hash);
+        self.archetypes.push(a);
+        self.archetype_ids.insert(key, new_id);
         new_id
     }
 }

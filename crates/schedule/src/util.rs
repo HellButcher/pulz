@@ -1,7 +1,7 @@
 use std::{
     cell::UnsafeCell,
     collections::HashMap,
-    hash::{BuildHasher, BuildHasherDefault, Hasher},
+    hash::{BuildHasherDefault, Hasher},
     marker::PhantomData,
     sync::atomic::{AtomicI32, Ordering},
 };
@@ -41,11 +41,12 @@ impl<'a, T> DisjointSliceHelper<'a, T> {
     }
 }
 
-/// optimized Hasher for type-ids
+/// optimized Hasher for type-ids, or pre-hashed values.
+/// This is a no-op hasher that just returns the value passed to it.
 #[derive(Default)]
-pub struct TypeIdHasher(u64);
+pub struct PreHashedHasher(u64);
 
-impl Hasher for TypeIdHasher {
+impl Hasher for PreHashedHasher {
     fn write_u64(&mut self, n: u64) {
         debug_assert_eq!(self.0, 0);
         self.0 = n;
@@ -58,10 +59,10 @@ impl Hasher for TypeIdHasher {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        panic!(
-            "TypeIdHasher only supports u64 and u128, but got bytes: {:?}",
-            bytes
-        );
+        debug_assert_eq!(self.0, 0);
+        for &b in bytes {
+            self.0 = (self.0 << 8) | (b as u64);
+        }
     }
 
     fn finish(&self) -> u64 {
@@ -69,7 +70,7 @@ impl Hasher for TypeIdHasher {
     }
 }
 
-pub type TypeIdMap<T> = HashMap<std::any::TypeId, T, BuildHasherDefault<TypeIdHasher>>;
+pub type TypeIdMap<T> = HashMap<std::any::TypeId, T, BuildHasherDefault<PreHashedHasher>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(transparent)]
