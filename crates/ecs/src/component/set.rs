@@ -1,35 +1,16 @@
 //! A compact bitset of component ids, used to describe archetype membership.
 
-use roaring::RoaringBitmap;
-
 use crate::component::{ComponentData, ComponentId, Components};
 
-/// A compact bitset that tracks which components are present in an archetype.
-///
-/// Backed by a [`RoaringBitmap`] for memory-efficient storage of sparse component ids.
-#[derive(Clone, PartialEq, Debug, Default)]
-pub struct ComponentSet(RoaringBitmap);
-
-// We can derive Eq because although RoaringBitmap does not implement Eq, its actually reflexive:
-// see https://github.com/RoaringBitmap/roaring-rs/issues/302
-impl Eq for ComponentSet {}
-
-// Simple implementation of Hash for ComponentSet
-// Note: This is not the most efficient way to hash a RoaringBitmap, but it currently doesn't
-// a Has impl itself. See https://github.com/RoaringBitmap/roaring-rs/issues/231
-impl std::hash::Hash for ComponentSet {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        for id in self.0.iter() {
-            id.hash(state);
-        }
-    }
-}
+/// A compact set that tracks which components are present in an archetype.
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
+pub struct ComponentSet(Vec<u32>);
 
 impl ComponentSet {
     /// Creates an empty component set.
     #[inline]
-    pub fn new() -> Self {
-        Self(RoaringBitmap::new())
+    pub const fn new() -> Self {
+        Self(Vec::new())
     }
 
     /// Removes all component ids from the set.
@@ -41,47 +22,100 @@ impl ComponentSet {
     /// Returns `true` if the set contains `id`.
     #[inline]
     pub fn contains<X>(&self, id: ComponentId<X>) -> bool {
-        self.0.contains(id.0)
+        self.0.binary_search(&id.0).is_ok()
     }
 
     /// Inserts `id`, returning `true` if it was not already present.
     pub fn insert<X>(&mut self, id: ComponentId<X>) -> bool {
-        self.0.insert(id.0)
+        match self.0.binary_search(&id.0) {
+            Ok(_) => false, // already present
+            Err(pos) => {
+                self.0.insert(pos, id.0);
+                true
+            }
+        }
     }
 
     /// Removes `id`, returning `true` if it was present.
     pub fn remove<X>(&mut self, id: ComponentId<X>) -> bool {
-        self.0.remove(id.0)
+        match self.0.binary_search(&id.0) {
+            Ok(pos) => {
+                self.0.remove(pos);
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     /// Returns `true` if this set and `other` share no elements.
     #[inline]
     pub fn is_disjoint(&self, other: &Self) -> bool {
-        self.0.is_disjoint(&other.0)
+        let mut a = self.0.iter();
+        let mut b = other.0.iter();
+        let mut a_next = a.next();
+        let mut b_next = b.next();
+        while let (Some(&a_val), Some(&b_val)) = (a_next, b_next) {
+            if a_val == b_val {
+                return false;
+            } else if a_val < b_val {
+                a_next = a.next();
+            } else {
+                b_next = b.next();
+            }
+        }
+        true
     }
 
     /// Adds all elements of `other` to this set (set union in place).
     #[inline]
     pub fn union_with(&mut self, other: &Self) {
-        self.0 |= &other.0
+        for id in other.iter() {
+            self.insert(id);
+        }
     }
 
     /// Removes all elements of `other` from this set (set difference in place).
     #[inline]
     pub fn difference_with(&mut self, other: &Self) {
-        self.0 -= &other.0
+        let mut b = other.0.iter();
+        let mut b_next = b.next();
+        self.0.retain(|&a_val| {
+            while let Some(&b_val) = b_next {
+                if a_val == b_val {
+                    return false;
+                } else if a_val < b_val {
+                    return true;
+                } else {
+                    b_next = b.next();
+                }
+            }
+            true
+        });
     }
 
     /// Retains only elements that are also in `other` (set intersection in place).
     #[inline]
     pub fn intersect_with(&mut self, other: &Self) {
-        self.0 &= &other.0
+        let mut b = other.0.iter();
+        let mut b_next = b.next();
+        self.0.retain(|&a_val| {
+            while let Some(&b_val) = b_next {
+                if a_val == b_val {
+                    return true;
+                } else if a_val < b_val {
+                    return false;
+                } else {
+                    b_next = b.next();
+                }
+            }
+            false
+        });
     }
 
     /// Optimises the internal bitmap representation.
     #[inline]
     pub fn optimize(&mut self) {
-        self.0.optimize();
+        self.0.shrink_to_fit();
     }
 
     /// Returns `true` if the set contains no components.
@@ -92,7 +126,7 @@ impl ComponentSet {
 
     /// Returns number of distinct component ids in the set.
     pub fn len(&self) -> usize {
-        self.0.len() as usize
+        self.0.len()
     }
 
     /// Returns an iterator over all component ids in the set.
@@ -109,17 +143,11 @@ impl ComponentSet {
         self.iter().map(move |id| &components[id])
     }
 
-    /// Returns a new set containing only the ids for which `f` returns `true`.
-    #[allow(clippy::missing_panics_doc)] // from_sorted_iter cannot fail: filtering a sorted iterator yields sorted values
-    pub fn filter(&self, mut f: impl FnMut(ComponentId) -> bool) -> Self {
-        Self(
-            RoaringBitmap::from_sorted_iter(self.0.iter().filter(|i| f(ComponentId::new(*i))))
-                .unwrap(),
-        )
+    /// Retains only the component ids specified by the predicate.
+    #[inline]
+    pub fn retain(&mut self, mut f: impl FnMut(ComponentId) -> bool) {
+        self.0.retain(|i| f(ComponentId::new(*i)));
     }
-
-    // TODO: provide a `ratain` method that takes a predicate and removes all ids for which the predicate returns false.
-    // can be used in EntityMut::flush
 }
 
 impl Extend<ComponentId> for ComponentSet {
@@ -131,15 +159,15 @@ impl Extend<ComponentId> for ComponentSet {
 }
 
 /// Borrowing iterator over a [`ComponentSet`].
-pub struct Iter<'a>(roaring::bitmap::Iter<'a>);
+pub struct Iter<'a>(std::slice::Iter<'a, u32>);
 /// Owning iterator over a [`ComponentSet`].
-pub struct IntoIter(roaring::bitmap::IntoIter);
+pub struct IntoIter(std::vec::IntoIter<u32>);
 
 impl Iterator for Iter<'_> {
     type Item = ComponentId;
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(ComponentId::new)
+        self.0.next().copied().map(ComponentId::new)
     }
 }
 

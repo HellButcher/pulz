@@ -367,7 +367,7 @@ impl<'w> EntityMut<'w> {
 
         // remove components
         // TODO: track_removed
-        world_tmp.tmp_removed = world_tmp.tmp_removed.filter(|component_id| {
+        world_tmp.tmp_removed.retain(|component_id| {
             let component = &world.components[component_id];
             let mut storage = component.borrow_mut_any_storage(self.res);
             if storage.swap_remove(self.entity, old.archetype_id, old.index()) {
@@ -383,7 +383,7 @@ impl<'w> EntityMut<'w> {
         });
 
         // replace existing components
-        world_tmp.tmp_inserted = world_tmp.tmp_inserted.filter(|component_id| {
+        world_tmp.tmp_inserted.retain(|component_id| {
             let component = &world.components[component_id];
             let mut storage = component.borrow_mut_any_storage(self.res);
             if !storage.flush_replace(old.archetype_id, old.index()) {
@@ -415,6 +415,9 @@ impl<'w> EntityMut<'w> {
         }
 
         // calculate new archetype
+
+        //TODO: perf: try to avoid additional allocations (clone) here,
+        //only allocate when resulting archetype not yet exists
         let mut new_components = old_archetype.components().clone();
         new_components.difference_with(&world_tmp.tmp_removed);
         new_components.union_with(&world_tmp.tmp_inserted);
