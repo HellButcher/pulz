@@ -219,13 +219,15 @@ impl Archetypes {
         self.archetypes.get_disjoint_mut(indices)
     }
 
-    pub(crate) fn get_or_insert_by_components(&mut self, mut ids: ComponentSet) -> ArchetypeId {
-        ids.intersect_with(&self.archetype_components);
-        ids.optimize();
+    pub(crate) fn get_or_insert_by_components(
+        &mut self,
+        ids_scratch: &mut ComponentSet,
+    ) -> ArchetypeId {
+        ids_scratch.intersect_with(&self.archetype_components);
 
         // Build a temporary key to look up by content (hash + eq delegate to &ComponentSet).
         let hash = {
-            let key = unsafe { ComponentSetKey::new(&ids) };
+            let key = unsafe { ComponentSetKey::new(ids_scratch) };
             if let Some(&id) = self.archetype_ids.get(&key) {
                 return id;
             }
@@ -233,6 +235,9 @@ impl Archetypes {
         };
 
         // Not found — create a new archetype with the owned ComponentSet.
+
+        let mut ids = std::mem::take(ids_scratch);
+        ids.optimize();
 
         let new_id = ArchetypeId(self.archetypes.len() as u32);
         let a = Archetype::new(new_id, ids);
@@ -471,9 +476,10 @@ mod tests {
 
         assert_eq!(&raw const *empty, &raw const *archetypes.empty());
 
+        let mut empty_components = ComponentSet::new();
         assert_eq!(
             ArchetypeId::EMPTY,
-            archetypes.get_or_insert_by_components(ComponentSet::new())
+            archetypes.get_or_insert_by_components(&mut empty_components)
         );
         assert_eq!(1, archetypes.len());
     }

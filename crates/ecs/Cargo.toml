@@ -16,3 +16,4 @@ pulz-ecs-macros = { version = "=0.1.0-alpha2", path = "macros" }
 pulz-functional-utils.workspace = true
 slotmap.workspace = true
 roaring.workspace = true
+bit-set.workspace = true

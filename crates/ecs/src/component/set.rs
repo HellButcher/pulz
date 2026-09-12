@@ -1,115 +1,64 @@
 //! A compact bitset of component ids, used to describe archetype membership.
 
+use bit_set::BitSet;
+
 use crate::component::{ComponentData, ComponentId, Components};
 
 /// A compact set that tracks which components are present in an archetype.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
-pub struct ComponentSet(Vec<u32>);
+pub struct ComponentSet(BitSet<usize>);
 
 impl ComponentSet {
     /// Creates an empty component set.
     #[inline]
-    pub const fn new() -> Self {
-        Self(Vec::new())
+    pub fn new() -> Self {
+        Self(BitSet::new_general())
     }
 
     /// Removes all component ids from the set.
     #[inline]
     pub fn clear(&mut self) {
-        self.0.clear()
+        self.0.make_empty()
     }
 
     /// Returns `true` if the set contains `id`.
     #[inline]
     pub fn contains<X>(&self, id: ComponentId<X>) -> bool {
-        self.0.binary_search(&id.0).is_ok()
+        self.0.contains(id.0 as usize)
     }
 
     /// Inserts `id`, returning `true` if it was not already present.
     pub fn insert<X>(&mut self, id: ComponentId<X>) -> bool {
-        match self.0.binary_search(&id.0) {
-            Ok(_) => false, // already present
-            Err(pos) => {
-                self.0.insert(pos, id.0);
-                true
-            }
-        }
+        self.0.insert(id.0 as usize)
     }
 
     /// Removes `id`, returning `true` if it was present.
     pub fn remove<X>(&mut self, id: ComponentId<X>) -> bool {
-        match self.0.binary_search(&id.0) {
-            Ok(pos) => {
-                self.0.remove(pos);
-                true
-            }
-            Err(_) => false,
-        }
+        self.0.remove(id.0 as usize)
     }
 
     /// Returns `true` if this set and `other` share no elements.
     #[inline]
     pub fn is_disjoint(&self, other: &Self) -> bool {
-        let mut a = self.0.iter();
-        let mut b = other.0.iter();
-        let mut a_next = a.next();
-        let mut b_next = b.next();
-        while let (Some(&a_val), Some(&b_val)) = (a_next, b_next) {
-            if a_val == b_val {
-                return false;
-            } else if a_val < b_val {
-                a_next = a.next();
-            } else {
-                b_next = b.next();
-            }
-        }
-        true
+        self.0.is_disjoint(&other.0)
     }
 
     /// Adds all elements of `other` to this set (set union in place).
     #[inline]
     pub fn union_with(&mut self, other: &Self) {
-        for id in other.iter() {
-            self.insert(id);
-        }
+        self.0.union_with(&other.0);
     }
 
     /// Removes all elements of `other` from this set (set difference in place).
     #[inline]
     pub fn difference_with(&mut self, other: &Self) {
-        let mut b = other.0.iter();
-        let mut b_next = b.next();
-        self.0.retain(|&a_val| {
-            while let Some(&b_val) = b_next {
-                if a_val == b_val {
-                    return false;
-                } else if a_val < b_val {
-                    return true;
-                } else {
-                    b_next = b.next();
-                }
-            }
-            true
-        });
+        self.0.difference_with(&other.0);
     }
 
     /// Retains only elements that are also in `other` (set intersection in place).
     #[inline]
     pub fn intersect_with(&mut self, other: &Self) {
-        let mut b = other.0.iter();
-        let mut b_next = b.next();
-        self.0.retain(|&a_val| {
-            while let Some(&b_val) = b_next {
-                if a_val == b_val {
-                    return true;
-                } else if a_val < b_val {
-                    return false;
-                } else {
-                    b_next = b.next();
-                }
-            }
-            false
-        });
+        self.0.intersect_with(&other.0);
     }
 
     /// Optimises the internal bitmap representation.
@@ -126,7 +75,8 @@ impl ComponentSet {
 
     /// Returns number of distinct component ids in the set.
     pub fn len(&self) -> usize {
-        self.0.len()
+        //self.0.len()
+        self.0.count()
     }
 
     /// Returns an iterator over all component ids in the set.
@@ -142,12 +92,6 @@ impl ComponentSet {
     ) -> impl Iterator<Item = &'l ComponentData> + 'l {
         self.iter().map(move |id| &components[id])
     }
-
-    /// Retains only the component ids specified by the predicate.
-    #[inline]
-    pub fn retain(&mut self, mut f: impl FnMut(ComponentId) -> bool) {
-        self.0.retain(|i| f(ComponentId::new(*i)));
-    }
 }
 
 impl Extend<ComponentId> for ComponentSet {
@@ -159,35 +103,16 @@ impl Extend<ComponentId> for ComponentSet {
 }
 
 /// Borrowing iterator over a [`ComponentSet`].
-pub struct Iter<'a>(std::slice::Iter<'a, u32>);
-/// Owning iterator over a [`ComponentSet`].
-pub struct IntoIter(std::vec::IntoIter<u32>);
+pub struct Iter<'a>(bit_set::Iter<'a, usize>);
 
 impl Iterator for Iter<'_> {
     type Item = ComponentId;
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().copied().map(ComponentId::new)
+        self.0.next().map(|i| ComponentId::new(i as u32))
     }
 }
 
-impl Iterator for IntoIter {
-    type Item = ComponentId;
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(ComponentId::new)
-    }
-}
-
-impl IntoIterator for ComponentSet {
-    type Item = ComponentId;
-    type IntoIter = IntoIter;
-
-    #[inline]
-    fn into_iter(self) -> Self::IntoIter {
-        IntoIter(self.0.into_iter())
-    }
-}
 impl<'a> IntoIterator for &'a ComponentSet {
     type Item = ComponentId;
     type IntoIter = Iter<'a>;

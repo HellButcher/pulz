@@ -367,7 +367,8 @@ impl<'w> EntityMut<'w> {
 
         // remove components
         // TODO: track_removed
-        world_tmp.tmp_removed.retain(|component_id| {
+        world_tmp.tmp_scratch.clear();
+        for component_id in world_tmp.tmp_removed.iter() {
             let component = &world.components[component_id];
             let mut storage = component.borrow_mut_any_storage(self.res);
             if storage.swap_remove(self.entity, old.archetype_id, old.index()) {
@@ -377,13 +378,15 @@ impl<'w> EntityMut<'w> {
                 {
                     needs_update_archetype = true;
                 }
-                return true;
+                world_tmp.tmp_scratch.insert(component_id);
             }
-            false
-        });
+        }
+        std::mem::swap(&mut world_tmp.tmp_removed, &mut world_tmp.tmp_scratch);
 
         // replace existing components
-        world_tmp.tmp_inserted.retain(|component_id| {
+        // TODO: track_inserted/changed
+        world_tmp.tmp_scratch.clear();
+        for component_id in world_tmp.tmp_inserted.iter() {
             let component = &world.components[component_id];
             let mut storage = component.borrow_mut_any_storage(self.res);
             if !storage.flush_replace(old.archetype_id, old.index()) {
@@ -400,10 +403,10 @@ impl<'w> EntityMut<'w> {
                         component.name()
                     );
                 }
-                return true;
+                world_tmp.tmp_scratch.insert(component_id);
             }
-            false
-        });
+        }
+        std::mem::swap(&mut world_tmp.tmp_inserted, &mut world_tmp.tmp_scratch);
 
         if !needs_update_archetype {
             // assume that these are empty
@@ -416,12 +419,15 @@ impl<'w> EntityMut<'w> {
 
         // calculate new archetype
 
-        //TODO: perf: try to avoid additional allocations (clone) here,
-        //only allocate when resulting archetype not yet exists
-        let mut new_components = old_archetype.components().clone();
-        new_components.difference_with(&world_tmp.tmp_removed);
-        new_components.union_with(&world_tmp.tmp_inserted);
-        let new_archetype_id = world.archetypes.get_or_insert_by_components(new_components);
+        world_tmp.tmp_scratch.clear();
+        world_tmp.tmp_scratch.union_with(old_archetype.components());
+        world_tmp
+            .tmp_scratch
+            .difference_with(&world_tmp.tmp_removed);
+        world_tmp.tmp_scratch.union_with(&world_tmp.tmp_inserted);
+        let new_archetype_id = world
+            .archetypes
+            .get_or_insert_by_components(&mut world_tmp.tmp_scratch);
         debug_assert_ne!(old.archetype_id, new_archetype_id);
 
         let [old_archetype, new_archetype] = world

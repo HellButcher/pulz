@@ -56,6 +56,7 @@ struct WorldInner {
 struct WorldMutInnerTemp {
     tmp_removed: component::set::ComponentSet,
     tmp_inserted: component::set::ComponentSet,
+    tmp_scratch: component::set::ComponentSet,
     // tracks removed components
     //removed: component::ComponentMap<Vec<Entity>>,
 }
